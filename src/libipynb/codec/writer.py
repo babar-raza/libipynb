@@ -8,10 +8,10 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Mapping, TextIO
 
-from ...errors import IpynbWriteError
-from ...model import IpynbDocument
-from ...security import IPYNB_DEFAULT_LIMITS
-from ..reader import Source, ensure_cell_id, load
+from ..errors import IpynbWriteError
+from ..model import IpynbDocument
+from ..security import IPYNB_DEFAULT_LIMITS
+from .reader import Source, ensure_cell_id, load
 
 Destination = str | PathLike[str] | TextIO
 
@@ -77,7 +77,7 @@ def _normalized(
             },
         )
 
-    from ...validation import validate
+    from ..validation import validate
 
     report = validate(source, profile=f"nbformat-{major}.{minor}")
     if not report.is_valid:
@@ -96,7 +96,6 @@ def _normalized(
 def _legacy_normalized(
     value: IpynbDocument | Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Retain the alpha facade's characterized implicit 4.5 normalization."""
     source = deepcopy(dict(_as_mapping(value)))
     source["nbformat"] = 4
     source["nbformat_minor"] = 5
@@ -129,23 +128,6 @@ def dumps(
     profile: str | None = None,
     indent: int | None = 1,
 ) -> str:
-    """Serialize a notebook with stable ordering and configurable whitespace.
-
-    The default production profile writes nbformat 4.5.  ``profile="declared"``
-    is a preservation-only path that retains a loaded nbformat 4.x version,
-    including unknown future-minor constructs, without claiming support for
-    that future version.
-
-    ``indent`` selects the formatting only: ``1`` (the nbformat convention and
-    this function's default, so output is unchanged unless asked), any other
-    integer for that many spaces, or ``None`` for compact single-line output.
-
-    Key ordering is deliberately NOT configurable. SAL-IPYNB-OBL-FCCD0E0C asks
-    for "configurable formatting AND canonical key ordering" -- two different
-    properties in one sentence. Exposing ``sort_keys`` would let a caller emit
-    non-canonical output and break the byte-determinism the same obligation
-    requires, so ordering stays fixed.
-    """
     try:
         result = json.dumps(
             _normalized(document, profile=profile),
@@ -169,7 +151,6 @@ def dump(
     profile: str | None = None,
     indent: int | None = 1,
 ) -> None:
-    """Write a notebook as UTF-8 JSON. See :func:`dumps` for ``indent``."""
     text = dumps(document, profile=profile, indent=indent) + "\n"
     if hasattr(destination, "write"):
         try:

@@ -157,8 +157,7 @@ def test_package_chassis_and_python_policy() -> None:
     package_root = ROOT / "src" / "libipynb"
     for layer in (
         "model",
-        "codec/reader",
-        "codec/writer",
+        "codec",
         "validation",
         "security",
         "adapters",

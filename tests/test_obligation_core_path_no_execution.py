@@ -253,8 +253,8 @@ def test_core_module_source_never_references_the_execution_adapter() -> None:
 
     package_root = Path(__file__).resolve().parents[1] / "src" / "libipynb"
     core_modules = [
-        package_root / "codec" / "reader" / "reader.py",
-        package_root / "codec" / "writer" / "writer.py",
+        package_root / "codec" / "reader.py",
+        package_root / "codec" / "writer.py",
         package_root / "validation" / "validator.py",
         package_root / "model" / "diff.py",
     ]
