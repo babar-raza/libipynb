@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from libipynb import IpynbParseError
+from libipynb import NotebookParseError
 from libipynb.analytics import (
-    ipynb_average_source_length,
-    ipynb_cell_type_histogram,
-    ipynb_has_execution_errors,
-    ipynb_output_type_histogram,
+    average_source_length,
+    cell_type_histogram,
+    has_execution_errors,
+    output_type_histogram,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -32,17 +32,17 @@ def _nb(cells: list[dict]) -> bytes:
 
 class TestCellTypeHistogram:
     def test_returns_dict(self):
-        result = ipynb_cell_type_histogram(VALID_DIR / "minimal.ipynb")
+        result = cell_type_histogram(VALID_DIR / "minimal.ipynb")
         assert isinstance(result, dict)
 
     def test_code_and_markdown_counts(self):
-        result = ipynb_cell_type_histogram(VALID_DIR / "code-and-markdown.ipynb")
+        result = cell_type_histogram(VALID_DIR / "code-and-markdown.ipynb")
         assert result.get("markdown") == 5
         assert result.get("code") == 4
 
     def test_accepts_bytes(self):
         data = _nb([{"cell_type": "code", "source": "x", "metadata": {}}])
-        assert ipynb_cell_type_histogram(data) == {"code": 1}
+        assert cell_type_histogram(data) == {"code": 1}
 
     def test_multiple_cells_same_type(self):
         data = _nb(
@@ -52,32 +52,32 @@ class TestCellTypeHistogram:
                 {"cell_type": "code", "source": "c", "metadata": {}},
             ]
         )
-        assert ipynb_cell_type_histogram(data) == {"markdown": 2, "code": 1}
+        assert cell_type_histogram(data) == {"markdown": 2, "code": 1}
 
     def test_raw_cell_type_counted(self):
         data = _nb([{"cell_type": "raw", "source": "x", "metadata": {}}])
-        assert ipynb_cell_type_histogram(data) == {"raw": 1}
+        assert cell_type_histogram(data) == {"raw": 1}
 
     def test_missing_cell_type_defaults_to_raw(self):
         data = _nb([{"source": "x", "metadata": {}}])
-        assert ipynb_cell_type_histogram(data) == {"raw": 1}
+        assert cell_type_histogram(data) == {"raw": 1}
 
     def test_invalid_source_raises(self):
-        with pytest.raises(IpynbParseError):
-            ipynb_cell_type_histogram(INVALID_DIR / "missing-nbformat.ipynb")
+        with pytest.raises(NotebookParseError):
+            cell_type_histogram(INVALID_DIR / "missing-nbformat.ipynb")
 
 
 class TestOutputTypeHistogram:
     def test_returns_dict(self):
-        result = ipynb_output_type_histogram(VALID_DIR / "with-outputs.ipynb")
+        result = output_type_histogram(VALID_DIR / "with-outputs.ipynb")
         assert isinstance(result, dict)
 
     def test_with_outputs_counts_execute_result(self):
-        result = ipynb_output_type_histogram(VALID_DIR / "with-outputs.ipynb")
+        result = output_type_histogram(VALID_DIR / "with-outputs.ipynb")
         assert result.get("execute_result") == 1
 
     def test_markdown_only_cells_ignored(self):
-        result = ipynb_output_type_histogram(
+        result = output_type_histogram(
             _nb([{"cell_type": "markdown", "source": "# no outputs", "metadata": {}}])
         )
         assert result == {}
@@ -93,7 +93,7 @@ class TestOutputTypeHistogram:
                 }
             ]
         )
-        assert ipynb_output_type_histogram(data) == {"stream": 1}
+        assert output_type_histogram(data) == {"stream": 1}
 
     def test_multiple_output_types(self):
         data = _nb(
@@ -109,28 +109,28 @@ class TestOutputTypeHistogram:
                 }
             ]
         )
-        assert ipynb_output_type_histogram(data) == {"stream": 1, "error": 1}
+        assert output_type_histogram(data) == {"stream": 1, "error": 1}
 
     def test_empty_cells_list_returns_empty_dict(self):
-        assert ipynb_output_type_histogram(_nb([])) == {}
+        assert output_type_histogram(_nb([])) == {}
 
     def test_invalid_source_raises(self):
-        with pytest.raises(IpynbParseError):
-            ipynb_output_type_histogram(INVALID_DIR / "missing-nbformat.ipynb")
+        with pytest.raises(NotebookParseError):
+            output_type_histogram(INVALID_DIR / "missing-nbformat.ipynb")
 
 
 class TestAverageSourceLength:
     def test_returns_float(self):
-        result = ipynb_average_source_length(VALID_DIR / "code-and-markdown.ipynb")
+        result = average_source_length(VALID_DIR / "code-and-markdown.ipynb")
         assert isinstance(result, float)
 
     def test_single_string_source(self):
         data = _nb([{"cell_type": "code", "source": "abcde", "metadata": {}}])
-        assert ipynb_average_source_length(data) == 5.0
+        assert average_source_length(data) == 5.0
 
     def test_list_of_lines_source(self):
         data = _nb([{"cell_type": "markdown", "source": ["abc", "de"], "metadata": {}}])
-        assert ipynb_average_source_length(data) == 5.0
+        assert average_source_length(data) == 5.0
 
     def test_average_across_multiple_cells(self):
         data = _nb(
@@ -139,24 +139,24 @@ class TestAverageSourceLength:
                 {"cell_type": "markdown", "source": "abcdefgh", "metadata": {}},
             ]
         )
-        assert ipynb_average_source_length(data) == 5.0
+        assert average_source_length(data) == 5.0
 
     def test_real_sample_nonzero(self):
-        result = ipynb_average_source_length(VALID_DIR / "with-outputs.ipynb")
+        result = average_source_length(VALID_DIR / "with-outputs.ipynb")
         assert result > 0.0
 
     def test_missing_source_counts_as_zero(self):
         data = _nb([{"cell_type": "code", "metadata": {}}])
-        assert ipynb_average_source_length(data) == 0.0
+        assert average_source_length(data) == 0.0
 
     def test_invalid_source_raises(self):
-        with pytest.raises(IpynbParseError):
-            ipynb_average_source_length(INVALID_DIR / "missing-nbformat.ipynb")
+        with pytest.raises(NotebookParseError):
+            average_source_length(INVALID_DIR / "missing-nbformat.ipynb")
 
 
 class TestHasExecutionErrors:
     def test_returns_bool(self):
-        result = ipynb_has_execution_errors(VALID_DIR / "minimal.ipynb")
+        result = has_execution_errors(VALID_DIR / "minimal.ipynb")
         assert isinstance(result, bool)
 
     def test_error_output_detected(self):
@@ -177,7 +177,7 @@ class TestHasExecutionErrors:
                 }
             ]
         )
-        assert ipynb_has_execution_errors(data) is True
+        assert has_execution_errors(data) is True
 
     def test_stream_output_only_returns_false(self):
         data = _nb(
@@ -190,7 +190,7 @@ class TestHasExecutionErrors:
                 }
             ]
         )
-        assert ipynb_has_execution_errors(data) is False
+        assert has_execution_errors(data) is False
 
     def test_error_in_second_cell_detected(self):
         data = _nb(
@@ -206,15 +206,15 @@ class TestHasExecutionErrors:
                 },
             ]
         )
-        assert ipynb_has_execution_errors(data) is True
+        assert has_execution_errors(data) is True
 
     def test_markdown_cells_ignored(self):
         data = _nb([{"cell_type": "markdown", "source": "# hi", "metadata": {}}])
-        assert ipynb_has_execution_errors(data) is False
+        assert has_execution_errors(data) is False
 
     def test_empty_notebook_returns_false(self):
-        assert ipynb_has_execution_errors(_nb([])) is False
+        assert has_execution_errors(_nb([])) is False
 
     def test_invalid_source_raises(self):
-        with pytest.raises(IpynbParseError):
-            ipynb_has_execution_errors(INVALID_DIR / "missing-nbformat.ipynb")
+        with pytest.raises(NotebookParseError):
+            has_execution_errors(INVALID_DIR / "missing-nbformat.ipynb")

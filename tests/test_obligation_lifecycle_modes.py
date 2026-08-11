@@ -8,10 +8,10 @@ import nbformat
 import pytest
 
 from libipynb import (
-    IpynbParseError,
-    IpynbWriteError,
+    NotebookParseError,
+    NotebookWriteError,
     dumps,
-    load_ipynb,
+    load,
     loads,
     upgrade,
 )
@@ -51,7 +51,7 @@ def test_strict_mode_rejects_incomplete_current_document_with_diagnostic() -> No
         cell={"cell_type": "markdown", "source": "", "metadata": {}},
     )
 
-    with pytest.raises(IpynbParseError) as raised:
+    with pytest.raises(NotebookParseError) as raised:
         loads(source, mode="strict")
 
     assert raised.value.code == "IPYNB_CELL_ID"
@@ -106,7 +106,7 @@ def test_explicit_upgrade_is_the_only_production_path_that_generates_ids() -> No
         mode="strict",
     )
 
-    with pytest.raises(IpynbWriteError, match="explicit upgrade"):
+    with pytest.raises(NotebookWriteError, match="explicit upgrade"):
         dumps(source)
 
     conversion = upgrade(source, target="4.5")
@@ -131,7 +131,7 @@ def test_lossless_and_normalized_output_are_an_explicit_caller_choice() -> None:
         mode="preservation",
     )
 
-    with pytest.raises(IpynbWriteError, match="explicit upgrade"):
+    with pytest.raises(NotebookWriteError, match="explicit upgrade"):
         dumps(document)
 
     lossless = json.loads(dumps(document, profile="declared"))
@@ -144,12 +144,14 @@ def test_lossless_and_normalized_output_are_an_explicit_caller_choice() -> None:
     assert normalized != document.raw
 
 
-def test_legacy_facade_retains_characterized_normalization_behavior() -> None:
-    legacy = load_ipynb(
+def test_upgrade_assigns_cell_ids_for_4_5_notebooks() -> None:
+    doc = load(
         _notebook(
             minor=5,
             cell={"cell_type": "markdown", "source": "legacy", "metadata": {}},
-        )
+        ),
+        mode="recovery",
     )
+    upgraded = upgrade(doc, target="4.5")
 
-    assert legacy["cells"][0]["id"]
+    assert upgraded.document.raw["cells"][0]["id"]

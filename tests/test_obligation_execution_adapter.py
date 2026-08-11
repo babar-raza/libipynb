@@ -21,16 +21,12 @@ import sys
 
 import pytest
 
-from libipynb import (
-    ExecutionReport,
-    IpynbDocument,
-    IpynbExecutionError,
-    execute_notebook,
-)
+from libipynb import NotebookDocument, NotebookExecutionError
+from libipynb.adapters import ExecutionReport, execute_notebook
 
 
-def _document(cells: list[dict], metadata: dict | None = None) -> IpynbDocument:
-    return IpynbDocument(
+def _document(cells: list[dict], metadata: dict | None = None) -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -227,7 +223,7 @@ def test_non_python_kernel_is_refused_not_silently_run_as_python() -> None:
         metadata={"kernelspec": {"name": "ir", "language": "R"}},
     )
 
-    with pytest.raises(IpynbExecutionError, match="R"):
+    with pytest.raises(NotebookExecutionError, match="R"):
         execute_notebook(document, timeout=10)
 
 

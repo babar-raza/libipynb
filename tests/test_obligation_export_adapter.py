@@ -16,13 +16,13 @@ from typing import Any
 
 import pytest
 
-from libipynb import (
+from libipynb import loads
+from libipynb.adapters import (
     AncillaryResource,
     ExportAdapter,
     ExportResult,
     MarkdownExporter,
     PythonScriptExporter,
-    loads,
 )
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xde\xad\xbe\xef"

@@ -47,9 +47,6 @@ class NotebookResourceLimits:
 
 DEFAULT_RESOURCE_LIMITS = NotebookResourceLimits()
 
-# Transitional aliases (removed in TC-S5-001-04)
-ResourceLimits = NotebookResourceLimits
-DEFAULT_LIMITS = DEFAULT_RESOURCE_LIMITS
 IPYNB_DEFAULT_LIMITS = DEFAULT_RESOURCE_LIMITS
 
 

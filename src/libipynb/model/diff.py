@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import Any
 
-from .document import IpynbDocument
+from .document import NotebookDocument
 
 
 class CellField(str, Enum):
@@ -123,11 +123,11 @@ class NotebookPatch:
 
     def apply(
         self,
-        document: IpynbDocument,
-    ) -> IpynbDocument:
+        document: NotebookDocument,
+    ) -> NotebookDocument:
         """Apply atomically after checking the logical-base precondition."""
-        if not isinstance(document, IpynbDocument):
-            raise TypeError("document must be an IpynbDocument")
+        if not isinstance(document, NotebookDocument):
+            raise TypeError("document must be an NotebookDocument")
         actual = _fingerprint(document.raw, self.policy)
         if actual != self.base_fingerprint:
             raise PatchPreconditionError(
@@ -137,7 +137,7 @@ class NotebookPatch:
 
         target = deepcopy(self._target_snapshot)
         _restore_ignored_values(document.raw, target, self.policy)
-        return IpynbDocument(target)
+        return NotebookDocument(target)
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,16 +445,16 @@ def _moved_cell_ids(
 
 
 def diff_notebooks(
-    before: IpynbDocument,
-    after: IpynbDocument,
+    before: NotebookDocument,
+    after: NotebookDocument,
     *,
     policy: DiffPolicy | None = None,
 ) -> NotebookDiff:
     """Compare notebooks by cell ID and build a preconditioned patch."""
-    if not isinstance(before, IpynbDocument):
-        raise TypeError("before must be an IpynbDocument")
-    if not isinstance(after, IpynbDocument):
-        raise TypeError("after must be an IpynbDocument")
+    if not isinstance(before, NotebookDocument):
+        raise TypeError("before must be an NotebookDocument")
+    if not isinstance(after, NotebookDocument):
+        raise TypeError("after must be an NotebookDocument")
     selected_policy = policy or DiffPolicy()
     if not isinstance(selected_policy, DiffPolicy):
         raise TypeError("policy must be a DiffPolicy")

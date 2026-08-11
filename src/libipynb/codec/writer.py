@@ -8,20 +8,20 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Mapping, TextIO
 
-from ..errors import IpynbWriteError
-from ..model import IpynbDocument
+from ..errors import NotebookWriteError
+from ..model import NotebookDocument
 from ..security import IPYNB_DEFAULT_LIMITS
 from .reader import Source, ensure_cell_id, load
 
 Destination = str | PathLike[str] | TextIO
 
 
-def _as_mapping(value: IpynbDocument | Mapping[str, Any]) -> Mapping[str, Any]:
-    if isinstance(value, IpynbDocument):
+def _as_mapping(value: NotebookDocument | Mapping[str, Any]) -> Mapping[str, Any]:
+    if isinstance(value, NotebookDocument):
         return value.raw
     if isinstance(value, Mapping):
         return value
-    raise TypeError("document must be an IpynbDocument or mapping")
+    raise TypeError("document must be an NotebookDocument or mapping")
 
 
 def _profile_version(
@@ -41,7 +41,7 @@ def _profile_version(
             or not isinstance(minor, int)
             or minor < 0
         ):
-            raise IpynbWriteError(
+            raise NotebookWriteError(
                 "declared profile requires a non-negative nbformat 4.x version"
             )
         return major, minor
@@ -54,7 +54,7 @@ def _profile_version(
 
 
 def _normalized(
-    value: IpynbDocument | Mapping[str, Any], *, profile: str | None
+    value: NotebookDocument | Mapping[str, Any], *, profile: str | None
 ) -> dict[str, Any]:
     source = deepcopy(dict(_as_mapping(value)))
     major, minor = _profile_version(profile, source)
@@ -67,7 +67,7 @@ def _normalized(
     declared_major = source.get("nbformat")
     declared_minor = source.get("nbformat_minor")
     if (declared_major, declared_minor) != (major, minor):
-        raise IpynbWriteError(
+        raise NotebookWriteError(
             f"writing nbformat {major}.{minor} from declared version "
             f"{declared_major}.{declared_minor} requires explicit upgrade()",
             code="IPYNB_EXPLICIT_UPGRADE_REQUIRED",
@@ -82,7 +82,7 @@ def _normalized(
     report = validate(source, profile=f"nbformat-{major}.{minor}")
     if not report.is_valid:
         first = report.errors[0]
-        raise IpynbWriteError(
+        raise NotebookWriteError(
             f"notebook is not valid for nbformat {major}.{minor}: {first.message}",
             code=first.code,
             context={
@@ -94,7 +94,7 @@ def _normalized(
 
 
 def _legacy_normalized(
-    value: IpynbDocument | Mapping[str, Any],
+    value: NotebookDocument | Mapping[str, Any],
 ) -> dict[str, Any]:
     source = deepcopy(dict(_as_mapping(value)))
     source["nbformat"] = 4
@@ -102,13 +102,13 @@ def _legacy_normalized(
     source.setdefault("metadata", {})
     raw_cells = source.setdefault("cells", [])
     if not isinstance(raw_cells, list):
-        raise IpynbWriteError("cells must be an array")
+        raise NotebookWriteError("cells must be an array")
 
     used_ids: set[str] = set()
     cells: list[dict[str, Any]] = []
     for index, raw_cell in enumerate(raw_cells):
         if not isinstance(raw_cell, dict):
-            raise IpynbWriteError(f"cell {index} must be an object")
+            raise NotebookWriteError(f"cell {index} must be an object")
         cell = dict(raw_cell)
         cell.setdefault("cell_type", "raw")
         cell.setdefault("metadata", {})
@@ -123,7 +123,7 @@ def _legacy_normalized(
 
 
 def dumps(
-    document: IpynbDocument | Mapping[str, Any],
+    document: NotebookDocument | Mapping[str, Any],
     *,
     profile: str | None = None,
     indent: int | None = 1,
@@ -139,13 +139,13 @@ def dumps(
     except (TypeError, ValueError) as exc:
         if isinstance(exc, ValueError) and str(exc).startswith("profile must"):
             raise
-        raise IpynbWriteError(f"cannot serialize notebook: {exc}") from exc
+        raise NotebookWriteError(f"cannot serialize notebook: {exc}") from exc
     IPYNB_DEFAULT_LIMITS.enforce("max_output_bytes", len(result.encode("utf-8")))
     return result
 
 
 def dump(
-    document: IpynbDocument | Mapping[str, Any],
+    document: NotebookDocument | Mapping[str, Any],
     destination: Destination,
     *,
     profile: str | None = None,
@@ -156,19 +156,19 @@ def dump(
         try:
             written = destination.write(text)
         except (OSError, UnicodeError) as exc:
-            raise IpynbWriteError(f"cannot write notebook: {exc}") from exc
+            raise NotebookWriteError(f"cannot write notebook: {exc}") from exc
         if written is not None and written != len(text):
-            raise IpynbWriteError("notebook destination accepted a partial write")
+            raise NotebookWriteError("notebook destination accepted a partial write")
         return
     path = Path(destination)
     try:
         path.write_text(text, encoding="utf-8", newline="\n")
     except (OSError, UnicodeError) as exc:
-        raise IpynbWriteError(f"cannot write notebook to {path}: {exc}") from exc
+        raise NotebookWriteError(f"cannot write notebook to {path}: {exc}") from exc
 
 
 def write_ipynb(
-    model: IpynbDocument | Mapping[str, Any],
+    model: NotebookDocument | Mapping[str, Any],
     dest: Destination | None = None,
 ) -> str:
     try:
@@ -181,19 +181,19 @@ def write_ipynb(
             allow_nan=False,
         )
     except (TypeError, ValueError) as exc:
-        raise IpynbWriteError(f"cannot serialize notebook: {exc}") from exc
+        raise NotebookWriteError(f"cannot serialize notebook: {exc}") from exc
     IPYNB_DEFAULT_LIMITS.enforce("max_output_bytes", len(text.encode("utf-8")))
     if dest is not None:
         dump(normalized, dest)
     return text
 
 
-def get_cell_count(model: IpynbDocument | Mapping[str, Any]) -> int:
+def get_cell_count(model: NotebookDocument | Mapping[str, Any]) -> int:
     return len(_as_mapping(model).get("cells", []))
 
 
 def get_code_cells(
-    model: IpynbDocument | Mapping[str, Any],
+    model: NotebookDocument | Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     return [
         cell
@@ -203,7 +203,7 @@ def get_code_cells(
 
 
 def get_markdown_cells(
-    model: IpynbDocument | Mapping[str, Any],
+    model: NotebookDocument | Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     return [
         cell

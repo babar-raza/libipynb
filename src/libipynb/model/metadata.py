@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from .document import Cell, IpynbDocument, NotebookOutput
+from .document import Cell, NotebookDocument, NotebookOutput
 
 
 class MetadataShapeError(ValueError):
@@ -290,9 +290,9 @@ class MimeRenderingMetadata:
 class NotebookMetadataAdapter:
     __slots__ = ("_raw",)
 
-    def __init__(self, document: IpynbDocument) -> None:
-        if not isinstance(document, IpynbDocument):
-            raise TypeError("document must be an IpynbDocument")
+    def __init__(self, document: NotebookDocument) -> None:
+        if not isinstance(document, NotebookDocument):
+            raise TypeError("document must be an NotebookDocument")
         self._raw = _mapping(document.raw.get("metadata"), "notebook")
 
     @property
@@ -413,7 +413,7 @@ class OutputMetadataAdapter:
         return deepcopy(self._raw)
 
 
-def notebook_metadata(document: IpynbDocument) -> NotebookMetadataAdapter:
+def notebook_metadata(document: NotebookDocument) -> NotebookMetadataAdapter:
     return NotebookMetadataAdapter(document)
 
 

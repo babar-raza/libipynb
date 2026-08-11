@@ -233,7 +233,7 @@ def test_execute_notebook_is_the_sole_execution_entry_point() -> None:
     lifecycle functions are not secretly aliases for it and do not reach it."""
     from libipynb import diff_notebooks as diff_fn
     from libipynb import dumps as dumps_fn
-    from libipynb import execute_notebook
+    from libipynb.adapters import execute_notebook
     from libipynb import loads as loads_fn
     from libipynb import upgrade as upgrade_fn
     from libipynb import validate as validate_fn

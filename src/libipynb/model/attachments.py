@@ -9,7 +9,7 @@ import re
 from typing import Any
 from urllib.parse import quote, unquote
 
-from .document import IpynbDocument
+from .document import NotebookDocument
 
 _ATTACHMENT_REFERENCE = re.compile(r"attachment:([^\s)\]}>\"']+)")
 
@@ -170,9 +170,9 @@ def _attachments(cell: dict[str, Any]) -> dict[str, Any]:
 class AttachmentManager:
     """Attachment CRUD bound to stable cell IDs."""
 
-    def __init__(self, document: IpynbDocument) -> None:
-        if not isinstance(document, IpynbDocument):
-            raise TypeError("document must be an IpynbDocument")
+    def __init__(self, document: NotebookDocument) -> None:
+        if not isinstance(document, NotebookDocument):
+            raise TypeError("document must be an NotebookDocument")
         self.document = document
 
     def add(
@@ -299,7 +299,7 @@ class AttachmentManager:
         return AttachmentReport((change,), True, not dry_run)
 
 
-def manage_attachments(document: IpynbDocument) -> AttachmentManager:
+def manage_attachments(document: NotebookDocument) -> AttachmentManager:
     return AttachmentManager(document)
 
 

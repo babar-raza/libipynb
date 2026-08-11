@@ -5,14 +5,16 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Mapping
 
-from ..codec.reader import Source, load_ipynb
+from ..codec.reader import Source, load
 
 
 def _model(value: Source | Mapping[str, Any]) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else load_ipynb(value)
+    if isinstance(value, Mapping):
+        return value
+    return load(value, mode="recovery").raw
 
 
-def ipynb_cell_type_histogram(
+def cell_type_histogram(
     value: Source | Mapping[str, Any],
 ) -> dict[str, int]:
     cells = _model(value).get("cells", [])
@@ -27,7 +29,7 @@ def ipynb_cell_type_histogram(
     )
 
 
-def ipynb_output_type_histogram(
+def output_type_histogram(
     value: Source | Mapping[str, Any],
 ) -> dict[str, int]:
     counter: Counter[str] = Counter()
@@ -40,11 +42,11 @@ def ipynb_output_type_histogram(
     return dict(sorted(counter.items()))
 
 
-def ipynb_has_execution_errors(value: Source | Mapping[str, Any]) -> bool:
-    return ipynb_output_type_histogram(value).get("error", 0) > 0
+def has_execution_errors(value: Source | Mapping[str, Any]) -> bool:
+    return output_type_histogram(value).get("error", 0) > 0
 
 
-def ipynb_average_source_length(value: Source | Mapping[str, Any]) -> float:
+def average_source_length(value: Source | Mapping[str, Any]) -> float:
     cells = [
         cell
         for cell in _model(value).get("cells", [])

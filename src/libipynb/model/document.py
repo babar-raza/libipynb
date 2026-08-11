@@ -208,7 +208,7 @@ def output_from_dict(data: dict[str, Any]) -> NotebookOutput:
     return OUTPUT_TYPES.get(str(data.get("output_type")), UnknownOutput)(data)
 
 
-class IpynbDocument:
+class NotebookDocument:
     """Mutable typed view over a preservation-oriented notebook mapping."""
 
     spec_qname: ClassVar[str] = "ipynb:notebook"
@@ -237,7 +237,7 @@ class IpynbDocument:
         self._recovery_actions = tuple(recovery_actions)
 
     @classmethod
-    def from_file(cls, path: str) -> "IpynbDocument":
+    def from_file(cls, path: str) -> "NotebookDocument":
         from ..codec.reader import load
 
         return load(path, mode="preservation")
@@ -375,8 +375,7 @@ class IpynbDocument:
         return dict(self._data)
 
     def __repr__(self) -> str:
-        return f"IpynbDocument(nbformat={self.nbformat}, cells={self.cell_count})"
+        return f"NotebookDocument(nbformat={self.nbformat}, cells={self.cell_count})"
 
 
-Document = IpynbDocument
 Output = NotebookOutput

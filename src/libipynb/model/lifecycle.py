@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Mapping
 
-from ..errors import IpynbValidationError
+from ..errors import NotebookValidationError
 
 if TYPE_CHECKING:
-    from .document import IpynbDocument
+    from .document import NotebookDocument
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +82,7 @@ class CellIdRewrite:
 class ConversionResult:
     """Converted document and the complete conversion ledger."""
 
-    document: IpynbDocument
+    document: NotebookDocument
     actions: tuple[ConversionAction, ...]
     id_rewrites: tuple[CellIdRewrite, ...]
     issues: tuple[ConversionIssue, ...] = ()
@@ -144,15 +144,15 @@ def _target_version(target: str) -> tuple[int, int]:
 
 
 def _copy_source(
-    value: IpynbDocument | Mapping[str, Any],
+    value: NotebookDocument | Mapping[str, Any],
 ) -> dict[str, Any]:
-    from .document import IpynbDocument
+    from .document import NotebookDocument
 
-    if isinstance(value, IpynbDocument):
+    if isinstance(value, NotebookDocument):
         return deepcopy(value.raw)
     if isinstance(value, Mapping):
         return deepcopy(dict(value))
-    raise TypeError("value must be an IpynbDocument or mapping")
+    raise TypeError("value must be an NotebookDocument or mapping")
 
 
 def _declared_version(data: Mapping[str, Any]) -> tuple[int, int]:
@@ -165,14 +165,14 @@ def _declared_version(data: Mapping[str, Any]) -> tuple[int, int]:
         or not isinstance(minor, int)
         or minor < 0
     ):
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "conversion requires integer nbformat and non-negative "
             "nbformat_minor fields",
             code="IPYNB_CONVERSION_VERSION",
             context={"path": ("nbformat",)},
         )
     if major != 4:
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "production conversion supports nbformat major version 4 only",
             code="IPYNB_CONVERSION_MAJOR",
             context={"source_version": (major, minor)},
@@ -190,7 +190,7 @@ def _source_digest(data: Mapping[str, Any]) -> str:
             separators=(",", ":"),
         ).encode("utf-8")
     except (TypeError, ValueError) as exc:
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             f"conversion source is not canonical JSON data: {exc}",
             code="IPYNB_CONVERSION_JSON",
         ) from exc
@@ -215,7 +215,7 @@ def _extension_issue(
 
 
 def plan_downgrade(
-    value: IpynbDocument | Mapping[str, Any],
+    value: NotebookDocument | Mapping[str, Any],
     *,
     target: str,
 ) -> DowngradePlan:
@@ -255,7 +255,7 @@ def plan_downgrade(
     report = validate(data, profile="declared")
     if not report.is_valid:
         first = report.errors[0]
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             f"cannot plan downgrade for invalid source: {first.message}",
             code="IPYNB_DOWNGRADE_SOURCE_INVALID",
             context={
@@ -324,7 +324,7 @@ def plan_downgrade(
 
 
 def downgrade(
-    value: IpynbDocument | Mapping[str, Any],
+    value: NotebookDocument | Mapping[str, Any],
     *,
     plan: DowngradePlan,
     accept_loss: bool = False,
@@ -339,7 +339,7 @@ def downgrade(
         plan.source_version.as_tuple() != (source_major, source_minor)
         or plan.source_digest != _source_digest(data)
     ):
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "downgrade plan does not match the current source content",
             code="IPYNB_DOWNGRADE_STALE_PLAN",
         )
@@ -351,7 +351,7 @@ def downgrade(
         or target_minor > 5
         or (target_major, target_minor) >= (source_major, source_minor)
     ):
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "downgrade plan has an unsupported or non-older target",
             code="IPYNB_DOWNGRADE_PLAN_INVALID",
         )
@@ -360,12 +360,12 @@ def downgrade(
         target=f"{target_major}.{target_minor}",
     )
     if plan != expected_plan:
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "downgrade plan omits or changes required conversion issues",
             code="IPYNB_DOWNGRADE_PLAN_MISMATCH",
         )
     if plan.blockers:
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "downgrade plan contains blocking unknown-version semantics",
             code="IPYNB_DOWNGRADE_BLOCKED",
             context={
@@ -375,7 +375,7 @@ def downgrade(
             },
         )
     if plan.losses and not accept_loss:
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "downgrade would remove data; pass accept_loss=True only after "
             "reviewing the bound plan",
             code="IPYNB_DOWNGRADE_LOSS_NOT_ACCEPTED",
@@ -413,12 +413,12 @@ def downgrade(
                 )
 
     from ..validation import validate
-    from .document import IpynbDocument
+    from .document import NotebookDocument
 
     report = validate(data, profile=f"nbformat-{target_major}.{target_minor}")
     if not report.is_valid:
         first = report.errors[0]
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             f"downgrade result is invalid: {first.message}",
             code="IPYNB_DOWNGRADE_RESULT_INVALID",
             context={
@@ -429,7 +429,7 @@ def downgrade(
         )
     version = NotebookVersion(target_major, target_minor)
     return ConversionResult(
-        document=IpynbDocument(
+        document=NotebookDocument(
             data,
             declared_version=version,
             detected_version=version,
@@ -441,7 +441,7 @@ def downgrade(
 
 
 def upgrade(
-    value: IpynbDocument | Mapping[str, Any],
+    value: NotebookDocument | Mapping[str, Any],
     *,
     target: str = "4.5",
 ) -> ConversionResult:
@@ -452,7 +452,7 @@ def upgrade(
     """
 
     from ..codec.reader import CELL_ID_PATTERN, ensure_cell_id
-    from .document import IpynbDocument
+    from .document import NotebookDocument
 
     data = _copy_source(value)
     target_major, target_minor = _target_version(target)
@@ -464,7 +464,7 @@ def upgrade(
         or isinstance(source_minor, bool)
         or not isinstance(source_minor, int)
     ):
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "explicit upgrade requires integer nbformat and nbformat_minor fields",
             code="IPYNB_UPGRADE_VERSION",
             context={"path": ("nbformat",)},
@@ -473,7 +473,7 @@ def upgrade(
         target_major,
         target_minor,
     ):
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "upgrade target must not be older than the declared notebook version",
             code="IPYNB_UPGRADE_DOWNGRADE_REQUIRES_LOSS_REPORT",
             context={
@@ -484,7 +484,7 @@ def upgrade(
 
     cells = data.get("cells")
     if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
-        raise IpynbValidationError(
+        raise NotebookValidationError(
             "explicit upgrade requires a cells array of objects",
             code="IPYNB_UPGRADE_CELLS",
             context={"path": ("cells",)},
@@ -528,7 +528,7 @@ def upgrade(
 
     version = NotebookVersion(target_major, target_minor)
     return ConversionResult(
-        document=IpynbDocument(
+        document=NotebookDocument(
             data,
             declared_version=version,
             detected_version=version,

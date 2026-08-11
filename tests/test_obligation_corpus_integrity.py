@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from libipynb import IpynbParseError, load
+from libipynb import NotebookParseError, load
 from libipynb.validation.schema import schema_diagnostics
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -50,5 +50,5 @@ def test_active_valid_corpus_is_digest_bound_and_strictly_valid(
 
 
 def test_invalid_fixture_fails_strict_load() -> None:
-    with pytest.raises(IpynbParseError):
+    with pytest.raises(NotebookParseError):
         load(INVALID / "missing-nbformat.ipynb", mode="strict")

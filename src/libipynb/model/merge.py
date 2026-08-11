@@ -40,7 +40,7 @@ from enum import Enum
 from typing import Any
 
 from .diff import CellChange, CellField, DiffPolicy, diff_notebooks
-from .document import IpynbDocument
+from .document import NotebookDocument
 
 
 class ConflictKind(str, Enum):
@@ -90,11 +90,11 @@ class MergeResult:
     not an implicit resolution.
     """
 
-    merged: IpynbDocument
+    merged: NotebookDocument
     report: MergeReport
 
 
-def _cell_map(document: IpynbDocument) -> dict[str, dict[str, Any]]:
+def _cell_map(document: NotebookDocument) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for cell in document.cells:
         cell_id = cell.get("id")
@@ -103,7 +103,7 @@ def _cell_map(document: IpynbDocument) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _ordered_ids(*documents: IpynbDocument) -> list[str]:
+def _ordered_ids(*documents: NotebookDocument) -> list[str]:
     """A deterministic id order: `ours`' final order first (the merge's
     structural reference), then any id only `theirs` or `base` still has,
     in their own order. Ambiguous relative-order questions between `ours`
@@ -199,16 +199,16 @@ def _reconcile_present_cell(
 
 
 def merge_notebooks(
-    base: IpynbDocument,
-    ours: IpynbDocument,
-    theirs: IpynbDocument,
+    base: NotebookDocument,
+    ours: NotebookDocument,
+    theirs: NotebookDocument,
     *,
     policy: DiffPolicy | None = None,
 ) -> MergeResult:
     """Three-way merge `ours` and `theirs` against their common `base`."""
     for name, document in (("base", base), ("ours", ours), ("theirs", theirs)):
-        if not isinstance(document, IpynbDocument):
-            raise TypeError(f"{name} must be an IpynbDocument")
+        if not isinstance(document, NotebookDocument):
+            raise TypeError(f"{name} must be an NotebookDocument")
 
     selected_policy = policy or DiffPolicy()
     ours_diff = diff_notebooks(base, ours, policy=selected_policy)
@@ -279,7 +279,7 @@ def merge_notebooks(
     ]
     merged_raw = deepcopy(base.raw)
     merged_raw["cells"] = merged_cells
-    merged_document = IpynbDocument(
+    merged_document = NotebookDocument(
         merged_raw,
         declared_version=base.declared_version,
         detected_version=base.detected_version,

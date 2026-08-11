@@ -9,8 +9,8 @@ from ..errors import NotebookResourceLimitError as ResourceLimitError
 from ..security.limits import NotebookResourceLimits as ResourceLimits
 
 from ..codec.reader import Source, load
-from ..errors import IpynbError, IpynbValidationError
-from ..model import IpynbDocument
+from ..errors import NotebookError, NotebookValidationError
+from ..model import NotebookDocument
 from ..security.limits import effective_limits, enforce_structure
 from .rules import (
     KNOWN_CELL_TYPES,
@@ -32,11 +32,11 @@ REQUIRED_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def _mapping(
-    value: IpynbDocument | Mapping[str, Any] | Source,
+    value: NotebookDocument | Mapping[str, Any] | Source,
     *,
     limits: ResourceLimits | None,
 ) -> Mapping[str, Any]:
-    if isinstance(value, IpynbDocument):
+    if isinstance(value, NotebookDocument):
         return value.raw
     if isinstance(value, Mapping):
         return value
@@ -44,7 +44,7 @@ def _mapping(
 
 
 def validate(
-    value: IpynbDocument | Mapping[str, Any] | Source,
+    value: NotebookDocument | Mapping[str, Any] | Source,
     *,
     profile: str | None = None,
     limits: ResourceLimits | None = None,
@@ -64,7 +64,7 @@ def validate(
         return ValidationReport(
             [diagnostic("IPYNB_RESOURCE_LIMIT", str(exc), ())]
         )
-    except (IpynbError, OSError, TypeError, ValueError) as exc:
+    except (NotebookError, OSError, TypeError, ValueError) as exc:
         return ValidationReport([diagnostic("IPYNB_PARSE", str(exc), ())])
 
     selected, diagnostics = select_profile(model, profile)
@@ -83,4 +83,4 @@ def validate_notebook_schema(model: Mapping[str, Any]) -> list[str]:
 def validate_notebook(model: Mapping[str, Any]) -> None:
     errors = validate_notebook_schema(model)
     if errors:
-        raise IpynbValidationError("; ".join(errors))
+        raise NotebookValidationError("; ".join(errors))

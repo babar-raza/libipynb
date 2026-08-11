@@ -80,6 +80,3 @@ class ValidationResult:
         return ValidationResult((*self.diagnostics, *diagnostics))
 
 
-# Transitional aliases (removed in TC-S5-001-04)
-Severity = DiagnosticSeverity
-ValidationReport = ValidationResult

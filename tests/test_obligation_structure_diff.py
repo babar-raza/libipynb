@@ -8,16 +8,14 @@ from itertools import permutations
 
 import pytest
 from libipynb import (
-    CellField,
-    DiffPolicy,
-    IpynbDocument,
-    PatchPreconditionError,
+    NotebookDocument,
     diff_notebooks,
 )
+from libipynb.model import CellField, DiffPolicy, PatchPreconditionError
 
 
-def _document() -> IpynbDocument:
-    return IpynbDocument(
+def _document() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -285,7 +283,7 @@ def test_permutation_patch_and_reverse_patch_are_metamorphic(
     ],
 )
 def test_diff_rejects_missing_or_duplicate_stable_cell_ids(
-    mutate: Callable[[IpynbDocument], object],
+    mutate: Callable[[NotebookDocument], object],
     message: str,
 ) -> None:
     document = _document()

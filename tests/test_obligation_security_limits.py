@@ -7,7 +7,8 @@ import json
 import pytest
 
 from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
-from libipynb import IPYNB_DEFAULT_LIMITS, IpynbParseError, loads
+from libipynb import NotebookParseError, loads
+from libipynb.security import IPYNB_DEFAULT_LIMITS
 
 
 def _notebook(*, metadata: object = None, cells: list[object] | None = None) -> str:
@@ -57,7 +58,7 @@ def test_json_recursion_failure_is_a_deterministic_parse_error() -> None:
     )
 
     with pytest.raises(
-        (IpynbParseError, ResourceLimitError),
+        (NotebookParseError, ResourceLimitError),
         match="complexity|max_nesting_depth exceeded",
     ):
         loads(deeply_nested, mode="preservation")

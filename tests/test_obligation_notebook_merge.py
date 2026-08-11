@@ -20,16 +20,14 @@ from __future__ import annotations
 from copy import deepcopy
 
 from libipynb import (
-    CellConflict,
-    ConflictKind,
-    IpynbDocument,
-    MergeReport,
+    NotebookDocument,
     merge_notebooks,
 )
+from libipynb.model import CellConflict, ConflictKind, MergeReport
 
 
-def _base() -> IpynbDocument:
-    return IpynbDocument(
+def _base() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -62,13 +60,13 @@ def _base() -> IpynbDocument:
     )
 
 
-def _find(document: IpynbDocument, cell_id: str) -> dict:
+def _find(document: NotebookDocument, cell_id: str) -> dict:
     (cell,) = [c for c in document.cells if c.get("id") == cell_id]
     return cell
 
 
-def _clone(document: IpynbDocument) -> IpynbDocument:
-    return IpynbDocument(deepcopy(document.raw))
+def _clone(document: NotebookDocument) -> NotebookDocument:
+    return NotebookDocument(deepcopy(document.raw))
 
 
 # ── No divergence: clean merges, no conflicts ───────────────────────────────

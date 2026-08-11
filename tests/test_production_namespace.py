@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from libipynb import (
-    IpynbDocument,
+    NotebookDocument,
     dump,
     dumps,
     load,
@@ -63,7 +63,7 @@ def test_common_lifecycle_and_unknown_member_preservation(tmp_path: Path) -> Non
     assert result.profile == "nbformat-4.6"
 
     document = loads(source, mode="preservation")
-    assert isinstance(document, IpynbDocument)
+    assert isinstance(document, NotebookDocument)
     assert validate(document).is_valid
     assert document.raw["vendor_root"] == ["retained"]
     assert document.cells[0]["vendor_cell"] == {"retained": 1}
@@ -89,7 +89,7 @@ def test_load_from_a_readable_text_stream() -> None:
     )
     document = load(io.StringIO(source))
 
-    assert isinstance(document, IpynbDocument)
+    assert isinstance(document, NotebookDocument)
     assert document.declared_version.as_tuple() == (4, 5)
 
 

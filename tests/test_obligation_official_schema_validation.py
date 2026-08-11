@@ -12,11 +12,11 @@ from typing import Any
 import nbformat
 import pytest
 from libipynb import (
-    IPYNB_DEFAULT_LIMITS,
-    IpynbParseError,
+    NotebookParseError,
     loads,
     validate,
 )
+from libipynb.security import IPYNB_DEFAULT_LIMITS
 from libipynb.validation.schema import (
     SCHEMA_DIGESTS,
     SCHEMA_SOURCE_VERSION,
@@ -196,7 +196,7 @@ def test_strict_load_rejects_official_schema_error_at_parse_boundary() -> None:
     value = _notebook()
     _add_cell_extra(value)
 
-    with pytest.raises(IpynbParseError) as raised:
+    with pytest.raises(NotebookParseError) as raised:
         loads(json.dumps(value))
 
     assert raised.value.code == "IPYNB_SCHEMA_ADDITIONALPROPERTIES"

@@ -169,10 +169,10 @@ def test_writing_a_pre_4_5_notebook_at_the_default_profile_is_refused(
 ) -> None:
     """A silent version bump would generate ids without an explicit upgrade,
     which IPYNB-ID-001 forbids."""
-    from libipynb import IpynbWriteError
+    from libipynb import NotebookWriteError
 
     notebook = _notebook(profile, [_cell(name="n")])
-    with pytest.raises(IpynbWriteError, match="explicit upgrade"):
+    with pytest.raises(NotebookWriteError, match="explicit upgrade"):
         dumps(loads(json.dumps(notebook)))
 
 

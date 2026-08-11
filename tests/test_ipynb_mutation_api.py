@@ -1,6 +1,6 @@
-"""Tests for the structural mutation API on IpynbDocument (FACT-IPYNB-104).
+"""Tests for the structural mutation API on NotebookDocument (FACT-IPYNB-104).
 
-Prior to this fix, IpynbDocument had no mutation methods at all — the only
+Prior to this fix, NotebookDocument had no mutation methods at all — the only
 existing mutation test (test_ipynb_document_mutation.py) works around this
 by appending directly to ``.cells``, which also means any caller-created
 cell lacks a valid id (compounding the cell-id defect). These tests prove
@@ -15,19 +15,19 @@ from pathlib import Path
 
 import pytest
 
-from libipynb import CELL_ID_PATTERN, IpynbDocument, dump, load
+from libipynb import CELL_ID_PATTERN, NotebookDocument, dump, load
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 VALID_DIR = FIXTURES / "valid"
 
 
-def _fresh_doc() -> IpynbDocument:
-    return IpynbDocument({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
+def _fresh_doc() -> NotebookDocument:
+    return NotebookDocument({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
 
 
 class TestAddCell:
     def test_add_cell_appends_by_default(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "code-and-markdown.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "code-and-markdown.ipynb"))
         original_count = doc.cell_count
         new_cell = doc.add_cell(cell_type="markdown", source="appended")
         assert doc.cell_count == original_count + 1
@@ -69,7 +69,7 @@ class TestAddCell:
         assert cell["metadata"] == {"tags": ["param"]}
 
     def test_added_cell_survives_save_and_reload_with_same_id(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "minimal.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "minimal.ipynb"))
         new_cell = doc.add_cell(cell_type="code", source="z = 1")
 
         with tempfile.TemporaryDirectory() as td:
@@ -83,13 +83,13 @@ class TestAddCell:
 
 class TestRemoveCell:
     def test_remove_cell_returns_removed_cell(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "code-and-markdown.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "code-and-markdown.ipynb"))
         first_cell = doc.cells[0]
         removed = doc.remove_cell(0)
         assert removed == first_cell
 
     def test_remove_cell_reduces_count(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "code-and-markdown.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "code-and-markdown.ipynb"))
         original_count = doc.cell_count
         doc.remove_cell(0)
         assert doc.cell_count == original_count - 1
@@ -121,19 +121,19 @@ class TestRemoveCell:
 
 class TestClearOutputs:
     def test_clear_outputs_resets_outputs_to_empty_list(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
         assert len(doc.cells[0]["outputs"]) > 0
         doc.clear_outputs(0)
         assert doc.cells[0]["outputs"] == []
 
     def test_clear_outputs_resets_execution_count_to_none(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
         assert doc.cells[0]["execution_count"] == 5
         doc.clear_outputs(0)
         assert doc.cells[0]["execution_count"] is None
 
     def test_clear_outputs_returns_the_cell(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
         cell = doc.clear_outputs(0)
         assert cell is doc.cells[0]
 
@@ -144,7 +144,7 @@ class TestClearOutputs:
             doc.clear_outputs(0)
 
     def test_clear_outputs_survives_save_reload(self):
-        doc = IpynbDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
+        doc = NotebookDocument.from_file(str(VALID_DIR / "with-outputs.ipynb"))
         doc.clear_outputs(0)
 
         with tempfile.TemporaryDirectory() as td:

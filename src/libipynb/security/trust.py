@@ -13,7 +13,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .limits import NotebookResourceLimits as ResourceLimits
 
-from ..model import IpynbDocument
+from ..model import NotebookDocument
 from .limits import effective_limits
 
 STRONG_HMAC_ALGORITHMS = frozenset({"sha256", "sha384", "sha512"})
@@ -36,28 +36,28 @@ class TrustNotary(Protocol):
 
     def compute_signature(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> str: ...
 
     def sign(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> "TrustRecord": ...
 
     def verify(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> "TrustVerification": ...
 
     def revoke(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> bool: ...
@@ -240,14 +240,14 @@ class HmacNotebookNotary:
 
     def compute_signature(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> str:
         """Compute a bounded official-compatible HMAC without mutating input."""
 
-        if not isinstance(document, IpynbDocument):
-            raise TypeError("document must be an IpynbDocument")
+        if not isinstance(document, NotebookDocument):
+            raise TypeError("document must be an NotebookDocument")
         digest = hmac.new(self._secret, digestmod=self.algorithm)
         for chunk in _signature_chunks(document.raw, effective_limits(limits)):
             digest.update(chunk)
@@ -255,7 +255,7 @@ class HmacNotebookNotary:
 
     def sign(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> TrustRecord:
@@ -267,7 +267,7 @@ class HmacNotebookNotary:
 
     def verify(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> TrustVerification:
@@ -283,7 +283,7 @@ class HmacNotebookNotary:
 
     def check_signature(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> bool:
@@ -293,7 +293,7 @@ class HmacNotebookNotary:
 
     def revoke(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> bool:
@@ -303,7 +303,7 @@ class HmacNotebookNotary:
 
     def unsign(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
     ) -> bool:
@@ -323,7 +323,7 @@ class HmacNotebookNotary:
 
     def _record(
         self,
-        document: IpynbDocument,
+        document: NotebookDocument,
         *,
         limits: ResourceLimits | None,
     ) -> TrustRecord:

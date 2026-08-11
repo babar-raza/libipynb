@@ -9,7 +9,7 @@ from enum import Enum
 import re
 from typing import Any, cast
 
-from .document import Cell, IpynbDocument, cell_from_dict
+from .document import Cell, NotebookDocument, cell_from_dict
 
 _CELL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _KNOWN_CELL_TYPES = frozenset({"code", "markdown", "raw"})
@@ -205,9 +205,9 @@ def _copy_id(source_id: str, used: set[str]) -> str:
 class CellEditor:
     """Cell collection mutations that preserve legacy index-based methods."""
 
-    def __init__(self, document: IpynbDocument) -> None:
-        if not isinstance(document, IpynbDocument):
-            raise TypeError("document must be an IpynbDocument")
+    def __init__(self, document: NotebookDocument) -> None:
+        if not isinstance(document, NotebookDocument):
+            raise TypeError("document must be an NotebookDocument")
         _index(document.raw)
         self.document = document
 
@@ -428,7 +428,7 @@ class CellEditor:
     ) -> CellEditReport:
         from ..validation import validate
 
-        report = validate(IpynbDocument(target))
+        report = validate(NotebookDocument(target))
         if not report.is_valid:
             first = report.errors[0]
             raise ValueError(
@@ -441,7 +441,7 @@ class CellEditor:
         return CellEditReport(changes, not dry_run)
 
 
-def edit_cells(document: IpynbDocument) -> CellEditor:
+def edit_cells(document: NotebookDocument) -> CellEditor:
     return CellEditor(document)
 
 

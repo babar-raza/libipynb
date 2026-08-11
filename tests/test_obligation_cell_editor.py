@@ -8,19 +8,16 @@ from copy import deepcopy
 import nbformat
 import pytest
 from libipynb import (
-    CellEditOperation,
-    CellEditReport,
-    CellEditor,
-    CellQuery,
-    IpynbDocument,
+    NotebookDocument,
     dumps,
     edit_cells,
     loads,
 )
+from libipynb.model import CellEditOperation, CellEditReport, CellEditor, CellQuery
 
 
-def _document() -> IpynbDocument:
-    return IpynbDocument(
+def _document() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -57,7 +54,7 @@ def _document() -> IpynbDocument:
     )
 
 
-def _valid(document: IpynbDocument) -> None:
+def _valid(document: NotebookDocument) -> None:
     nbformat.validate(nbformat.from_dict(deepcopy(document.raw)))
 
 

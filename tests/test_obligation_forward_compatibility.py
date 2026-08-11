@@ -13,7 +13,7 @@ import json
 import pytest
 
 import nbformat
-from libipynb import IpynbParseError, IpynbWriteError, dumps, loads, upgrade
+from libipynb import NotebookParseError, NotebookWriteError, dumps, loads, upgrade
 
 
 def _future_minor_notebook() -> dict[str, object]:
@@ -80,7 +80,7 @@ def test_future_minor_unknown_constructs_match_official_preservation() -> None:
 def test_future_minor_remains_outside_strict_supported_profile() -> None:
     encoded = json.dumps(_future_minor_notebook())
 
-    with pytest.raises(IpynbParseError, match=r"supports nbformat 4\.0 through 4\.5"):
+    with pytest.raises(NotebookParseError, match=r"supports nbformat 4\.0 through 4\.5"):
         loads(encoded, mode="strict")
 
 
@@ -98,7 +98,7 @@ def test_default_writer_profile_requires_explicit_upgrade_to_45() -> None:
         ],
     }
 
-    with pytest.raises(IpynbWriteError, match="explicit upgrade"):
+    with pytest.raises(NotebookWriteError, match="explicit upgrade"):
         dumps(current)
 
     serialized = json.loads(dumps(upgrade(current, target="4.5").document))

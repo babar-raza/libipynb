@@ -6,17 +6,17 @@ from copy import deepcopy
 
 import pytest
 from libipynb import (
-    AttachmentReferencePolicy,
-    IpynbDocument,
+    NotebookDocument,
     manage_attachments,
     validate,
 )
+from libipynb.model import AttachmentReferencePolicy
 
 
 def _document(
     source: str | list[str] = "![plot](attachment:plot.png)",
-) -> IpynbDocument:
-    return IpynbDocument(
+) -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -47,7 +47,7 @@ def _document(
     )
 
 
-def _codes(document: IpynbDocument) -> set[str]:
+def _codes(document: NotebookDocument) -> set[str]:
     return {item.code for item in validate(document).diagnostics}
 
 

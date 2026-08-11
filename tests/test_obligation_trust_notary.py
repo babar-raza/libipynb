@@ -9,20 +9,19 @@ from nbformat.sign import NotebookNotary as ReferenceNotebookNotary
 import pytest
 from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
-from libipynb import (
+from libipynb import NotebookDocument, validate
+from libipynb.security import (
     HmacNotebookNotary,
-    IpynbDocument,
     MemorySignatureStore,
     TrustStatus,
-    validate,
 )
 
 
 SECRET = b"format-factory-test-notary-key-" * 2
 
 
-def _document() -> IpynbDocument:
-    return IpynbDocument(
+def _document() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,

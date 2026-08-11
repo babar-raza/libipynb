@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 
 from libipynb import (
+    dumps,
+    loads,
+)
+from libipynb.model import (
     CodeCell,
     DisplayDataOutput,
     ErrorOutput,
@@ -15,8 +19,6 @@ from libipynb import (
     StreamOutput,
     UnknownCell,
     UnknownOutput,
-    dumps,
-    loads,
 )
 
 

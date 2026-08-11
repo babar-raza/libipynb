@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from .document import IpynbDocument
+from .document import NotebookDocument
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +63,7 @@ class ChangeReport:
 
 
 def cleanup(
-    document: IpynbDocument,
+    document: NotebookDocument,
     *,
     policy: CleanupPolicy | None = None,
     dry_run: bool = False,
@@ -74,8 +74,8 @@ def cleanup(
     metadata is never removed unless its exact key is in the policy.
     """
 
-    if not isinstance(document, IpynbDocument):
-        raise TypeError("document must be an IpynbDocument")
+    if not isinstance(document, NotebookDocument):
+        raise TypeError("document must be an NotebookDocument")
     selected = policy or CleanupPolicy()
     changes: list[Change] = []
     root = document.raw

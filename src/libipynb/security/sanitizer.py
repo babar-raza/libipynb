@@ -18,7 +18,7 @@ from typing import Any
 
 from .limits import NotebookResourceLimits as ResourceLimits
 
-from ..model import IpynbDocument
+from ..model import NotebookDocument
 from .limits import effective_limits
 
 DEFAULT_ACTIVE_MIME_TYPES = frozenset(
@@ -557,7 +557,7 @@ def _apply_candidates(
 
 
 def sanitize(
-    document: IpynbDocument,
+    document: NotebookDocument,
     *,
     policy: SanitizationPolicy | None = None,
     limits: ResourceLimits | None = None,
@@ -572,8 +572,8 @@ def sanitize(
     executes, imports, opens, or resolves payload content or references.
     """
 
-    if not isinstance(document, IpynbDocument):
-        raise TypeError("document must be an IpynbDocument")
+    if not isinstance(document, NotebookDocument):
+        raise TypeError("document must be an NotebookDocument")
     selected = policy or SanitizationPolicy()
     selected_limits = effective_limits(limits)
     before = deepcopy(document.raw)

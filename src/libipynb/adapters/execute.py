@@ -15,7 +15,7 @@ only, via a real OS subprocess (isolation boundary) -- not the Jupyter
 kernel wire protocol (ZMQ-based `jupyter_client`), which would add a heavy
 dependency this dependency-minimal codec package does not otherwise need.
 A notebook declaring a non-Python `language_info`/`kernelspec` is refused
-with IpynbExecutionError naming the declared language, rather than silently
+with NotebookExecutionError naming the declared language, rather than silently
 executed as Python or silently skipped -- selection means choosing AND
 validating which interpreter runs the cells, not merely picking one.
 
@@ -39,8 +39,8 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from ..errors import IpynbExecutionError
-from ..model.document import IpynbDocument
+from ..errors import NotebookExecutionError
+from ..model.document import NotebookDocument
 
 #: Runs inside the child subprocess. Reads a JSON request from stdin
 #: (sources: list[str], on_error: "stop"|"continue"), executes each source
@@ -136,7 +136,7 @@ class ExecutionReport:
         return None
 
 
-def _resolve_kernel(document: IpynbDocument, kernel: str | None) -> str:
+def _resolve_kernel(document: NotebookDocument, kernel: str | None) -> str:
     if kernel is not None:
         return kernel
     metadata = document.metadata
@@ -144,7 +144,7 @@ def _resolve_kernel(document: IpynbDocument, kernel: str | None) -> str:
         "kernelspec", {}
     ).get("language")
     if language is not None and language != "python":
-        raise IpynbExecutionError(
+        raise NotebookExecutionError(
             f"notebook declares kernel language {language!r}; this adapter "
             "only executes Python-family kernels -- pass an explicit "
             "kernel= interpreter path to override"
@@ -173,7 +173,7 @@ def _parse_results(raw_output: str) -> tuple[CellExecutionResult, ...]:
 
 
 def execute_notebook(
-    document: IpynbDocument,
+    document: NotebookDocument,
     *,
     kernel: str | None = None,
     timeout: float | None = 30.0,

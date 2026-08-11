@@ -13,8 +13,8 @@ from typing import Any, NoReturn, TextIO
 from .._internal.probe import ProbeResult
 from ..security.limits import NotebookResourceLimits as ResourceLimits
 
-from ..errors import IpynbParseError
-from ..model import IpynbDocument, NotebookVersion, RecoveryAction
+from ..errors import NotebookParseError
+from ..model import NotebookDocument, NotebookVersion, RecoveryAction
 from ..security.limits import bounded_object_pairs_hook, effective_limits, enforce_structure
 
 CELL_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -34,7 +34,7 @@ def _read_source(source: Source, limits: ResourceLimits) -> str:
         try:
             return _enforce_text_size(source.decode("utf-8"), limits)
         except UnicodeDecodeError as exc:
-            raise IpynbParseError(f"notebook is not valid UTF-8: {exc}") from exc
+            raise NotebookParseError(f"notebook is not valid UTF-8: {exc}") from exc
     if hasattr(source, "read"):
         text = source.read()
         if not isinstance(text, str):
@@ -46,12 +46,12 @@ def _read_source(source: Source, limits: ResourceLimits) -> str:
     try:
         size = path.stat().st_size
     except OSError as exc:
-        raise IpynbParseError(f"cannot read notebook source {source!r}: {exc}") from exc
+        raise NotebookParseError(f"cannot read notebook source {source!r}: {exc}") from exc
     limits.enforce("max_input_bytes", size)
     try:
         return _enforce_text_size(path.read_text(encoding="utf-8"), limits)
     except (OSError, UnicodeDecodeError) as exc:
-        raise IpynbParseError(f"cannot read notebook source {source!r}: {exc}") from exc
+        raise NotebookParseError(f"cannot read notebook source {source!r}: {exc}") from exc
 
 
 def _generate_cell_id(used_ids: set[str]) -> str:
@@ -95,7 +95,7 @@ def _raise_parse(
     message: str,
     path: tuple[str | int, ...] = (),
 ) -> NoReturn:
-    raise IpynbParseError(message, code=code, context={"path": path})
+    raise NotebookParseError(message, code=code, context={"path": path})
 
 
 def _recover_missing(
@@ -115,19 +115,19 @@ def _recover_missing(
 
 def _parse(
     text: str, *, mode: str, limits: ResourceLimits
-) -> IpynbDocument:
+) -> NotebookDocument:
     if mode not in {"strict", "preservation", "recovery"}:
         raise ValueError("mode must be 'strict', 'preservation', or 'recovery'")
     try:
         data = json.loads(text, object_pairs_hook=bounded_object_pairs_hook(limits))
     except json.JSONDecodeError as exc:
-        raise IpynbParseError(
+        raise NotebookParseError(
             f"invalid JSON: {exc}",
             code="IPYNB_JSON",
             context={"line": exc.lineno, "column": exc.colno, "offset": exc.pos},
         ) from exc
     except (RecursionError, MemoryError) as exc:
-        raise IpynbParseError(
+        raise NotebookParseError(
             "JSON complexity exceeds safe parser limits",
             code="IPYNB_JSON_COMPLEXITY",
             context={"path": ()},
@@ -389,7 +389,7 @@ def _parse(
         major,
         minor if isinstance(minor, int) and not isinstance(minor, bool) else None,
     )
-    return IpynbDocument(
+    return NotebookDocument(
         notebook,
         declared_version=declared_version,
         detected_version=detected_version,
@@ -402,7 +402,7 @@ def loads(
     *,
     mode: str = "strict",
     limits: ResourceLimits | None = None,
-) -> IpynbDocument:
+) -> NotebookDocument:
     selected = effective_limits(limits)
     return _parse(_read_source(data, selected), mode=mode, limits=selected)
 
@@ -412,7 +412,7 @@ def load(
     *,
     mode: str = "strict",
     limits: ResourceLimits | None = None,
-) -> IpynbDocument:
+) -> NotebookDocument:
     selected = effective_limits(limits)
     return _parse(_read_source(source, selected), mode=mode, limits=selected)
 

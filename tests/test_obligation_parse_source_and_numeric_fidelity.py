@@ -201,11 +201,11 @@ def test_non_finite_numbers_fail_closed_rather_than_emitting_invalid_json(
 ) -> None:
     """NaN and Infinity are not valid JSON. Emitting them would produce a file
     no conforming reader could load."""
-    from libipynb import IpynbWriteError
+    from libipynb import NotebookWriteError
 
     document = loads(json.dumps(_notebook([_cell()])))
     document.raw["metadata"]["x-num"] = {"bad": bad}
-    with pytest.raises(IpynbWriteError):
+    with pytest.raises(NotebookWriteError):
         dumps(document)
 
 

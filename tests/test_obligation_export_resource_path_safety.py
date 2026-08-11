@@ -18,7 +18,8 @@ import base64
 import json
 from typing import Any
 
-from libipynb import MarkdownExporter, loads
+from libipynb import loads
+from libipynb.adapters import MarkdownExporter
 
 PNG_B64 = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii")
 

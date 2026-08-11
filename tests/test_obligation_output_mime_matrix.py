@@ -23,7 +23,8 @@ from typing import Any
 
 import pytest
 
-from libipynb import dumps, loads, output_from_dict, validate
+from libipynb import dumps, loads, validate
+from libipynb.model import output_from_dict
 
 OUTPUT_TYPES = ["stream", "display_data", "execute_result", "error"]
 
@@ -261,19 +262,19 @@ def test_unknown_output_type_is_rejected_inside_a_code_cell() -> None:
     therefore conformant, and the preservation the obligation asks for is
     delivered inside the MIME bundle, proven by the vendor-type test above.
     """
-    from libipynb import IpynbParseError
+    from libipynb import NotebookParseError
 
     unknown = {"output_type": "future_kind", "payload": {"a": [1, 2]}}
-    with pytest.raises(IpynbParseError):
+    with pytest.raises(NotebookParseError):
         loads(json.dumps(_notebook([unknown])))
 
 
 def test_unknown_keys_on_a_known_output_type_are_rejected() -> None:
     """Each known output definition sets additionalProperties: false."""
-    from libipynb import IpynbParseError
+    from libipynb import NotebookParseError
 
     output = _stream() | {"x-vendor-hint": {"kept": True}}
-    with pytest.raises(IpynbParseError):
+    with pytest.raises(NotebookParseError):
         loads(json.dumps(_notebook([output])))
 
 

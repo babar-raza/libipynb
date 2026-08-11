@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 from libipynb import (
-    IpynbDocument,
-    MetadataShapeError,
+    NotebookDocument,
     cell_metadata,
     dumps,
     load,
@@ -17,12 +16,13 @@ from libipynb import (
     notebook_metadata,
     output_metadata,
 )
+from libipynb.model import MetadataShapeError
 
 VALID_DIR = Path(__file__).resolve().parent / "fixtures" / "valid"
 
 
-def _document() -> IpynbDocument:
-    return IpynbDocument(
+def _document() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -178,7 +178,7 @@ def test_cell_metadata_models_jupyter_visibility_with_preserved_extras() -> None
 
 
 def test_cell_metadata_jupyter_visibility_fields_are_each_independently_optional() -> None:
-    document = IpynbDocument(
+    document = NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -312,8 +312,8 @@ def test_adapters_are_defensive_snapshots_and_roundtrip_is_lossless() -> None:
     ],
 )
 def test_malformed_known_metadata_fails_explicitly(
-    mutate: Callable[[IpynbDocument], object],
-    access: Callable[[IpynbDocument], object],
+    mutate: Callable[[NotebookDocument], object],
+    access: Callable[[NotebookDocument], object],
     message: str,
 ) -> None:
     document = _document()

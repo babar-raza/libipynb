@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
-from ..model.document import Cell, CodeCell, IpynbDocument, cell_from_dict
+from ..model.document import Cell, CodeCell, NotebookDocument, cell_from_dict
 
 
 def _is_safe_resource_filename(name: str) -> bool:
@@ -49,7 +49,7 @@ class ExportResult:
 class ExportAdapter(Protocol):
     """Protocol for notebook export adapters."""
 
-    def export(self, document: IpynbDocument) -> ExportResult: ...
+    def export(self, document: NotebookDocument) -> ExportResult: ...
 
 
 def _collect_resources(
@@ -111,7 +111,7 @@ def _collect_resources(
 class MarkdownExporter:
     """Export a notebook as Markdown with fenced code blocks."""
 
-    def export(self, document: IpynbDocument) -> ExportResult:
+    def export(self, document: NotebookDocument) -> ExportResult:
         parts: list[str] = []
         resources = _collect_resources(document.cells)
         for cell_raw in document.cells:
@@ -137,7 +137,7 @@ class MarkdownExporter:
 class PythonScriptExporter:
     """Export code cells as a Python script with markdown as comments."""
 
-    def export(self, document: IpynbDocument) -> ExportResult:
+    def export(self, document: NotebookDocument) -> ExportResult:
         parts: list[str] = []
         resources = _collect_resources(document.cells)
         for cell_raw in document.cells:

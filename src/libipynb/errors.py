@@ -62,11 +62,3 @@ class NotebookExecutionError(NotebookError):
     code = "execution_error"
 
 
-# Transitional aliases (removed in TC-S5-001-04)
-IpynbError = NotebookError
-IpynbParseError = NotebookParseError
-IpynbWriteError = NotebookWriteError
-IpynbValidationError = NotebookValidationError
-IpynbExecutionError = NotebookExecutionError
-FormatFactoryError = NotebookError
-ResourceLimitError = NotebookResourceLimitError

@@ -9,19 +9,18 @@ from dataclasses import replace
 import nbformat
 import pytest
 from libipynb import (
-    ConversionDisposition,
-    IpynbDocument,
-    IpynbValidationError,
+    NotebookDocument,
+    NotebookValidationError,
     downgrade,
     dumps,
     loads,
-    plan_downgrade,
     upgrade,
 )
+from libipynb.model import ConversionDisposition, plan_downgrade
 
 
-def _current_notebook() -> IpynbDocument:
-    return IpynbDocument(
+def _current_notebook() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -60,7 +59,7 @@ def _current_notebook() -> IpynbDocument:
     )
 
 
-def _validate_official(document: IpynbDocument, minor: int) -> None:
+def _validate_official(document: NotebookDocument, minor: int) -> None:
     nbformat.validate(
         nbformat.from_dict(document.raw),
         version=4,
@@ -106,7 +105,7 @@ def test_lossy_downgrade_requires_explicit_acceptance() -> None:
     plan = plan_downgrade(document, target="4.4")
     before = deepcopy(document.raw)
 
-    with pytest.raises(IpynbValidationError) as raised:
+    with pytest.raises(NotebookValidationError) as raised:
         downgrade(document, plan=plan)
 
     assert raised.value.code == "IPYNB_DOWNGRADE_LOSS_NOT_ACCEPTED"
@@ -153,7 +152,7 @@ def test_lossless_downgrade_preserves_later_metadata_as_extensions() -> None:
     source["nbformat_minor"] = 4
     for cell in source["cells"]:
         cell.pop("id")
-    document = IpynbDocument(source)
+    document = NotebookDocument(source)
     plan = plan_downgrade(document, target="4.0")
 
     assert not plan.losses
@@ -170,7 +169,7 @@ def test_downgrade_plan_is_bound_to_exact_source_content() -> None:
     plan = plan_downgrade(document, target="4.4")
     document.raw["metadata"]["vendor.root"]["keep"] = False
 
-    with pytest.raises(IpynbValidationError) as raised:
+    with pytest.raises(NotebookValidationError) as raised:
         downgrade(document, plan=plan, accept_loss=True)
 
     assert raised.value.code == "IPYNB_DOWNGRADE_STALE_PLAN"
@@ -181,7 +180,7 @@ def test_downgrade_rejects_a_plan_with_omitted_loss_entries() -> None:
     complete = plan_downgrade(document, target="4.4")
     incomplete = replace(complete, issues=())
 
-    with pytest.raises(IpynbValidationError) as raised:
+    with pytest.raises(NotebookValidationError) as raised:
         downgrade(document, plan=incomplete, accept_loss=True)
 
     assert raised.value.code == "IPYNB_DOWNGRADE_PLAN_MISMATCH"
@@ -197,7 +196,7 @@ def test_future_minor_downgrade_is_reported_but_blocked() -> None:
     assert [issue.code for issue in plan.blockers] == [
         "IPYNB_DOWNGRADE_FUTURE_MINOR_UNSUPPORTED"
     ]
-    with pytest.raises(IpynbValidationError) as raised:
+    with pytest.raises(NotebookValidationError) as raised:
         downgrade(document, plan=plan, accept_loss=True)
     assert raised.value.code == "IPYNB_DOWNGRADE_BLOCKED"
 

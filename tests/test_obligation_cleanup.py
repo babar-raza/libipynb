@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from libipynb import CleanupPolicy, IpynbDocument, cleanup
+from libipynb import NotebookDocument, cleanup
+from libipynb.model import CleanupPolicy
 
 
-def _document() -> IpynbDocument:
-    return IpynbDocument(
+def _document() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,

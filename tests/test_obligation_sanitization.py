@@ -8,16 +8,12 @@ import socket
 import pytest
 from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
-from libipynb import (
-    IpynbDocument,
-    SanitizationMode,
-    SanitizationPolicy,
-    sanitize,
-)
+from libipynb import NotebookDocument, sanitize
+from libipynb.security import SanitizationMode, SanitizationPolicy
 
 
-def _hostile_document() -> IpynbDocument:
-    return IpynbDocument(
+def _hostile_document() -> NotebookDocument:
+    return NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
@@ -218,7 +214,7 @@ def test_external_references_are_detected_without_network_access(
 
 
 def test_catalog_and_external_reference_scanning_are_configurable() -> None:
-    document = IpynbDocument(
+    document = NotebookDocument(
         {
             "nbformat": 4,
             "nbformat_minor": 5,
