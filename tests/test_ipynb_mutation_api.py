@@ -74,7 +74,7 @@ class TestAddCell:
 
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "d.ipynb"
-            dump(doc, dest)
+            dump(doc, dest, profile="declared")
             reloaded = load(dest)
 
         assert reloaded.cells[-1]["id"] == new_cell["id"]
@@ -149,7 +149,7 @@ class TestClearOutputs:
 
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "cleared.ipynb"
-            dump(doc, dest)
+            dump(doc, dest, profile="declared")
             reloaded = load(dest)
 
         assert reloaded.cells[0]["outputs"] == []
