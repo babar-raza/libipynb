@@ -33,7 +33,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-_SRC_ROOT = Path(__file__).resolve().parents[1] / "src" / "libipynb"
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "libipynb"
 
 _FULLY_FORBIDDEN_MODULES = frozenset(
     {"socket", "http", "ftplib", "smtplib", "pkgutil", "ctypes"}

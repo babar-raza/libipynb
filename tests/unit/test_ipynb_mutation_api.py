@@ -17,7 +17,7 @@ import pytest
 
 from libipynb import CELL_ID_PATTERN, NotebookDocument, dump, load
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 VALID_DIR = FIXTURES / "valid"
 
 

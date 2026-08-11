@@ -21,7 +21,7 @@ from libipynb import (
     validate,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures"
 SAMPLE = FIXTURES / "valid" / "minimal.ipynb"
 

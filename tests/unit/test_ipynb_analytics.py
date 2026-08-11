@@ -19,7 +19,7 @@ from libipynb.analytics import (
     output_type_histogram,
 )
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 VALID_DIR = FIXTURES / "valid"
 INVALID_DIR = FIXTURES / "invalid"
 

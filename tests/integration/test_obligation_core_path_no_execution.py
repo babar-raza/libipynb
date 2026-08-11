@@ -251,7 +251,7 @@ def test_core_module_source_never_references_the_execution_adapter() -> None:
     import ast
     from pathlib import Path
 
-    package_root = Path(__file__).resolve().parents[1] / "src" / "libipynb"
+    package_root = Path(__file__).resolve().parents[2] / "src" / "libipynb"
     core_modules = [
         package_root / "codec" / "reader.py",
         package_root / "codec" / "writer.py",

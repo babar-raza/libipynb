@@ -18,7 +18,7 @@ from libipynb import (
 )
 from libipynb.model import MetadataShapeError
 
-VALID_DIR = Path(__file__).resolve().parent / "fixtures" / "valid"
+VALID_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "valid"
 
 
 def _document() -> NotebookDocument:

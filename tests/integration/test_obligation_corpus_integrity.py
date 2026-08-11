@@ -12,7 +12,7 @@ import pytest
 from libipynb import NotebookParseError, load
 from libipynb.validation.schema import schema_diagnostics
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 VALID = FIXTURES / "valid"
 INVALID = FIXTURES / "invalid"
 

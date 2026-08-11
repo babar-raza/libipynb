@@ -30,7 +30,7 @@ from libipynb.validation.schema import (
 
 MINORS = list(range(6))
 VENDORED = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "src/libipynb/validation/schemas"
 )
 
