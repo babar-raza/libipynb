@@ -11,7 +11,7 @@ from threading import RLock
 from collections.abc import Iterator
 from typing import Any, Protocol, runtime_checkable
 
-from .._internal.core_shim import ResourceLimits
+from .limits import NotebookResourceLimits as ResourceLimits
 
 from ..model import IpynbDocument
 from .limits import effective_limits

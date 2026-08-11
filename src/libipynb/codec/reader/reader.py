@@ -10,7 +10,8 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, NoReturn, TextIO
 
-from ..._internal.core_shim import ProbeResult, ResourceLimits
+from ..._internal.probe import ProbeResult
+from ...security.limits import NotebookResourceLimits as ResourceLimits
 
 from ...errors import IpynbParseError
 from ...model import IpynbDocument, NotebookVersion, RecoveryAction

@@ -16,7 +16,7 @@ import json
 import re
 from typing import Any
 
-from .._internal.core_shim import ResourceLimits
+from .limits import NotebookResourceLimits as ResourceLimits
 
 from ..model import IpynbDocument
 from .limits import effective_limits

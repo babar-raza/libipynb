@@ -6,7 +6,8 @@ from copy import deepcopy
 import socket
 
 import pytest
-from libipynb._internal.core_shim import ResourceLimitError, ResourceLimits
+from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
+from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
 from libipynb import (
     IpynbDocument,
     SanitizationMode,

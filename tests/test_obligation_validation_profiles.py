@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from libipynb._internal.core_shim import Severity
+from libipynb.diagnostics import DiagnosticSeverity as Severity
 from libipynb import validate
 
 

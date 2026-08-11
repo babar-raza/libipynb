@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .._internal.core_shim import ResourceLimitError, ResourceLimits, ValidationReport
+from ..diagnostics import ValidationResult as ValidationReport
+from ..errors import NotebookResourceLimitError as ResourceLimitError
+from ..security.limits import NotebookResourceLimits as ResourceLimits
 
 from ..codec.reader import Source, load
 from ..errors import IpynbError, IpynbValidationError

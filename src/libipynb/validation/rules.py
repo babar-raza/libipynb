@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import unquote
 
-from .._internal.core_shim import Diagnostic, Severity, SourceLocation
+from ..diagnostics import Diagnostic, DiagnosticSeverity as Severity, SourceLocation
 
 from ..codec.reader import CELL_ID_PATTERN
 

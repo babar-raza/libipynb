@@ -7,7 +7,8 @@ from copy import deepcopy
 import nbformat
 from nbformat.sign import NotebookNotary as ReferenceNotebookNotary
 import pytest
-from libipynb._internal.core_shim import ResourceLimitError, ResourceLimits
+from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
+from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
 from libipynb import (
     HmacNotebookNotary,
     IpynbDocument,

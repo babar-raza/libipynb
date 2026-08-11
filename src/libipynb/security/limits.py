@@ -2,21 +2,62 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields
 from typing import Any, Callable
 
-from .._internal.core_shim import DEFAULT_LIMITS, ResourceLimits
-
-IPYNB_DEFAULT_LIMITS = DEFAULT_LIMITS.with_overrides(
-    max_input_bytes=64 * 1024 * 1024,
-    max_nesting_depth=64,
-)
+from ..errors import NotebookResourceLimitError
 
 
-def effective_limits(limits: ResourceLimits | None) -> ResourceLimits:
-    return limits or IPYNB_DEFAULT_LIMITS
+@dataclass(frozen=True, slots=True)
+class NotebookResourceLimits:
+    """Finite processing limits for notebook operations."""
+
+    max_input_bytes: int = 64 * 1024 * 1024
+    max_output_bytes: int = 512 * 1024 * 1024
+    max_decompressed_bytes: int = 2 * 1024 * 1024 * 1024
+    max_entries: int = 100_000
+    max_nesting_depth: int = 64
+
+    def __post_init__(self) -> None:
+        for descriptor in fields(self):
+            value = getattr(self, descriptor.name)
+            if value <= 0:
+                raise ValueError(f"{descriptor.name} must be greater than zero")
+
+    def with_overrides(self, **values: int) -> "NotebookResourceLimits":
+        field_names = {item.name for item in fields(self)}
+        unknown = set(values).difference(field_names)
+        if unknown:
+            raise TypeError(f"unknown resource limits: {', '.join(sorted(unknown))}")
+        for name, value in values.items():
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{name} must be an integer")
+        return NotebookResourceLimits(**{f.name: int(values.get(f.name, getattr(self, f.name))) for f in fields(self)})
+
+    def enforce(self, name: str, actual: int | float) -> None:
+        if not hasattr(self, name):
+            raise TypeError(f"unknown resource limit: {name}")
+        maximum = getattr(self, name)
+        if actual > maximum:
+            raise NotebookResourceLimitError(
+                f"{name} exceeded: {actual} > {maximum}",
+                context={"limit": name, "actual": actual, "maximum": maximum},
+            )
 
 
-def _utf8_size(value: str, limits: ResourceLimits, current: int) -> int:
+DEFAULT_RESOURCE_LIMITS = NotebookResourceLimits()
+
+# Transitional aliases (removed in TC-S5-001-04)
+ResourceLimits = NotebookResourceLimits
+DEFAULT_LIMITS = DEFAULT_RESOURCE_LIMITS
+IPYNB_DEFAULT_LIMITS = DEFAULT_RESOURCE_LIMITS
+
+
+def effective_limits(limits: NotebookResourceLimits | None) -> NotebookResourceLimits:
+    return limits or DEFAULT_RESOURCE_LIMITS
+
+
+def _utf8_size(value: str, limits: NotebookResourceLimits, current: int) -> int:
     total = current
     for offset in range(0, len(value), 64 * 1024):
         total += len(value[offset : offset + 64 * 1024].encode("utf-8"))
@@ -24,7 +65,7 @@ def _utf8_size(value: str, limits: ResourceLimits, current: int) -> int:
     return total
 
 
-def enforce_structure(value: Any, limits: ResourceLimits | None = None) -> None:
+def enforce_structure(value: Any, limits: NotebookResourceLimits | None = None) -> None:
     """Bound an already-decoded JSON-like tree before recursive processing."""
 
     selected = effective_limits(limits)
@@ -50,29 +91,8 @@ def enforce_structure(value: Any, limits: ResourceLimits | None = None) -> None:
 
 
 def bounded_object_pairs_hook(
-    limits: ResourceLimits,
+    limits: NotebookResourceLimits,
 ) -> Callable[[list[tuple[str, Any]]], dict[str, Any]]:
-    """Build a `json.loads(..., object_pairs_hook=...)` callback that checks
-    `max_entries` DURING parsing, not after.
-
-    `enforce_structure()` walks an already-decoded tree -- by the time it
-    runs, `json.loads()` has already fully materialized every dict and list
-    in memory, regardless of how oversized the result is. Confirmed
-    genuinely exploitable by direct probing before this fix: a 200,000-key
-    JSON object (3.3MB encoded) was fully parsed into a live Python dict in
-    ~50ms before any limit check ever ran, even with max_entries=5
-    configured. `json.loads()` has no hook for JSON arrays, so this can only
-    guard the object (dict) half of the attack surface -- array-heavy
-    payloads still materialize fully before `enforce_structure()`'s
-    post-parse walk catches them, a structural limitation of the stdlib
-    parser this function does not attempt to work around.
-
-    A closure over a single running total, since `object_pairs_hook` fires
-    once per JSON object as it completes (innermost first) -- the count
-    accumulates across the whole document, matching `enforce_structure()`'s
-    own cumulative-across-the-tree counting.
-    """
-
     state = {"entries": 0}
 
     def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -84,7 +104,9 @@ def bounded_object_pairs_hook(
 
 
 __all__ = [
+    "DEFAULT_RESOURCE_LIMITS",
     "IPYNB_DEFAULT_LIMITS",
+    "NotebookResourceLimits",
     "bounded_object_pairs_hook",
     "effective_limits",
     "enforce_structure",

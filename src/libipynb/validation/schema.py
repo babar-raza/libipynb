@@ -11,7 +11,7 @@ from importlib import resources
 from types import MappingProxyType
 from typing import Any, Final
 
-from .._internal.core_shim import Diagnostic, SourceLocation
+from ..diagnostics import Diagnostic, SourceLocation
 from jsonschema import ValidationError, validators  # type: ignore[import-untyped]
 
 SCHEMA_SOURCE_VERSION: Final = "nbformat-5.10.4"
