@@ -506,18 +506,12 @@ def _security_metadata(root: dict[str, Any]) -> dict[str, Any]:
     metadata = root.get("metadata")
     if not isinstance(metadata, dict):
         raise TypeError("notebook metadata must be an object before sanitization")
-    namespace = metadata.get("format_factory")
-    if namespace is None:
-        namespace = {}
-        metadata["format_factory"] = namespace
-    if not isinstance(namespace, dict):
-        raise TypeError("metadata.format_factory must be an object")
-    security = namespace.get("security")
+    security = metadata.get("notebook_security")
     if security is None:
         security = {}
-        namespace["security"] = security
+        metadata["notebook_security"] = security
     if not isinstance(security, dict):
-        raise TypeError("metadata.format_factory.security must be an object")
+        raise TypeError("metadata.notebook_security must be an object")
     return security
 
 
@@ -552,7 +546,7 @@ def _apply_candidates(
             not isinstance(item, dict) for item in existing
         ):
             raise TypeError(
-                "metadata.format_factory.security.quarantine must be an array "
+                "metadata.notebook_security.quarantine must be an array "
                 "of objects"
             )
         additions = [

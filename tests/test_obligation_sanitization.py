@@ -85,7 +85,7 @@ def test_lossless_mode_reports_without_mutating_or_marking() -> None:
         for item in report.findings
     )
     assert all(len(item.payload_sha256) == 64 for item in report.findings)
-    assert "format_factory" not in document.metadata
+    assert "notebook_security" not in document.metadata
 
 
 def test_remove_mode_drops_only_the_unsafe_renderable_payloads() -> None:
@@ -117,9 +117,7 @@ def test_quarantine_mode_moves_payloads_out_of_renderable_locations() -> None:
         policy=SanitizationPolicy(mode=SanitizationMode.QUARANTINE),
     )
 
-    quarantine = document.raw["metadata"]["format_factory"]["security"][
-        "quarantine"
-    ]
+    quarantine = document.raw["metadata"]["notebook_security"]["quarantine"]
     assert len(quarantine) == report.count == 4
     assert all(
         set(item)
@@ -161,7 +159,7 @@ def test_mark_untrusted_preserves_payload_and_is_idempotent() -> None:
         policy=SanitizationPolicy(mode=SanitizationMode.MARK_UNTRUSTED),
     )
     first_state = deepcopy(document.raw)
-    marks = document.raw["metadata"]["format_factory"]["security"]["untrusted"]
+    marks = document.raw["metadata"]["notebook_security"]["untrusted"]
 
     assert document.cells == original_cells
     assert len(marks) == first.count == 4
@@ -270,10 +268,10 @@ def test_scanning_is_bounded_and_reserved_metadata_is_never_overwritten() -> Non
     with pytest.raises(ResourceLimitError, match="max_decompressed_bytes"):
         sanitize(document, limits=tiny)
 
-    document.raw["metadata"]["format_factory"] = "owned-by-caller"
-    with pytest.raises(TypeError, match="metadata.format_factory"):
+    document.raw["metadata"]["notebook_security"] = "owned-by-caller"
+    with pytest.raises(TypeError, match="metadata.notebook_security"):
         sanitize(
             document,
             policy=SanitizationPolicy(mode=SanitizationMode.MARK_UNTRUSTED),
         )
-    assert document.raw["metadata"]["format_factory"] == "owned-by-caller"
+    assert document.raw["metadata"]["notebook_security"] == "owned-by-caller"
