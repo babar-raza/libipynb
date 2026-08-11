@@ -1,0 +1,5 @@
+stages:
+  - quality
+  - test
+  - interop
+  - package

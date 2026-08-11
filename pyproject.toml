@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "libipynb"
+version = "0.1.0.dev0"
+description = "A standalone Python library for reading, writing, validating, and manipulating Jupyter Notebook files."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    {name = "Babar Raza", email = "prorata.net@gmail.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "jsonschema>=4.23,<5",
+]
+
+[project.optional-dependencies]
+reference = ["nbformat==5.10.4"]
+test = [
+    "pytest>=8.3",
+    "hypothesis>=6.100",
+    "nbformat>=5.10",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+libipynb = "libipynb.cli:main"
+
+[project.urls]
+Repository = "https://gitlab.recruitize.ai/sialkot/cantt-smallize/libipynb"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"libipynb.validation" = ["schemas/*.json"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["libipynb"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
