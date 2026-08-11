@@ -1,0 +1,5 @@
+"""CLI export."""
+
+from .main import main
+
+__all__ = ["main"]

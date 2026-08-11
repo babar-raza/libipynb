@@ -1,0 +1,160 @@
+"""Deterministic notebook cleanup with previewable change reports."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+from typing import Any
+
+from .document import IpynbDocument
+
+
+@dataclass(frozen=True, slots=True)
+class CleanupPolicy:
+    """Selection and mutation policy for version-control cleanup."""
+
+    cell_ids: frozenset[str] | None = None
+    output_types: frozenset[str] | None = None
+    notebook_metadata_keys: frozenset[str] = frozenset()
+    cell_metadata_keys: frozenset[str] = frozenset()
+    reset_execution_counts: bool = True
+
+    def __post_init__(self) -> None:
+        for name in (
+            "cell_ids",
+            "output_types",
+            "notebook_metadata_keys",
+            "cell_metadata_keys",
+        ):
+            value = getattr(self, name)
+            if value is not None and any(
+                not isinstance(item, str) or not item for item in value
+            ):
+                raise ValueError(f"{name} must contain only non-empty strings")
+
+
+@dataclass(frozen=True, slots=True)
+class Change:
+    """One deterministic notebook mutation."""
+
+    operation: str
+    path: tuple[str | int, ...]
+    before: Any
+    after: Any
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "before", deepcopy(self.before))
+        object.__setattr__(self, "after", deepcopy(self.after))
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeReport:
+    """Immutable ordered cleanup result."""
+
+    changes: tuple[Change, ...] = ()
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.changes)
+
+    @property
+    def count(self) -> int:
+        return len(self.changes)
+
+
+def cleanup(
+    document: IpynbDocument,
+    *,
+    policy: CleanupPolicy | None = None,
+    dry_run: bool = False,
+) -> ChangeReport:
+    """Clear selected outputs/state and strip explicitly selected metadata.
+
+    The same ordered report is returned by preview and mutation runs. Unknown
+    metadata is never removed unless its exact key is in the policy.
+    """
+
+    if not isinstance(document, IpynbDocument):
+        raise TypeError("document must be an IpynbDocument")
+    selected = policy or CleanupPolicy()
+    changes: list[Change] = []
+    root = document.raw
+
+    metadata = root.get("metadata")
+    if not isinstance(metadata, dict):
+        raise TypeError("notebook metadata must be an object before cleanup")
+    for key in sorted(selected.notebook_metadata_keys):
+        if key in metadata:
+            changes.append(
+                Change(
+                    "remove_notebook_metadata",
+                    ("metadata", key),
+                    metadata[key],
+                    None,
+                )
+            )
+            if not dry_run:
+                del metadata[key]
+
+    cells = root.get("cells")
+    if not isinstance(cells, list):
+        raise TypeError("notebook cells must be an array before cleanup")
+    for index, cell in enumerate(cells):
+        if not isinstance(cell, dict):
+            raise TypeError(f"cell {index} must be an object before cleanup")
+        cell_id = cell.get("id")
+        if selected.cell_ids is not None and cell_id not in selected.cell_ids:
+            continue
+        cell_metadata = cell.get("metadata")
+        if not isinstance(cell_metadata, dict):
+            raise TypeError(f"cell {index} metadata must be an object before cleanup")
+        for key in sorted(selected.cell_metadata_keys):
+            if key in cell_metadata:
+                changes.append(
+                    Change(
+                        "remove_cell_metadata",
+                        ("cells", index, "metadata", key),
+                        cell_metadata[key],
+                        None,
+                    )
+                )
+                if not dry_run:
+                    del cell_metadata[key]
+        if cell.get("cell_type") != "code":
+            continue
+        outputs = cell.get("outputs")
+        if not isinstance(outputs, list):
+            raise TypeError(f"cell {index} outputs must be an array before cleanup")
+        retained = (
+            []
+            if selected.output_types is None
+            else [
+                output
+                for output in outputs
+                if not isinstance(output, dict)
+                or output.get("output_type") not in selected.output_types
+            ]
+        )
+        if retained != outputs:
+            changes.append(
+                Change(
+                    "replace_outputs",
+                    ("cells", index, "outputs"),
+                    outputs,
+                    retained,
+                )
+            )
+            if not dry_run:
+                cell["outputs"] = retained
+        if selected.reset_execution_counts and cell.get("execution_count") is not None:
+            changes.append(
+                Change(
+                    "reset_execution_count",
+                    ("cells", index, "execution_count"),
+                    cell.get("execution_count"),
+                    None,
+                )
+            )
+            if not dry_run:
+                cell["execution_count"] = None
+    return ChangeReport(tuple(changes))
