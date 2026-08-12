@@ -113,8 +113,14 @@ def _recover_missing(
 def _parse(text: str, *, mode: str, limits: ResourceLimits) -> NotebookDocument:
     if mode not in {"strict", "preservation", "recovery"}:
         raise ValueError("mode must be 'strict', 'preservation', or 'recovery'")
+    duplicate_keys: list[str] = []
     try:
-        data = json.loads(text, object_pairs_hook=bounded_object_pairs_hook(limits))
+        data = json.loads(
+            text,
+            object_pairs_hook=bounded_object_pairs_hook(
+                limits, mode=mode, duplicate_keys=duplicate_keys
+            ),
+        )
     except json.JSONDecodeError as exc:
         raise NotebookParseError(
             f"invalid JSON: {exc}",
@@ -158,6 +164,14 @@ def _parse(text: str, *, mode: str, limits: ResourceLimits) -> NotebookDocument:
     declared_version = NotebookVersion(major, declared_minor)
     notebook = deepcopy(data) if mode == "recovery" else data
     actions: list[RecoveryAction] = []
+    for dup_key in duplicate_keys:
+        actions.append(
+            RecoveryAction(
+                "IPYNB_DUPLICATE_KEY",
+                (dup_key,),
+                f"duplicate JSON key {dup_key!r} (last value kept)",
+            )
+        )
     if mode == "strict" and "nbformat_minor" not in notebook:
         _raise_parse(
             "IPYNB_MINOR_VERSION",

@@ -118,12 +118,20 @@ def test_a_notebook_with_object_entries_within_the_limit_still_loads() -> None:
     assert len(document.cells) == 3
 
 
-def test_duplicate_keys_within_one_object_still_resolve_last_value_wins() -> None:
-    """The object_pairs_hook builds dict(pairs) itself, replacing json.loads's
-    own default dict construction -- must not silently change duplicate-key
-    behavior from the stdlib's own last-value-wins semantics."""
+def test_duplicate_keys_rejected_in_strict_mode() -> None:
+    """Strict mode rejects duplicate JSON keys (IPYNB_DUPLICATE_KEY)."""
     raw = '{"nbformat":4,"nbformat_minor":5,"metadata":{"x":1,"x":2},"cells":[]}'
 
-    document = loads(raw)
+    with pytest.raises(NotebookParseError, match="duplicate JSON key"):
+        loads(raw)
+
+
+def test_duplicate_keys_last_value_wins_in_preservation_mode() -> None:
+    """Preservation mode keeps last value for duplicate keys, with recovery action."""
+    raw = '{"nbformat":4,"nbformat_minor":5,"metadata":{"x":1,"x":2},"cells":[]}'
+
+    document = loads(raw, mode="preservation")
 
     assert document.metadata["x"] == 2
+    dup_actions = [a for a in document.recovery_actions if a.code == "IPYNB_DUPLICATE_KEY"]
+    assert len(dup_actions) >= 1

@@ -92,12 +92,29 @@ def enforce_structure(value: Any, limits: NotebookResourceLimits | None = None) 
 
 def bounded_object_pairs_hook(
     limits: NotebookResourceLimits,
+    *,
+    mode: str = "strict",
+    duplicate_keys: list[str] | None = None,
 ) -> Callable[[list[tuple[str, Any]]], dict[str, Any]]:
     state = {"entries": 0}
 
     def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         state["entries"] += len(pairs)
         limits.enforce("max_entries", state["entries"])
+        seen: set[str] = set()
+        for key, _value in pairs:
+            if key in seen:
+                if mode == "strict":
+                    from ..errors import NotebookParseError
+
+                    raise NotebookParseError(
+                        f"duplicate JSON key {key!r}",
+                        code="IPYNB_DUPLICATE_KEY",
+                        context={"key": key},
+                    )
+                if duplicate_keys is not None:
+                    duplicate_keys.append(key)
+            seen.add(key)
         return dict(pairs)
 
     return hook

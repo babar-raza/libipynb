@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import tempfile
 from collections.abc import Mapping
 from copy import deepcopy
 from os import PathLike
@@ -129,7 +132,15 @@ def dump(
         return
     path = Path(destination)
     try:
-        path.write_text(text, encoding="utf-8", newline="\n")
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
     except (OSError, UnicodeError) as exc:
         raise NotebookWriteError(f"cannot write notebook to {path}: {exc}") from exc
 
