@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0.dev0] - Unreleased
+## [0.1.0] - 2026-08-12
 
-Initial development release extracted from the Format Factory monorepo.
+First publication-ready release.
 
 ### Added
 
@@ -23,6 +23,11 @@ Initial development release extracted from the Format Factory monorepo.
   with `LOSSLESS`, `REMOVE`, and `QUARANTINE` modes
 - **Resource limits** -- configurable caps on input size (64 MB), output size
   (512 MB), decompressed size (2 GB), entries (100K), and nesting depth (64)
+- **Duplicate-key detection** -- JSON objects with duplicate keys are rejected
+  in strict mode (`IPYNB_DUPLICATE_KEY`); recorded as recovery actions in
+  preservation/recovery modes
+- **Atomic file writes** -- `dump()` uses write-to-temp-then-rename to prevent
+  partial writes from corrupting notebook files on disk
 - **Diff and merge** -- structural notebook diffing (`diff_notebooks`) and
   three-way merge (`merge_notebooks`) with conflict detection
 - **Version conversion** -- `upgrade` and `downgrade` between nbformat 4.x
@@ -35,8 +40,8 @@ Initial development release extracted from the Format Factory monorepo.
 - **Export adapters** -- `MarkdownExporter` and `PythonScriptExporter` for
   notebook conversion
 - **Execution adapter** -- `execute_notebook` with per-cell result tracking
-- **CLI** -- `libipynb validate`, `libipynb inspect`, `libipynb probe` commands
-  with JSON output
+- **CLI** -- 8 commands: `probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
+  `diff`, `normalize`, `convert` -- all with JSON output
 - **Analytics** -- `cell_type_histogram`, `output_type_histogram`,
   `has_execution_errors`, `average_source_length`
 - **Trust** -- `HmacNotebookNotary` for HMAC-based notebook trust signatures
@@ -48,4 +53,5 @@ Initial development release extracted from the Format Factory monorepo.
 - **Property-based tests** -- Hypothesis-driven round-trip and validation
   fuzzing
 - **Security tests** -- adversarial input, resource exhaustion, active content,
-  and path traversal test suites
+  path traversal, duplicate-key detection, and atomic write test suites
+- **88% test coverage** with 666 tests (85% threshold enforced)

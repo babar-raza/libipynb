@@ -149,5 +149,3 @@ def roundtrip(source: Source, dest: Destination) -> dict[str, Any]:
     document = load(source, mode="preservation")
     dump(document, dest, profile="declared")
     return load(dest, mode="preservation").raw
-
-

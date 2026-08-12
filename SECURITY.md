@@ -49,6 +49,28 @@ doc = load("notebook.ipynb", limits=custom_limits)
 
 Exceeding any limit raises `NotebookResourceLimitError`.
 
+### Duplicate Key Detection
+
+Python's `json.loads` silently keeps the last value when a JSON object contains
+duplicate keys. This can hide malicious payloads -- an attacker might place
+dangerous content under a key that appears earlier in the JSON, knowing the later
+(benign) value will be the one that survives.
+
+libipynb detects duplicate keys during parsing:
+
+| Parse mode | Behavior |
+|---|---|
+| `strict` | Raises `NotebookParseError` with code `IPYNB_DUPLICATE_KEY` |
+| `preservation` | Records a recovery action; keeps last value |
+| `recovery` | Records a recovery action; keeps last value |
+
+### Atomic File Writes
+
+`dump()` writes notebooks to disk using a write-to-temp-then-rename pattern.
+This prevents partial writes from corrupting the target file if the process is
+interrupted or the disk fills up. The stream-write path (writing to a file-like
+object) is unchanged, as streams cannot support atomic semantics.
+
 ### Content Sanitization
 
 The `sanitize()` function detects active content in cell outputs -- scripts,

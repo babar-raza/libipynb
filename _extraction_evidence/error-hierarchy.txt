@@ -1,0 +1,8 @@
+Exception hierarchy:
+  NotebookError -> Exception -> BaseException
+  NotebookExecutionError -> NotebookError -> Exception -> BaseException
+  NotebookParseError -> NotebookError -> Exception -> BaseException
+  NotebookResourceLimitError -> NotebookError -> Exception -> BaseException
+  NotebookSecurityError -> NotebookError -> Exception -> BaseException
+  NotebookValidationError -> NotebookError -> Exception -> BaseException
+  NotebookWriteError -> NotebookError -> Exception -> BaseException

@@ -33,17 +33,13 @@ class TestAtomicFileWrite:
         reloaded = load(target, mode="preservation")
         assert reloaded.nbformat == 4
 
-    def test_no_temp_file_remains_after_success(
-        self, minimal_doc: object, tmp_path: Path
-    ) -> None:
+    def test_no_temp_file_remains_after_success(self, minimal_doc: object, tmp_path: Path) -> None:
         target = tmp_path / "output.ipynb"
         dump(minimal_doc, target, profile="declared")
         tmp_files = list(tmp_path.glob("*.tmp"))
         assert tmp_files == []
 
-    def test_existing_file_not_corrupted_on_write_failure(
-        self, tmp_path: Path
-    ) -> None:
+    def test_existing_file_not_corrupted_on_write_failure(self, tmp_path: Path) -> None:
         target = tmp_path / "output.ipynb"
         original = '{"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}\n'
         target.write_text(original, encoding="utf-8")
@@ -60,9 +56,7 @@ class TestAtomicFileWrite:
         text = buf.getvalue()
         assert '"nbformat": 4' in text
 
-    def test_overwrite_existing_file(
-        self, minimal_doc: object, tmp_path: Path
-    ) -> None:
+    def test_overwrite_existing_file(self, minimal_doc: object, tmp_path: Path) -> None:
         target = tmp_path / "output.ipynb"
         target.write_text("old content", encoding="utf-8")
         dump(minimal_doc, target, profile="declared")

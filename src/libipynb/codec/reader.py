@@ -431,5 +431,3 @@ def probe(source: Source, *, limits: ResourceLimits | None = None) -> ProbeResul
         "ipynb",
         profile=f"nbformat-{document.nbformat}.{document.nbformat_minor}",
     )
-
-

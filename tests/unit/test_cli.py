@@ -51,9 +51,7 @@ class TestNormalize:
         out = json.loads(capsys.readouterr().out)
         assert "change_count" in out
 
-    def test_write_to_output(
-        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
-    ) -> None:
+    def test_write_to_output(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         dest = tmp_path / "normalized.ipynb"
         assert main(["normalize", str(VALID / "minimal.ipynb"), "-o", str(dest)]) == 0
         assert dest.exists()
@@ -72,19 +70,19 @@ class TestConvert:
         out = json.loads(capsys.readouterr().out)
         assert out["direction"] == "none"
 
-    def test_upgrade(
-        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
-    ) -> None:
+    def test_upgrade(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         dest = tmp_path / "upgraded.ipynb"
         assert (
-            main([
-                "convert",
-                str(VALID / "nbformat-4-0.ipynb"),
-                "--target",
-                "4.5",
-                "-o",
-                str(dest),
-            ])
+            main(
+                [
+                    "convert",
+                    str(VALID / "nbformat-4-0.ipynb"),
+                    "--target",
+                    "4.5",
+                    "-o",
+                    str(dest),
+                ]
+            )
             == 0
         )
         out = json.loads(capsys.readouterr().out)
@@ -96,15 +94,17 @@ class TestConvert:
     ) -> None:
         dest = tmp_path / "downgraded.ipynb"
         assert (
-            main([
-                "convert",
-                str(VALID / "minimal.ipynb"),
-                "--target",
-                "4.0",
-                "--accept-loss",
-                "-o",
-                str(dest),
-            ])
+            main(
+                [
+                    "convert",
+                    str(VALID / "minimal.ipynb"),
+                    "--target",
+                    "4.0",
+                    "--accept-loss",
+                    "-o",
+                    str(dest),
+                ]
+            )
             == 0
         )
         out = json.loads(capsys.readouterr().out)

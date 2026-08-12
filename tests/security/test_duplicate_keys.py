@@ -9,11 +9,9 @@ last value (standard Python behavior).
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from libipynb import load, loads
+from libipynb import loads
 from libipynb.errors import NotebookParseError
 
 
@@ -29,10 +27,7 @@ def _nb_json(cells_fragment: str = "[]", extra_top: str = "") -> str:
 
 
 def _duplicate_top_key_json() -> str:
-    return (
-        '{"nbformat": 4, "nbformat_minor": 5, '
-        '"metadata": {}, "cells": [], "cells": []}'
-    )
+    return '{"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [], "cells": []}'
 
 
 def _duplicate_nested_key_json() -> str:

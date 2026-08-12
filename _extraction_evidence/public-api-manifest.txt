@@ -1,0 +1,36 @@
+Public API exports (__all__):
+  CELL_ID_PATTERN: Pattern
+  Cell: type
+  Diagnostic: type
+  DiagnosticSeverity: EnumType
+  NotebookDocument: type
+  NotebookError: type
+  NotebookExecutionError: type
+  NotebookParseError: type
+  NotebookResourceLimitError: type
+  NotebookSecurityError: type
+  NotebookValidationError: type
+  NotebookVersion: type
+  NotebookWriteError: type
+  SourceLocation: type
+  ValidationResult: type
+  cell_metadata: function
+  cleanup: function
+  diff_notebooks: function
+  downgrade: function
+  dump: function
+  dumps: function
+  edit_cells: function
+  load: function
+  loads: function
+  manage_attachments: function
+  merge_notebooks: function
+  notebook_metadata: function
+  output_metadata: function
+  probe: function
+  roundtrip: function
+  sanitize: function
+  upgrade: function
+  validate: function
+
+Total: 33

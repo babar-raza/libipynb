@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "libipynb"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "A standalone Python library for reading, writing, validating, and manipulating Jupyter Notebook files."
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ authors = [
     {name = "Babar Raza", email = "prorata.net@gmail.com"},
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

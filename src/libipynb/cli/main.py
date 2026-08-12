@@ -273,8 +273,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
             "source_version": f"{source_major}.{source_minor}",
             "target_version": f"{target_major}.{target_minor}",
             "actions": [
-                {"code": a.code, "path": list(a.path), "message": a.message}
-                for a in result.actions
+                {"code": a.code, "path": list(a.path), "message": a.message} for a in result.actions
             ],
             "id_rewrites": [
                 {"cell_index": r.cell_index, "old_id": r.old_id, "new_id": r.new_id}
