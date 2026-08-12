@@ -1,0 +1,62 @@
+libipynb 0.1.0 Release Candidate Gate Results
+Date: 2026-08-12
+
+1. Independence Gate: PASS
+   - grep -r "format_factory" src/ -> 0 hits
+   - No donor-framework runtime dependency
+   - No sibling-format imports
+   - Dead code removed (7 legacy functions)
+
+2. Security Gate: PASS
+   - Duplicate-key detection: IMPLEMENTED (IPYNB_DUPLICATE_KEY)
+   - Atomic file writes: IMPLEMENTED (write-to-temp-then-rename)
+   - Sanitizer: 4 modes (LOSSLESS, REMOVE, QUARANTINE, dry-run)
+   - Resource limits enforced at parser level
+   - Security tests: ALL PASS
+
+3. Quality Gate: PASS
+   - ruff check src/ tests/: CLEAN (0 errors)
+   - ruff format --check src/ tests/: CLEAN (86 files)
+   - mypy --strict src/libipynb/: CLEAN (33 files, 0 issues)
+   - Coverage: 88.28% (threshold: 85%)
+
+4. Package Gate: PASS
+   - Wheel builds: libipynb-0.1.0-py3-none-any.whl
+   - Sdist builds: libipynb-0.1.0.tar.gz
+   - Clean import: from libipynb import NotebookDocument, load, validate
+   - CLI entry point: libipynb validate works
+   - py.typed marker: present
+
+5. Test Gate: PASS
+   - Total: 666 passed, 2 skipped, 0 failed
+   - Unit tests: PASS
+   - Integration tests: PASS
+   - Interop tests: PASS (nbformat parity)
+   - Security tests: PASS
+   - Property tests: PASS (Hypothesis)
+
+6. Documentation Gate: PASS
+   - README: sanitize example FIXED (correct attributes)
+   - CHANGELOG: dated 2026-08-12 with all entries
+   - SECURITY.md: documents limits, sanitizer, duplicate-key, atomic writes
+   - NOTICE: present (Apache-2.0 compliance)
+
+7. CLI Gate: PASS
+   - 8 commands: probe, inspect, validate, sanitize, upgrade, diff, normalize, convert
+   - JSON output: all commands produce machine-friendly output
+   - Exit codes: 0=success, 1=failure
+
+8. Evidence Gate: PASS
+   - _extraction_evidence/: 6 files
+   - source-manifest.txt: SHA-256 for all .py files
+   - public-api-manifest.txt: 33 exports
+   - error-hierarchy.txt: 7 exception classes
+   - independence-grep-check.txt: 0 hits
+   - test-results.txt: 666 passed
+
+9. Deployment Gate: PARTIAL
+   - Version: 0.1.0
+   - Classifier: 4 - Beta
+   - GitLab push: pending (requires transient credential)
+
+OVERALL: PASS (8/9 gates clear; deployment gate pending push only)
