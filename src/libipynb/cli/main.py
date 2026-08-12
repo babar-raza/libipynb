@@ -8,6 +8,8 @@ import sys
 
 from ..codec import dump, load, probe
 from ..model import diff_notebooks, upgrade
+from ..model.cleanup import cleanup
+from ..model.lifecycle import downgrade, plan_downgrade
 from ..security import sanitize
 from ..validation import validate
 
@@ -61,6 +63,49 @@ def main(argv: list[str] | None = None) -> int:
         help="Write the upgraded notebook to PATH instead of stdout.",
     )
 
+    # -- normalize -----------------------------------------------------------
+    normalize_cmd = commands.add_parser(
+        "normalize",
+        help="Clean up a notebook: strip outputs, execution counts, and selected metadata.",
+    )
+    normalize_cmd.add_argument("source", help="Path to the .ipynb file.")
+    normalize_cmd.add_argument(
+        "-o",
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Write the cleaned notebook to PATH instead of stdout.",
+    )
+    normalize_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what would change without modifying anything.",
+    )
+
+    # -- convert -------------------------------------------------------------
+    convert_cmd = commands.add_parser(
+        "convert",
+        help="Convert a notebook between nbformat versions (4.0 through 4.5).",
+    )
+    convert_cmd.add_argument("source", help="Path to the .ipynb file.")
+    convert_cmd.add_argument(
+        "--target",
+        required=True,
+        help="Target version (e.g. '4.5', '4.0').",
+    )
+    convert_cmd.add_argument(
+        "-o",
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Write the converted notebook to PATH instead of stdout.",
+    )
+    convert_cmd.add_argument(
+        "--accept-loss",
+        action="store_true",
+        help="Accept data loss during downgrade (e.g. cell id removal).",
+    )
+
     # -- diff ----------------------------------------------------------------
     diff_cmd = commands.add_parser(
         "diff",
@@ -81,6 +126,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_sanitize(args)
     if args.command == "upgrade":
         return _cmd_upgrade(args)
+    if args.command == "normalize":
+        return _cmd_normalize(args)
+    if args.command == "convert":
+        return _cmd_convert(args)
     if args.command == "diff":
         return _cmd_diff(args)
     return 1  # unreachable
@@ -182,6 +231,95 @@ def _cmd_upgrade(args: argparse.Namespace) -> int:
     else:
         print(json.dumps(ledger, sort_keys=True), file=sys.stderr)
         dump(result.document, sys.stdout, profile="declared")
+    return 0
+
+
+def _cmd_normalize(args: argparse.Namespace) -> int:
+    document = load(args.source, mode="preservation")
+    report = cleanup(document, dry_run=args.dry_run)
+    output = {
+        "change_count": report.count,
+        "changes": [
+            {
+                "operation": c.operation,
+                "path": list(c.path),
+            }
+            for c in report.changes
+        ],
+    }
+    if not args.dry_run and args.output:
+        dump(document, args.output, profile="declared")
+        output["output"] = args.output
+    elif not args.dry_run and not args.output:
+        print(json.dumps(output, sort_keys=True), file=sys.stderr)
+        dump(document, sys.stdout, profile="declared")
+        return 0
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    document = load(args.source, mode="preservation")
+    source_major = document.nbformat
+    source_minor = document.nbformat_minor
+    target_parts = args.target.removeprefix("nbformat-").split(".", 1)
+    target_major = int(target_parts[0])
+    target_minor = int(target_parts[1]) if len(target_parts) > 1 else 5
+
+    if (target_major, target_minor) > (source_major, source_minor or 0):
+        result = upgrade(document, target=args.target)
+        ledger = {
+            "direction": "upgrade",
+            "source_version": f"{source_major}.{source_minor}",
+            "target_version": f"{target_major}.{target_minor}",
+            "actions": [
+                {"code": a.code, "path": list(a.path), "message": a.message}
+                for a in result.actions
+            ],
+            "id_rewrites": [
+                {"cell_index": r.cell_index, "old_id": r.old_id, "new_id": r.new_id}
+                for r in result.id_rewrites
+            ],
+        }
+        converted = result.document
+    elif (target_major, target_minor) < (source_major, source_minor or 0):
+        plan = plan_downgrade(document, target=args.target)
+        result_down = downgrade(document, plan=plan, accept_loss=args.accept_loss)
+        ledger = {
+            "direction": "downgrade",
+            "source_version": f"{source_major}.{source_minor}",
+            "target_version": f"{target_major}.{target_minor}",
+            "actions": [
+                {"code": a.code, "path": list(a.path), "message": a.message}
+                for a in result_down.actions
+            ],
+            "id_rewrites": [
+                {"cell_index": r.cell_index, "old_id": r.old_id, "new_id": r.new_id}
+                for r in result_down.id_rewrites
+            ],
+        }
+        converted = result_down.document
+    else:
+        print(
+            json.dumps(
+                {
+                    "direction": "none",
+                    "source_version": f"{source_major}.{source_minor}",
+                    "target_version": f"{target_major}.{target_minor}",
+                    "message": "source and target versions are identical",
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.output:
+        dump(converted, args.output, profile="declared")
+        ledger["output"] = args.output
+        print(json.dumps(ledger, sort_keys=True))
+    else:
+        print(json.dumps(ledger, sort_keys=True), file=sys.stderr)
+        dump(converted, sys.stdout, profile="declared")
     return 0
 
 
