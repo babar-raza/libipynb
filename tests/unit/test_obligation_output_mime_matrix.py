@@ -5,7 +5,7 @@ Seven obligations. Their declared proof requirements are a MIME-bundle matrix
 output type with byte-exact payload verification" -- two dimensions, per output
 type AND byte-exact payload, both of which must actually be exercised.
 
-Every import here is `format_factory.ipynb`. The capability's previous only test
+Every import here is `libipynb`. The capability's previous only test
 file imported the deprecated `ipynb.*` shadow package, which
 forbidden_progress_claims bars from counting as coverage of the shipped
 namespace (GAP-017/GAP-018). Assertions are derived from each obligation's

@@ -2,7 +2,7 @@
 
 Covers three capabilities whose only prior test file imported the deprecated
 `ipynb.*` shadow package and so could not count as coverage of
-format_factory.ipynb (GAP-017/GAP-018):
+libipynb (GAP-017/GAP-018):
 
 - IPYNB-ID-001 (4.5): ids required, unique, charset and length constrained;
   generated ONLY via explicit upgrade, with a rewrite map.

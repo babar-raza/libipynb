@@ -1,0 +1,10 @@
+libipynb
+Copyright 2026 Babar Raza
+
+This product includes software developed at Format Factory
+(https://github.com/babar-raza/format-factory).
+
+This product includes nbformat JSON Schema files (v4.0 through v4.5),
+originally developed by the Jupyter Development Team and licensed under
+the BSD 3-Clause License. See https://github.com/jupyter/nbformat for
+the original source.

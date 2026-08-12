@@ -12,7 +12,7 @@ from typing import Any, TextIO
 from ..errors import NotebookWriteError
 from ..model import NotebookDocument
 from ..security import IPYNB_DEFAULT_LIMITS
-from .reader import Source, ensure_cell_id, load
+from .reader import Source, load
 
 Destination = str | PathLike[str] | TextIO
 
@@ -89,35 +89,6 @@ def _normalized(
     return source
 
 
-def _legacy_normalized(
-    value: NotebookDocument | Mapping[str, Any],
-) -> dict[str, Any]:
-    source = deepcopy(dict(_as_mapping(value)))
-    source["nbformat"] = 4
-    source["nbformat_minor"] = 5
-    source.setdefault("metadata", {})
-    raw_cells = source.setdefault("cells", [])
-    if not isinstance(raw_cells, list):
-        raise NotebookWriteError("cells must be an array")
-
-    used_ids: set[str] = set()
-    cells: list[dict[str, Any]] = []
-    for index, raw_cell in enumerate(raw_cells):
-        if not isinstance(raw_cell, dict):
-            raise NotebookWriteError(f"cell {index} must be an object")
-        cell = dict(raw_cell)
-        cell.setdefault("cell_type", "raw")
-        cell.setdefault("metadata", {})
-        cell.setdefault("source", "")
-        if cell["cell_type"] == "code":
-            cell.setdefault("outputs", [])
-            cell.setdefault("execution_count", None)
-        ensure_cell_id(cell, used_ids)
-        cells.append(cell)
-    source["cells"] = cells
-    return source
-
-
 def dumps(
     document: NotebookDocument | Mapping[str, Any],
     *,
@@ -163,64 +134,9 @@ def dump(
         raise NotebookWriteError(f"cannot write notebook to {path}: {exc}") from exc
 
 
-def write_ipynb(
-    model: NotebookDocument | Mapping[str, Any],
-    dest: Destination | None = None,
-) -> str:
-    try:
-        normalized = _legacy_normalized(model)
-        text = json.dumps(
-            normalized,
-            ensure_ascii=False,
-            indent=1,
-            sort_keys=True,
-            allow_nan=False,
-        )
-    except (TypeError, ValueError) as exc:
-        raise NotebookWriteError(f"cannot serialize notebook: {exc}") from exc
-    IPYNB_DEFAULT_LIMITS.enforce("max_output_bytes", len(text.encode("utf-8")))
-    if dest is not None:
-        dump(normalized, dest)
-    return text
-
-
-def get_cell_count(model: NotebookDocument | Mapping[str, Any]) -> int:
-    return len(_as_mapping(model).get("cells", []))
-
-
-def get_code_cells(
-    model: NotebookDocument | Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    return [
-        cell
-        for cell in _as_mapping(model).get("cells", [])
-        if isinstance(cell, dict) and cell.get("cell_type") == "code"
-    ]
-
-
-def get_markdown_cells(
-    model: NotebookDocument | Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    return [
-        cell
-        for cell in _as_mapping(model).get("cells", [])
-        if isinstance(cell, dict) and cell.get("cell_type") == "markdown"
-    ]
-
-
 def roundtrip(source: Source, dest: Destination) -> dict[str, Any]:
     document = load(source, mode="preservation")
     dump(document, dest, profile="declared")
     return load(dest, mode="preservation").raw
 
 
-def ipynb_installed_workflow(source: Source) -> dict[str, Any]:
-    document = load(source, mode="preservation")
-    return {
-        "format": "ipynb",
-        "loaded": True,
-        "nbformat": document.nbformat,
-        "cell_count": document.cell_count,
-        "code_cell_count": len(document.code_cells),
-        "markdown_cell_count": len(document.markdown_cells),
-    }

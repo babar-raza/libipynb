@@ -84,7 +84,7 @@ from libipynb import load, sanitize
 doc = load("untrusted.ipynb")
 report = sanitize(doc)
 for finding in report.findings:
-    print(f"  {finding.mime_type} in cell {finding.cell_index}: {finding.reason}")
+    print(f"  {finding.media_type} at {finding.path}: {', '.join(finding.hazards)}")
 ```
 
 ### Round-trip a notebook

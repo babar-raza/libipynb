@@ -405,17 +405,6 @@ def load(
     return _parse(_read_source(source, selected), mode=mode, limits=selected)
 
 
-def load_ipynb(source: Source, *, limits: ResourceLimits | None = None) -> dict[str, Any]:
-    notebook = load(source, mode="recovery", limits=limits).raw
-    used_ids: set[str] = set()
-    cells = notebook.get("cells", [])
-    if isinstance(cells, list):
-        for cell in cells:
-            if isinstance(cell, dict):
-                ensure_cell_id(cell, used_ids)
-    return notebook
-
-
 def probe(source: Source, *, limits: ResourceLimits | None = None) -> ProbeResult:
     try:
         document = load(source, mode="preservation", limits=limits)
@@ -430,5 +419,3 @@ def probe(source: Source, *, limits: ResourceLimits | None = None) -> ProbeResul
     )
 
 
-def probe_ipynb(source: Source, *, limits: ResourceLimits | None = None) -> bool:
-    return bool(probe(source, limits=limits))
