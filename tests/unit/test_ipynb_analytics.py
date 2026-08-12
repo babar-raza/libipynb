@@ -4,6 +4,7 @@ Each function is exercised against real sample files (path-based) plus
 inline byte sources, covering both the positive/behavior path and
 malformed/boundary inputs.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,9 +26,9 @@ INVALID_DIR = FIXTURES / "invalid"
 
 
 def _nb(cells: list[dict]) -> bytes:
-    return json.dumps(
-        {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": cells}
-    ).encode("utf-8")
+    return json.dumps({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": cells}).encode(
+        "utf-8"
+    )
 
 
 class TestCellTypeHistogram:
@@ -201,7 +202,12 @@ class TestHasExecutionErrors:
                     "source": "raise ValueError()",
                     "metadata": {},
                     "outputs": [
-                        {"output_type": "error", "ename": "ValueError", "evalue": "", "traceback": []}
+                        {
+                            "output_type": "error",
+                            "ename": "ValueError",
+                            "evalue": "",
+                            "traceback": [],
+                        }
                     ],
                 },
             ]

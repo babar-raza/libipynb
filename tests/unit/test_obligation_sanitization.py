@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import socket
+from copy import deepcopy
 
 import pytest
-from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
-from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
+
 from libipynb import NotebookDocument, sanitize
+from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security import SanitizationMode, SanitizationPolicy
+from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
 
 
 def _hostile_document() -> NotebookDocument:
@@ -45,9 +46,7 @@ def _hostile_document() -> NotebookDocument:
                             "output_type": "display_data",
                             "metadata": {},
                             "data": {
-                                "image/svg+xml": (
-                                    '<svg><image href="file:///etc/passwd"/></svg>'
-                                ),
+                                "image/svg+xml": ('<svg><image href="file:///etc/passwd"/></svg>'),
                                 "application/javascript": (
                                     "fetch('https://example.invalid/collect')"
                                 ),
@@ -76,10 +75,7 @@ def test_lossless_mode_reports_without_mutating_or_marking() -> None:
     assert report.would_change is False
     assert {finding.action for finding in report.findings} == {"reported"}
     assert any("active_element:script" in item.hazards for item in report.findings)
-    assert any(
-        "https://example.invalid/track" in item.references
-        for item in report.findings
-    )
+    assert any("https://example.invalid/track" in item.references for item in report.findings)
     assert all(len(item.payload_sha256) == 64 for item in report.findings)
     assert "notebook_security" not in document.metadata
 
@@ -94,9 +90,7 @@ def test_remove_mode_drops_only_the_unsafe_renderable_payloads() -> None:
 
     markdown, code = document.cells
     assert markdown["source"] == ""
-    assert markdown["attachments"]["unsafe.html"] == {
-        "image/png": "c2FmZQ=="
-    }
+    assert markdown["attachments"]["unsafe.html"] == {"image/png": "c2FmZQ=="}
     assert code["source"] == "raise RuntimeError('must never run')"
     assert code["outputs"][0]["data"] == {"text/plain": "safe representation"}
     assert document.metadata == {"owner": {"keep": True}}
@@ -130,9 +124,7 @@ def test_quarantine_mode_moves_payloads_out_of_renderable_locations() -> None:
         for item in quarantine
     )
     assert document.cells[0]["source"] == ""
-    assert document.cells[1]["outputs"][0]["data"] == {
-        "text/plain": "safe representation"
-    }
+    assert document.cells[1]["outputs"][0]["data"] == {"text/plain": "safe representation"}
     assert {finding.action for finding in report.findings} == {"quarantined"}
 
     after_first_pass = deepcopy(document.raw)
@@ -204,11 +196,7 @@ def test_external_references_are_detected_without_network_access(
         policy=SanitizationPolicy(mode=SanitizationMode.LOSSLESS),
     )
 
-    references = {
-        reference
-        for finding in report.findings
-        for reference in finding.references
-    }
+    references = {reference for finding in report.findings for reference in finding.references}
     assert "https://example.invalid/track" in references
     assert "file:///etc/passwd" in references
 
@@ -225,11 +213,7 @@ def test_catalog_and_external_reference_scanning_are_configurable() -> None:
                     "id": "markdown",
                     "metadata": {},
                     "source": "[remote](relative/image.png)",
-                    "attachments": {
-                        "custom": {
-                            "application/vnd.example.active": "opaque payload"
-                        }
-                    },
+                    "attachments": {"custom": {"application/vnd.example.active": "opaque payload"}},
                 }
             ],
         }
@@ -245,9 +229,7 @@ def test_catalog_and_external_reference_scanning_are_configurable() -> None:
     custom = sanitize(
         document,
         policy=SanitizationPolicy(
-            active_mime_types=frozenset(
-                {"application/vnd.example.active"}
-            ),
+            active_mime_types=frozenset({"application/vnd.example.active"}),
             inspect_markdown=False,
         ),
     )

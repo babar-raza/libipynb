@@ -5,17 +5,17 @@ from __future__ import annotations
 from copy import deepcopy
 
 import nbformat
-from nbformat.sign import NotebookNotary as ReferenceNotebookNotary
 import pytest
-from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
-from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
+from nbformat.sign import NotebookNotary as ReferenceNotebookNotary
+
 from libipynb import NotebookDocument, validate
+from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security import (
     HmacNotebookNotary,
     MemorySignatureStore,
     TrustStatus,
 )
-
+from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
 
 SECRET = b"format-factory-test-notary-key-" * 2
 
@@ -56,9 +56,7 @@ def test_signature_matches_the_pinned_official_nbformat_notary() -> None:
     )
     notary = HmacNotebookNotary(secret=SECRET)
 
-    assert notary.compute_signature(document) == reference.compute_signature(
-        reference_notebook
-    )
+    assert notary.compute_signature(document) == reference.compute_signature(reference_notebook)
 
 
 def test_content_edit_invalidates_trust_without_affecting_validity() -> None:

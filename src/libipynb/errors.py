@@ -60,5 +60,3 @@ class NotebookExecutionError(NotebookError):
     """Raised when the opt-in execution adapter cannot run a notebook."""
 
     code = "execution_error"
-
-

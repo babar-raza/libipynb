@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-import re
 from typing import Any, cast
 
 from .document import Cell, NotebookDocument, cell_from_dict
@@ -96,9 +96,7 @@ def _index(raw: dict[str, Any]) -> dict[str, tuple[int, dict[str, Any]]]:
     for position, cell in enumerate(_cells(raw)):
         cell_id = cell.get("id")
         if not isinstance(cell_id, str) or not cell_id:
-            raise ValueError(
-                f"cell at index {position} is missing a stable non-empty ID"
-            )
+            raise ValueError(f"cell at index {position} is missing a stable non-empty ID")
         if not _CELL_ID.fullmatch(cell_id):
             raise ValueError(f"invalid cell ID: {cell_id!r}")
         if cell_id in index:
@@ -121,8 +119,7 @@ def _metadata_contains(value: Any, expected: Any) -> bool:
         if not isinstance(value, Mapping):
             return False
         return all(
-            key in value and _metadata_contains(value[key], item)
-            for key, item in expected.items()
+            key in value and _metadata_contains(value[key], item) for key, item in expected.items()
         )
     return bool(value == expected)
 
@@ -142,10 +139,7 @@ def _matches(cell: dict[str, Any], query: CellQuery) -> bool:
         query.metadata,
     ):
         return False
-    return (
-        query.source_text is None
-        or query.source_text in _source_text(cell)
-    )
+    return query.source_text is None or query.source_text in _source_text(cell)
 
 
 def _validate_cell(
@@ -165,14 +159,11 @@ def _validate_cell(
     if cell_type not in _KNOWN_CELL_TYPES and notebook_minor <= 5:
         raise ValueError(f"unsupported current-profile cell type: {cell_type}")
     if not isinstance(cell.get("metadata"), dict):
-        raise ValueError("cell metadata must be an object")
+        raise ValueError("cell metadata must be an object")  # noqa: TRY004
     source = cell.get("source")
     if not (
         isinstance(source, str)
-        or (
-            isinstance(source, list)
-            and all(isinstance(item, str) for item in source)
-        )
+        or (isinstance(source, list) and all(isinstance(item, str) for item in source))
     ):
         raise ValueError("cell source must be a string or string array")
     if cell_type == "code":
@@ -215,9 +206,7 @@ class CellEditor:
         if not isinstance(query, CellQuery):
             raise TypeError("query must be a CellQuery")
         return tuple(
-            cell_from_dict(cell)
-            for cell in _cells(self.document.raw)
-            if _matches(cell, query)
+            cell_from_dict(cell) for cell in _cells(self.document.raw) if _matches(cell, query)
         )
 
     def insert(
@@ -402,9 +391,7 @@ class CellEditor:
         if not changes:
             return CellEditReport((), False)
         removed = {change.cell_id for change in changes}
-        target["cells"] = [
-            cell for cell in values if cell.get("id") not in removed
-        ]
+        target["cells"] = [cell for cell in values if cell.get("id") not in removed]
         return self._finish(target, changes, dry_run=dry_run)
 
     @staticmethod
@@ -431,10 +418,7 @@ class CellEditor:
         report = validate(NotebookDocument(target))
         if not report.is_valid:
             first = report.errors[0]
-            raise ValueError(
-                f"cell edit would invalidate notebook: {first.code}: "
-                f"{first.message}"
-            )
+            raise ValueError(f"cell edit would invalidate notebook: {first.code}: {first.message}")
         if not dry_run:
             self.document.raw.clear()
             self.document.raw.update(target)

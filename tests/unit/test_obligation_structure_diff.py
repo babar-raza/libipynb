@@ -7,6 +7,7 @@ from copy import deepcopy
 from itertools import permutations
 
 import pytest
+
 from libipynb import (
     NotebookDocument,
     diff_notebooks,
@@ -51,9 +52,7 @@ def _document() -> NotebookDocument:
                     "id": "beta",
                     "metadata": {},
                     "source": "Explanation",
-                    "attachments": {
-                        "plot.png": {"image/png": "cGxvdA=="}
-                    },
+                    "attachments": {"plot.png": {"image/png": "cGxvdA=="}},
                 },
                 {
                     "cell_type": "raw",
@@ -85,9 +84,7 @@ def test_diff_tracks_move_and_each_semantic_cell_field() -> None:
 
     result = diff_notebooks(base, target)
     change = next(item for item in result.cell_changes if item.cell_id == "alpha")
-    attachment_change = next(
-        item for item in result.cell_changes if item.cell_id == "beta"
-    )
+    attachment_change = next(item for item in result.cell_changes if item.cell_id == "beta")
 
     assert change.moved is True
     assert change.before_index == 0
@@ -98,9 +95,7 @@ def test_diff_tracks_move_and_each_semantic_cell_field() -> None:
         CellField.EXECUTION_COUNT,
         CellField.OUTPUTS,
     }
-    assert {
-        item.field for item in attachment_change.field_changes
-    } == {CellField.ATTACHMENTS}
+    assert {item.field for item in attachment_change.field_changes} == {CellField.ATTACHMENTS}
     assert attachment_change.moved is False
     assert not change.added
     assert not change.removed
@@ -212,9 +207,7 @@ def test_missing_and_explicit_null_are_distinct_report_states() -> None:
     target.cells[2]["vendor_optional"] = None
 
     change = next(
-        item
-        for item in diff_notebooks(base, target).cell_changes
-        if item.cell_id == "gamma"
+        item for item in diff_notebooks(base, target).cell_changes if item.cell_id == "gamma"
     ).field_changes[0]
 
     assert change.field is CellField.OTHER
@@ -235,11 +228,15 @@ def test_ignored_count_is_not_copied_to_a_different_output_type() -> None:
         }
     ]
 
-    applied = diff_notebooks(
-        base,
-        target,
-        policy=DiffPolicy(ignore_execution_counts=True),
-    ).to_patch().apply(base)
+    applied = (
+        diff_notebooks(
+            base,
+            target,
+            policy=DiffPolicy(ignore_execution_counts=True),
+        )
+        .to_patch()
+        .apply(base)
+    )
 
     assert applied.cells[0]["outputs"][0]["output_type"] == "display_data"
     assert "execution_count" not in applied.cells[0]["outputs"][0]

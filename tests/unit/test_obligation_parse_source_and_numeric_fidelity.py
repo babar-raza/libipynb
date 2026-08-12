@@ -42,7 +42,9 @@ NUMERIC_EDGES: dict[str, Any] = {
 }
 
 
-def _notebook(cells: list[dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def _notebook(
+    cells: list[dict[str, Any]], metadata: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return {
         "nbformat": 4,
         "nbformat_minor": 5,
@@ -187,9 +189,7 @@ def test_all_numeric_edges_survive_together_and_idempotently() -> None:
 
 
 def test_execution_count_is_an_integer_not_a_float_after_roundtrip() -> None:
-    notebook = _notebook(
-        [_cell(cell_type="code", execution_count=7, outputs=[], source="x")]
-    )
+    notebook = _notebook([_cell(cell_type="code", execution_count=7, outputs=[], source="x")])
     restored = _roundtrip(notebook)["cells"][0]["execution_count"]
     assert restored == 7
     assert isinstance(restored, int)

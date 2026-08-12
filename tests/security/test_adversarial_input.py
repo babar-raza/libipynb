@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from libipynb import load, loads, NotebookParseError, NotebookResourceLimitError
+from libipynb import NotebookParseError, NotebookResourceLimitError, load, loads
 from libipynb.security.limits import NotebookResourceLimits
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -28,7 +28,8 @@ def _minimal_notebook(
     return {
         "nbformat": 4,
         "nbformat_minor": 5,
-        "metadata": metadata or {
+        "metadata": metadata
+        or {
             "kernelspec": {
                 "display_name": "Python 3",
                 "language": "python",
@@ -117,21 +118,23 @@ def test_malformed_base64_in_output_handled() -> None:
     invalid base64 should pass through parsing. The important thing is no
     unhandled exception or crash.
     """
-    nb = _minimal_notebook(cells=[
-        _code_cell(
-            source="display(image)",
-            cell_id="bad-b64",
-            outputs=[
-                {
-                    "output_type": "display_data",
-                    "metadata": {},
-                    "data": {
-                        "image/png": "THIS-IS-NOT!!!VALID===BASE64@@@",
+    nb = _minimal_notebook(
+        cells=[
+            _code_cell(
+                source="display(image)",
+                cell_id="bad-b64",
+                outputs=[
+                    {
+                        "output_type": "display_data",
+                        "metadata": {},
+                        "data": {
+                            "image/png": "THIS-IS-NOT!!!VALID===BASE64@@@",
+                        },
                     },
-                },
-            ],
-        ),
-    ])
+                ],
+            ),
+        ]
+    )
     payload = json.dumps(nb)
 
     # Should load without crashing -- base64 validity is not a parse concern.
@@ -146,9 +149,11 @@ def test_malformed_base64_in_output_handled() -> None:
 
 def test_null_bytes_in_source_handled() -> None:
     """Null bytes in cell source must not crash the parser."""
-    nb = _minimal_notebook(cells=[
-        _code_cell(source="print('hello\x00world')", cell_id="null-cell"),
-    ])
+    nb = _minimal_notebook(
+        cells=[
+            _code_cell(source="print('hello\x00world')", cell_id="null-cell"),
+        ]
+    )
     payload = json.dumps(nb)
 
     # Should either load successfully or raise a clean error -- never crash.
@@ -165,12 +170,14 @@ def test_overlong_unicode_sequences_handled() -> None:
     exotic_source = (
         "x = '\U0001f4a9'  # pile of poo\n"
         "y = '\U0001f600'  # grinning face\n"
-        "z = '​​​'  # zero-width spaces\n"
+        "z = '\u200b\u200b\u200b'  # zero-width spaces\n"
         "w = '￿'  # max BMP\n"
     )
-    nb = _minimal_notebook(cells=[
-        _code_cell(source=exotic_source, cell_id="unicode-cell"),
-    ])
+    nb = _minimal_notebook(
+        cells=[
+            _code_cell(source=exotic_source, cell_id="unicode-cell"),
+        ]
+    )
     payload = json.dumps(nb)
 
     doc = loads(payload, mode="recovery")

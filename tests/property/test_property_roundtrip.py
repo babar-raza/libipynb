@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from libipynb import loads, dumps, load, NotebookDocument
-
+from libipynb import dumps, loads
 
 # --- Strategies ---
 
@@ -39,7 +38,13 @@ _simple_json_values = st.recursive(
     lambda children: st.one_of(
         st.lists(children, max_size=4),
         st.dictionaries(
-            st.text(min_size=1, max_size=20, alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters=("\x00",))),
+            st.text(
+                min_size=1,
+                max_size=20,
+                alphabet=st.characters(
+                    blacklist_categories=("Cs",), blacklist_characters=("\x00",)
+                ),
+            ),
             children,
             max_size=4,
         ),
@@ -48,23 +53,31 @@ _simple_json_values = st.recursive(
 )
 
 _metadata = st.dictionaries(
-    st.text(min_size=1, max_size=20, alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters=("\x00",))),
+    st.text(
+        min_size=1,
+        max_size=20,
+        alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters=("\x00",)),
+    ),
     _simple_json_values,
     max_size=3,
 )
 
-_stream_output = st.fixed_dictionaries({
-    "output_type": st.just("stream"),
-    "name": st.sampled_from(["stdout", "stderr"]),
-    "text": _safe_text,
-})
+_stream_output = st.fixed_dictionaries(
+    {
+        "output_type": st.just("stream"),
+        "name": st.sampled_from(["stdout", "stderr"]),
+        "text": _safe_text,
+    }
+)
 
-_execute_result_output = st.fixed_dictionaries({
-    "output_type": st.just("execute_result"),
-    "data": st.fixed_dictionaries({"text/plain": _safe_text}),
-    "metadata": st.just({}),
-    "execution_count": st.integers(min_value=1, max_value=999),
-})
+_execute_result_output = st.fixed_dictionaries(
+    {
+        "output_type": st.just("execute_result"),
+        "data": st.fixed_dictionaries({"text/plain": _safe_text}),
+        "metadata": st.just({}),
+        "execution_count": st.integers(min_value=1, max_value=999),
+    }
+)
 
 _output = st.one_of(_stream_output, _execute_result_output)
 
@@ -180,7 +193,15 @@ def test_double_roundtrip_is_stable(nb: dict) -> None:
 @settings(max_examples=200, deadline=5000)
 def test_arbitrary_metadata_survives_roundtrip(metadata: dict) -> None:
     nb = _make_notebook(
-        [{"cell_type": "code", "source": "x", "metadata": metadata, "outputs": [], "execution_count": None}],
+        [
+            {
+                "cell_type": "code",
+                "source": "x",
+                "metadata": metadata,
+                "outputs": [],
+                "execution_count": None,
+            }
+        ],
         minor=4,
         nb_metadata={},
     )
@@ -193,7 +214,15 @@ def test_arbitrary_metadata_survives_roundtrip(metadata: dict) -> None:
 @settings(max_examples=200, deadline=5000)
 def test_arbitrary_unicode_source_survives_roundtrip(source: str) -> None:
     nb = _make_notebook(
-        [{"cell_type": "code", "source": source, "metadata": {}, "outputs": [], "execution_count": None}],
+        [
+            {
+                "cell_type": "code",
+                "source": source,
+                "metadata": {},
+                "outputs": [],
+                "execution_count": None,
+            }
+        ],
         minor=4,
         nb_metadata={},
     )

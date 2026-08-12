@@ -22,11 +22,7 @@ def _notebook_with_attachments() -> dict[str, object]:
                 "id": "markdown-attachment",
                 "metadata": {},
                 "source": "![pixel](attachment:pixel.png)",
-                "attachments": {
-                    "pixel.png": {
-                        "image/png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
-                    }
-                },
+                "attachments": {"pixel.png": {"image/png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"}},
             },
             {
                 "cell_type": "raw",
@@ -36,7 +32,7 @@ def _notebook_with_attachments() -> dict[str, object]:
                 "attachments": {
                     "notes.txt": {
                         "text/plain": "preserved text",
-                        "application/vnd.example+json": "{\"preserved\":true}",
+                        "application/vnd.example+json": '{"preserved":true}',
                     }
                 },
             },

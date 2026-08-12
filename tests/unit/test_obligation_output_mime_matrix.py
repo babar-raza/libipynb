@@ -142,13 +142,11 @@ def test_base64_binary_payload_is_byte_exact_after_roundtrip() -> None:
 
 def test_vendor_mime_type_structure_is_preserved_exactly() -> None:
     (restored,) = _outputs_after_roundtrip([_display_data()])
-    assert restored["data"]["application/vnd.acme.widget+json"] == {
-        "nested": {"k": [1, 2, 3]}
-    }
+    assert restored["data"]["application/vnd.acme.widget+json"] == {"nested": {"k": [1, 2, 3]}}
 
 
 def test_large_base64_payload_is_byte_exact() -> None:
-    """"large base64 attachments" is named explicitly in the obligation text."""
+    """ "large base64 attachments" is named explicitly in the obligation text."""
     blob = base64.b64encode(bytes(range(256)) * 400).decode("ascii")
     output = {
         "output_type": "display_data",
@@ -210,9 +208,7 @@ def test_error_output_missing_traceback_fails_closed() -> None:
 
 def test_error_traceback_of_wrong_element_type_fails_closed() -> None:
     report = validate(
-        _notebook(
-            [{"output_type": "error", "ename": "E", "evalue": "v", "traceback": [1, 2]}]
-        ),
+        _notebook([{"output_type": "error", "ename": "E", "evalue": "v", "traceback": [1, 2]}]),
         profile="4.5",
     )
     assert not report.is_valid
@@ -244,7 +240,7 @@ def test_non_integer_execution_count_fails_closed(bad: object) -> None:
 
 
 def test_unknown_output_type_is_preserved_and_marked_preservation_only() -> None:
-    """"preserving ... unknown bundle entries" is part of the obligation."""
+    """ "preserving ... unknown bundle entries" is part of the obligation."""
     unknown = {"output_type": "application/vnd.future", "payload": {"a": 1}}
     typed = output_from_dict(unknown)
     assert typed.preservation_only is True
@@ -252,7 +248,7 @@ def test_unknown_output_type_is_preserved_and_marked_preservation_only() -> None
 
 
 def test_unknown_output_type_is_rejected_inside_a_code_cell() -> None:
-    """"Unknown bundle entries" means unknown MIME types, not unknown output types.
+    """ "Unknown bundle entries" means unknown MIME types, not unknown output types.
 
     The official nbformat 4.5 schema defines `output` as a oneOf over exactly
     execute_result / display_data / stream / error. It does define an
@@ -308,9 +304,7 @@ def test_outputs_must_be_an_array() -> None:
 
 
 def test_display_data_without_data_fails_closed() -> None:
-    report = validate(
-        _notebook([{"output_type": "display_data", "metadata": {}}]), profile="4.5"
-    )
+    report = validate(_notebook([{"output_type": "display_data", "metadata": {}}]), profile="4.5")
     assert not report.is_valid
 
 

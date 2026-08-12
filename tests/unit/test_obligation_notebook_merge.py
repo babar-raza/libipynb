@@ -137,7 +137,7 @@ def test_edit_edit_conflict_on_source_is_reported() -> None:
 
 
 def test_conflicting_source_falls_back_to_base_not_either_side() -> None:
-    """"Never hide conflicts inside executable source": a conflicted source
+    """ "Never hide conflicts inside executable source": a conflicted source
     field is never a marker splice of both sides, and never silently
     resolved to one side either -- it keeps base's own value pending real
     resolution."""
@@ -224,9 +224,7 @@ def test_output_conflict_is_reported() -> None:
 def test_output_change_on_only_one_side_is_not_a_conflict() -> None:
     base = _base()
     ours = _clone(base)
-    _find(ours, "alpha")["outputs"] = [
-        {"output_type": "stream", "name": "stdout", "text": "1\n"}
-    ]
+    _find(ours, "alpha")["outputs"] = [{"output_type": "stream", "name": "stdout", "text": "1\n"}]
 
     result = merge_notebooks(base, ours, _clone(base))
 

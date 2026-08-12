@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+
 from libipynb import (
     NotebookDocument,
     cell_metadata,
@@ -142,9 +143,7 @@ def test_notebook_metadata_models_title_and_authors_with_preserved_extras() -> N
     authors = adapter.authors
     assert authors is not None and len(authors) == 2
     assert authors[0].name == "Ada Lovelace"
-    assert authors[0].extras == {
-        "affiliation": "Analytical Engine Institute"
-    }
+    assert authors[0].extras == {"affiliation": "Analytical Engine Institute"}
     assert authors[1].name is None
     assert authors[1].extras == {"orcid": "0000-0000-0000-0000"}
     assert authors[1].to_dict() == {"orcid": "0000-0000-0000-0000"}
@@ -205,9 +204,7 @@ def test_cell_metadata_jupyter_visibility_fields_are_each_independently_optional
 def test_cell_and_output_adapters_cover_common_namespaces() -> None:
     document = _document()
     cell_adapter = cell_metadata(document.cell_objects[0])
-    output_adapter = output_metadata(
-        document.cell_objects[0].output_objects[0]
-    )
+    output_adapter = output_metadata(document.cell_objects[0].output_objects[0])
 
     assert cell_adapter.tags == ("parameters", "production")
     assert cell_adapter.slideshow is not None
@@ -231,9 +228,7 @@ def test_cell_and_output_adapters_cover_common_namespaces() -> None:
         "vendor_render": "keep",
     }
     assert output_adapter.mime("image/png") is None
-    assert output_adapter.extras == {
-        "org.example": {"output": "keep"}
-    }
+    assert output_adapter.extras == {"org.example": {"output": "keep"}}
 
 
 def test_adapters_are_defensive_snapshots_and_roundtrip_is_lossless() -> None:
@@ -260,26 +255,20 @@ def test_adapters_are_defensive_snapshots_and_roundtrip_is_lossless() -> None:
             "kernelspec",
         ),
         (
-            lambda value: value.cells[0]["metadata"].update(
-                tags=["duplicate", "duplicate"]
-            ),
+            lambda value: value.cells[0]["metadata"].update(tags=["duplicate", "duplicate"]),
             lambda value: cell_metadata(value.cell_objects[0]).tags,
             "unique",
         ),
         (
-            lambda value: value.cells[0]["metadata"].update(
-                tags=["a,b"]
-            ),
+            lambda value: value.cells[0]["metadata"].update(tags=["a,b"]),
             lambda value: cell_metadata(value.cell_objects[0]).tags,
             "comma",
         ),
         (
-            lambda value: value.cells[0]["outputs"][0]["metadata"].update(
-                {"text/html": "bad"}
+            lambda value: value.cells[0]["outputs"][0]["metadata"].update({"text/html": "bad"}),
+            lambda value: output_metadata(value.cell_objects[0].output_objects[0]).mime(
+                "text/html"
             ),
-            lambda value: output_metadata(
-                value.cell_objects[0].output_objects[0]
-            ).mime("text/html"),
             "text/html",
         ),
         (
@@ -303,9 +292,7 @@ def test_adapters_are_defensive_snapshots_and_roundtrip_is_lossless() -> None:
             "jupyter",
         ),
         (
-            lambda value: value.cells[0]["metadata"]["jupyter"].update(
-                source_hidden="yes"
-            ),
+            lambda value: value.cells[0]["metadata"]["jupyter"].update(source_hidden="yes"),
             lambda value: cell_metadata(value.cell_objects[0]).jupyter,
             "source_hidden",
         ),

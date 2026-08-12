@@ -140,9 +140,9 @@ def _resolve_kernel(document: NotebookDocument, kernel: str | None) -> str:
     if kernel is not None:
         return kernel
     metadata = document.metadata
-    language = metadata.get("language_info", {}).get("name") or metadata.get(
-        "kernelspec", {}
-    ).get("language")
+    language = metadata.get("language_info", {}).get("name") or metadata.get("kernelspec", {}).get(
+        "language"
+    )
     if language is not None and language != "python":
         raise NotebookExecutionError(
             f"notebook declares kernel language {language!r}; this adapter "
@@ -199,6 +199,7 @@ def execute_notebook(
             capture_output=True,
             text=True,
             timeout=timeout,
+            check=False,
         )
         raw_output = completed.stdout
     except subprocess.TimeoutExpired as exc:

@@ -8,6 +8,7 @@ the real add_cell/remove_cell/clear_outputs API: new cells get a valid
 unique id automatically, removal doesn't disturb the rest, and
 clear_outputs resets execution state per nbformat convention.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -164,5 +165,7 @@ class TestClearOutputs:
 
         doc.clear_outputs(0)
 
-        assert doc.cells[1]["outputs"] == [{"output_type": "stream", "name": "stdout", "text": "b\n"}]
+        assert doc.cells[1]["outputs"] == [
+            {"output_type": "stream", "name": "stdout", "text": "b\n"}
+        ]
         assert doc.cells[1]["execution_count"] == 2

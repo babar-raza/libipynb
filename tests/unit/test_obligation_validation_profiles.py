@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-from libipynb.diagnostics import DiagnosticSeverity as Severity
 from libipynb import validate
+from libipynb.diagnostics import DiagnosticSeverity as Severity
 
 
 def _codes(report: object, severity: Severity | None = None) -> set[str]:
-    diagnostics = getattr(report, "diagnostics")
-    return {
-        item.code
-        for item in diagnostics
-        if severity is None or item.severity is severity
-    }
+    diagnostics = report.diagnostics
+    return {item.code for item in diagnostics if severity is None or item.severity is severity}
 
 
 def test_future_declared_profile_is_valid_with_separate_forward_warnings() -> None:

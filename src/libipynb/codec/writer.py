@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from os import PathLike
 from pathlib import Path
-from typing import Any, Mapping, TextIO
+from typing import Any, TextIO
 
 from ..errors import NotebookWriteError
 from ..model import NotebookDocument
@@ -24,9 +25,7 @@ def _as_mapping(value: NotebookDocument | Mapping[str, Any]) -> Mapping[str, Any
     raise TypeError("document must be an NotebookDocument or mapping")
 
 
-def _profile_version(
-    profile: str | None, source: Mapping[str, Any]
-) -> tuple[int, int]:
+def _profile_version(profile: str | None, source: Mapping[str, Any]) -> tuple[int, int]:
     selected = profile or "4.5"
     if selected.startswith("nbformat-"):
         selected = selected.removeprefix("nbformat-")
@@ -46,9 +45,7 @@ def _profile_version(
             )
         return major, minor
     if selected not in {"4.0", "4.1", "4.2", "4.3", "4.4", "4.5"}:
-        raise ValueError(
-            "profile must be 'declared' or one of nbformat 4.0 through 4.5"
-        )
+        raise ValueError("profile must be 'declared' or one of nbformat 4.0 through 4.5")
     major, minor = selected.split(".", 1)
     return int(major), int(minor)
 
@@ -59,8 +56,7 @@ def _normalized(
     source = deepcopy(dict(_as_mapping(value)))
     major, minor = _profile_version(profile, source)
     if profile == "declared" or (
-        isinstance(profile, str)
-        and profile.removeprefix("nbformat-") == "declared"
+        isinstance(profile, str) and profile.removeprefix("nbformat-") == "declared"
     ):
         return source
 

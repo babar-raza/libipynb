@@ -59,12 +59,10 @@ def _complete_core_notebook() -> dict[str, object]:
                         "data": {
                             "text/plain": "safe representation",
                             "text/html": "<script>globalThis.notebookRan=true</script>",
-                            "image/svg+xml": "<svg onload=\"globalThis.svgRan=true\"/>",
+                            "image/svg+xml": '<svg onload="globalThis.svgRan=true"/>',
                             "application/javascript": "globalThis.jsRan=true",
                         },
-                        "metadata": {
-                            "text/html": {"isolated": True}
-                        },
+                        "metadata": {"text/html": {"isolated": True}},
                     },
                     {
                         "output_type": "execute_result",
@@ -73,9 +71,7 @@ def _complete_core_notebook() -> dict[str, object]:
                             "text/plain": "42",
                             "application/vnd.example+json": {"answer": 42},
                         },
-                        "metadata": {
-                            "application/vnd.example+json": {"expanded": True}
-                        },
+                        "metadata": {"application/vnd.example+json": {"expanded": True}},
                     },
                     {
                         "output_type": "error",
@@ -120,8 +116,7 @@ def test_complete_core_vector_validates_and_roundtrips_without_execution() -> No
     assert reloaded.raw == source
     assert reloaded.cells[2]["source"] == "raise RuntimeError('not executed by parsing')"
     assert (
-        reloaded.cells[2]["outputs"][1]["data"]["application/javascript"]
-        == "globalThis.jsRan=true"
+        reloaded.cells[2]["outputs"][1]["data"]["application/javascript"] == "globalThis.jsRan=true"
     )
 
 

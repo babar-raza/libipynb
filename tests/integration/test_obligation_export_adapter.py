@@ -14,8 +14,6 @@ import base64
 import json
 from typing import Any
 
-import pytest
-
 from libipynb import loads
 from libipynb.adapters import (
     AncillaryResource,

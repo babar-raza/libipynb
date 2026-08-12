@@ -7,13 +7,14 @@ from copy import deepcopy
 
 import nbformat
 import pytest
+
 from libipynb import (
     NotebookDocument,
     dumps,
     edit_cells,
     loads,
 )
-from libipynb.model import CellEditOperation, CellEditReport, CellEditor, CellQuery
+from libipynb.model import CellEditOperation, CellEditor, CellEditReport, CellQuery
 
 
 def _document() -> NotebookDocument:
@@ -268,9 +269,7 @@ def test_future_unknown_cells_survive_unrelated_edit_unchanged() -> None:
 
     edit_cells(document).move("gamma", 0)
 
-    assert next(
-        cell for cell in document.cells if cell["id"] == "future"
-    ) == future
+    assert next(cell for cell in document.cells if cell["id"] == "future") == future
 
 
 _EditorOperation = Callable[[CellEditor, bool], CellEditReport]
@@ -332,7 +331,5 @@ def test_every_mutation_dry_run_matches_apply_and_save_reload(
     assert preview.changes == applied.changes
     assert preview_document.raw == before
     assert reloaded.raw == apply_document.raw
-    assert [cell["id"] for cell in reloaded.cells] == [
-        cell["id"] for cell in apply_document.cells
-    ]
+    assert [cell["id"] for cell in reloaded.cells] == [cell["id"] for cell in apply_document.cells]
     _valid(reloaded)

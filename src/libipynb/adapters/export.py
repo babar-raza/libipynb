@@ -7,11 +7,12 @@ resources, with exporter-specific logic outside the core parser.
 from __future__ import annotations
 
 import base64
+import binascii
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
-from ..model.document import Cell, CodeCell, NotebookDocument, cell_from_dict
+from ..model.document import NotebookDocument, cell_from_dict
 
 
 def _is_safe_resource_filename(name: str) -> bool:
@@ -64,7 +65,7 @@ def _collect_resources(
                     if isinstance(payload, str) and "/" in mime:
                         try:
                             data = base64.b64decode(payload)
-                        except Exception:
+                        except (ValueError, binascii.Error):
                             continue
                         resources.append(
                             AncillaryResource(
@@ -89,7 +90,7 @@ def _collect_resources(
                     continue
                 try:
                     data = base64.b64decode(payload)
-                except Exception:
+                except (ValueError, binascii.Error):
                     continue
                 ext = mime.split("/", 1)[1].split("+", 1)[0]
                 n = counter.get(ext, 0)

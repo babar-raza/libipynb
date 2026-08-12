@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
-
-from ..diagnostics import ValidationResult as ValidationReport
-from ..errors import NotebookResourceLimitError as ResourceLimitError
-from ..security.limits import NotebookResourceLimits as ResourceLimits
+from collections.abc import Mapping
+from typing import Any
 
 from ..codec.reader import Source, load
+from ..diagnostics import ValidationResult as ValidationReport
 from ..errors import NotebookError, NotebookValidationError
+from ..errors import NotebookResourceLimitError as ResourceLimitError
 from ..model import NotebookDocument
+from ..security.limits import NotebookResourceLimits as ResourceLimits
 from ..security.limits import effective_limits, enforce_structure
 from .rules import (
     KNOWN_CELL_TYPES,
@@ -61,17 +61,13 @@ def validate(
         model = _mapping(value, limits=selected_limits)
         enforce_structure(model, selected_limits)
     except ResourceLimitError as exc:
-        return ValidationReport(
-            [diagnostic("IPYNB_RESOURCE_LIMIT", str(exc), ())]
-        )
+        return ValidationReport([diagnostic("IPYNB_RESOURCE_LIMIT", str(exc), ())])
     except (NotebookError, OSError, TypeError, ValueError) as exc:
         return ValidationReport([diagnostic("IPYNB_PARSE", str(exc), ())])
 
     selected, diagnostics = select_profile(model, profile)
     if not selected.allow_forward:
-        diagnostics.extend(
-            schema_diagnostics(model, minor=selected.expected_minor)
-        )
+        diagnostics.extend(schema_diagnostics(model, minor=selected.expected_minor))
     diagnostics.extend(validate_model(model, selected))
     return ValidationReport(diagnostics)
 

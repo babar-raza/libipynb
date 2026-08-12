@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb import NotebookParseError, loads
+from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security import IPYNB_DEFAULT_LIMITS
 
 

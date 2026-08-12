@@ -69,20 +69,24 @@ def test_recovery_mode_is_deterministic_and_reports_every_synthesized_value() ->
     first = loads(source, mode="recovery")
     second = loads(source, mode="recovery")
 
-    assert first.raw == second.raw == {
-        "nbformat": 4,
-        "nbformat_minor": 0,
-        "metadata": {},
-        "cells": [
-            {
-                "cell_type": "code",
-                "metadata": {},
-                "source": "",
-                "outputs": [],
-                "execution_count": None,
-            }
-        ],
-    }
+    assert (
+        first.raw
+        == second.raw
+        == {
+            "nbformat": 4,
+            "nbformat_minor": 0,
+            "metadata": {},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": "",
+                    "outputs": [],
+                    "execution_count": None,
+                }
+            ],
+        }
+    )
     assert [action.code for action in first.recovery_actions] == [
         "IPYNB_RECOVER_MINOR",
         "IPYNB_RECOVER_METADATA",

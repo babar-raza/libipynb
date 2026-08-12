@@ -27,9 +27,7 @@ def _required_string(
 ) -> str:
     selected = value.get(key)
     if not isinstance(selected, str) or not selected:
-        raise MetadataShapeError(
-            f"{context}.{key} must be a non-empty string"
-        )
+        raise MetadataShapeError(f"{context}.{key} must be a non-empty string")
     return selected
 
 
@@ -74,7 +72,7 @@ class KernelSpecMetadata:
     _raw: dict[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> "KernelSpecMetadata":
+    def from_value(cls, value: Any) -> KernelSpecMetadata:
         raw = _mapping(value, "kernelspec")
         return cls(
             name=_required_string(raw, "name", "kernelspec"),
@@ -105,13 +103,11 @@ class LanguageInfoMetadata:
     _raw: dict[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> "LanguageInfoMetadata":
+    def from_value(cls, value: Any) -> LanguageInfoMetadata:
         raw = _mapping(value, "language_info")
         mode = raw.get("codemirror_mode")
         if mode is not None and not isinstance(mode, (str, dict)):
-            raise MetadataShapeError(
-                "language_info.codemirror_mode must be a string or object"
-            )
+            raise MetadataShapeError("language_info.codemirror_mode must be a string or object")
         return cls(
             name=_required_string(raw, "name", "language_info"),
             version=_optional_string(raw, "version", "language_info"),
@@ -165,7 +161,7 @@ class AuthorMetadata:
     _raw: dict[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> "AuthorMetadata":
+    def from_value(cls, value: Any) -> AuthorMetadata:
         raw = _mapping(value, "author")
         return cls(
             name=_optional_string(raw, "name", "author"),
@@ -190,7 +186,7 @@ class JupyterCellMetadata:
     _raw: dict[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> "JupyterCellMetadata":
+    def from_value(cls, value: Any) -> JupyterCellMetadata:
         raw = _mapping(value, "jupyter")
         return cls(
             source_hidden=_optional_bool(raw, "source_hidden", "jupyter"),
@@ -215,7 +211,7 @@ class SlideshowMetadata:
     _raw: dict[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> "SlideshowMetadata":
+    def from_value(cls, value: Any) -> SlideshowMetadata:
         raw = _mapping(value, "slideshow")
         return cls(
             slide_type=_optional_string(raw, "slide_type", "slideshow"),
@@ -235,7 +231,7 @@ class ExecutionMetadata:
     _raw: dict[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> "ExecutionMetadata":
+    def from_value(cls, value: Any) -> ExecutionMetadata:
         return cls(_mapping(value, "execution"))
 
     def _timestamp(self, key: str) -> str | None:
@@ -342,9 +338,7 @@ class CellMetadataAdapter:
         value = self._raw.get("tags")
         if value is None:
             return ()
-        if not isinstance(value, list) or not all(
-            isinstance(item, str) for item in value
-        ):
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise MetadataShapeError("cell tags must be a string array")
         tags = tuple(value)
         if len(tags) != len(set(tags)):
@@ -398,16 +392,12 @@ class OutputMetadataAdapter:
         if value is None:
             return None
         if not isinstance(value, Mapping):
-            raise MetadataShapeError(
-                f"output metadata for {mime_type} must be an object"
-            )
+            raise MetadataShapeError(f"output metadata for {mime_type} must be an object")
         return MimeRenderingMetadata(mime_type, deepcopy(dict(value)))
 
     @property
     def extras(self) -> dict[str, Any]:
-        return deepcopy(
-            {key: value for key, value in self._raw.items() if "/" not in key}
-        )
+        return deepcopy({key: value for key, value in self._raw.items() if "/" not in key})
 
     def to_dict(self) -> dict[str, Any]:
         return deepcopy(self._raw)

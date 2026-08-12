@@ -6,11 +6,9 @@ attempts and other unsafe filenames.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from libipynb import loads, NotebookDocument
+from libipynb import NotebookDocument
 from libipynb.adapters import MarkdownExporter
 
 

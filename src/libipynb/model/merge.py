@@ -152,7 +152,10 @@ def _reconcile_present_cell(
         ours_fc = ours_fields.get(key)
         theirs_fc = theirs_fields.get(key)
         if ours_fc is not None and theirs_fc is not None:
-            if ours_fc.after == theirs_fc.after and ours_fc.after_present == theirs_fc.after_present:
+            if (
+                ours_fc.after == theirs_fc.after
+                and ours_fc.after_present == theirs_fc.after_present
+            ):
                 _apply_field(merged_cell, key, ours_fc.after, ours_fc.after_present)
                 continue
             conflicts.append(
@@ -163,8 +166,7 @@ def _reconcile_present_cell(
                     ours_value=ours_fc.after if ours_fc.after_present else None,
                     theirs_value=theirs_fc.after if theirs_fc.after_present else None,
                     description=(
-                        f"cell {cell_id!r} field {key!r} changed differently on "
-                        "each side"
+                        f"cell {cell_id!r} field {key!r} changed differently on each side"
                     ),
                 )
             )
@@ -178,9 +180,7 @@ def _reconcile_present_cell(
 
     only_ours_moved = ours_change.moved and not ours_change.modified
     only_theirs_moved = theirs_change.moved and not theirs_change.modified
-    if (only_ours_moved and theirs_change.modified) or (
-        only_theirs_moved and ours_change.modified
-    ):
+    if (only_ours_moved and theirs_change.modified) or (only_theirs_moved and ours_change.modified):
         conflicts.append(
             CellConflict(
                 cell_id=cell_id,
@@ -188,10 +188,7 @@ def _reconcile_present_cell(
                 field_name=None,
                 ours_value=ours_change.after_index,
                 theirs_value=theirs_change.after_index,
-                description=(
-                    f"cell {cell_id!r} was moved on one side and edited on the "
-                    "other"
-                ),
+                description=(f"cell {cell_id!r} was moved on one side and edited on the other"),
             )
         )
 
@@ -258,8 +255,7 @@ def merge_notebooks(
                         ours_value=None if ours_change.removed else surviving_cell[cell_id],
                         theirs_value=None if theirs_change.removed else surviving_cell[cell_id],
                         description=(
-                            f"cell {cell_id!r} was deleted on one side and "
-                            "changed on the other"
+                            f"cell {cell_id!r} was deleted on one side and changed on the other"
                         ),
                     )
                 )

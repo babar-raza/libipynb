@@ -42,9 +42,7 @@ def _document() -> NotebookDocument:
                     "metadata": {"transient": 2},
                     "source": "",
                     "execution_count": 5,
-                    "outputs": [
-                        {"output_type": "stream", "name": "stderr", "text": "y"}
-                    ],
+                    "outputs": [{"output_type": "stream", "name": "stderr", "text": "y"}],
                 },
             ],
         }

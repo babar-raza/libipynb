@@ -29,18 +29,11 @@ from libipynb.validation.schema import (
 )
 
 MINORS = list(range(6))
-VENDORED = (
-    Path(__file__).resolve().parents[2]
-    / "src/libipynb/validation/schemas"
-)
+VENDORED = Path(__file__).resolve().parents[2] / "src/libipynb/validation/schemas"
 
 
 def _official_bytes(minor: int) -> bytes:
-    return (
-        resources.files("nbformat.v4")
-        .joinpath(f"nbformat.v4.{minor}.schema.json")
-        .read_bytes()
-    )
+    return resources.files("nbformat.v4").joinpath(f"nbformat.v4.{minor}.schema.json").read_bytes()
 
 
 # ── The pinned digests are the official ones ───────────────────────────────

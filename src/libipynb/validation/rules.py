@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import unquote
 
-from ..diagnostics import Diagnostic, DiagnosticSeverity as Severity, SourceLocation
-
 from ..codec.reader import CELL_ID_PATTERN
+from ..diagnostics import Diagnostic, SourceLocation
+from ..diagnostics import DiagnosticSeverity as Severity
 
 KNOWN_TOP_LEVEL = frozenset({"nbformat", "nbformat_minor", "metadata", "cells"})
 KNOWN_CELL_TYPES = frozenset({"code", "markdown", "raw"})
-KNOWN_OUTPUT_TYPES = frozenset(
-    {"stream", "display_data", "execute_result", "error"}
-)
+KNOWN_OUTPUT_TYPES = frozenset({"stream", "display_data", "execute_result", "error"})
 ATTACHMENT_REFERENCE = re.compile(r"attachment:([^\s)\]}>\"']+)")
 
 
@@ -72,9 +71,7 @@ def select_profile(
     major = _integer(model.get("nbformat"))
     minor = _integer(model.get("nbformat_minor"))
     if major != 4:
-        diagnostics.append(
-            diagnostic("IPYNB_VERSION", "nbformat must equal 4", ("nbformat",))
-        )
+        diagnostics.append(diagnostic("IPYNB_VERSION", "nbformat must equal 4", ("nbformat",)))
     if minor is None or minor < 0:
         diagnostics.append(
             diagnostic(
@@ -115,8 +112,7 @@ def select_profile(
         expected = (4, int(selected.split(".", 1)[1]))
     else:
         raise ValueError(
-            "profile must be 'declared', 'current', or one of "
-            "nbformat 4.0 through 4.5"
+            "profile must be 'declared', 'current', or one of nbformat 4.0 through 4.5"
         )
     profile = SelectedProfile(
         selected,
@@ -201,10 +197,7 @@ def _is_json_value(value: object) -> bool:
     if isinstance(value, list):
         return all(_is_json_value(item) for item in value)
     if isinstance(value, Mapping):
-        return all(
-            isinstance(key, str) and _is_json_value(item)
-            for key, item in value.items()
-        )
+        return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
     return False
 
 
@@ -216,17 +209,11 @@ def _validate_mime_bundle(
     container_code: str = "IPYNB_MIME_BUNDLE",
 ) -> None:
     if not isinstance(value, Mapping):
-        diagnostics.append(
-            diagnostic(container_code, "MIME bundle must be an object", path)
-        )
+        diagnostics.append(diagnostic(container_code, "MIME bundle must be an object", path))
         return
     for mime_type, payload in value.items():
         item_path = (*path, str(mime_type))
-        if (
-            not isinstance(mime_type, str)
-            or not mime_type
-            or "/" not in mime_type
-        ):
+        if not isinstance(mime_type, str) or not mime_type or "/" not in mime_type:
             diagnostics.append(
                 diagnostic(
                     "IPYNB_MIME_TYPE",
@@ -242,19 +229,22 @@ def _validate_mime_bundle(
                     item_path,
                 )
             )
-        if isinstance(mime_type, str) and mime_type.startswith("image/"):
-            if not (
+        if (
+            isinstance(mime_type, str)
+            and mime_type.startswith("image/")
+            and not (
                 isinstance(payload, str)
                 or isinstance(payload, list)
                 and all(isinstance(item, str) for item in payload)
-            ):
-                diagnostics.append(
-                    diagnostic(
-                        "IPYNB_BINARY_MIME_VALUE",
-                        "image MIME payload must be a string or string array",
-                        item_path,
-                    )
+            )
+        ):
+            diagnostics.append(
+                diagnostic(
+                    "IPYNB_BINARY_MIME_VALUE",
+                    "image MIME payload must be a string or string array",
+                    item_path,
                 )
+            )
 
 
 def _validate_attachments(
@@ -311,10 +301,7 @@ def _validate_attachments(
             diagnostics,
             container_code="IPYNB_ATTACHMENT_BUNDLE",
         )
-    references = {
-        unquote(value)
-        for value in ATTACHMENT_REFERENCE.findall(source_text or "")
-    }
+    references = {unquote(value) for value in ATTACHMENT_REFERENCE.findall(source_text or "")}
     for missing in sorted(references.difference(names)):
         diagnostics.append(
             diagnostic(
@@ -341,17 +328,11 @@ def _validate_output(
     diagnostics: list[Diagnostic],
 ) -> None:
     if not isinstance(output, Mapping):
-        diagnostics.append(
-            diagnostic("IPYNB_OUTPUT", "output must be an object", path)
-        )
+        diagnostics.append(diagnostic("IPYNB_OUTPUT", "output must be an object", path))
         return
     output_type = output.get("output_type")
     if output_type not in KNOWN_OUTPUT_TYPES:
-        code = (
-            "IPYNB_FORWARD_OUTPUT_TYPE"
-            if profile.allow_forward
-            else "IPYNB_OUTPUT_TYPE"
-        )
+        code = "IPYNB_FORWARD_OUTPUT_TYPE" if profile.allow_forward else "IPYNB_OUTPUT_TYPE"
         diagnostics.append(
             diagnostic(
                 code,
@@ -400,9 +381,7 @@ def _validate_output(
             )
         if output_type == "execute_result":
             count = output.get("execution_count")
-            if isinstance(count, bool) or (
-                count is not None and not isinstance(count, int)
-            ):
+            if isinstance(count, bool) or (count is not None and not isinstance(count, int)):
                 diagnostics.append(
                     diagnostic(
                         "IPYNB_EXECUTION_COUNT",
@@ -421,9 +400,7 @@ def _validate_output(
                 )
             )
     traceback = output.get("traceback")
-    if not isinstance(traceback, list) or any(
-        not isinstance(item, str) for item in traceback
-    ):
+    if not isinstance(traceback, list) or any(not isinstance(item, str) for item in traceback):
         diagnostics.append(
             diagnostic(
                 "IPYNB_ERROR_TRACEBACK",
@@ -460,9 +437,7 @@ def validate_model(
         )
     cells = model.get("cells")
     if not isinstance(cells, list):
-        diagnostics.append(
-            diagnostic("IPYNB_CELLS", "cells must be an array", ("cells",))
-        )
+        diagnostics.append(diagnostic("IPYNB_CELLS", "cells must be an array", ("cells",)))
         return diagnostics
 
     seen_ids: set[str] = set()
@@ -470,26 +445,18 @@ def validate_model(
     for index, cell in enumerate(cells):
         path = ("cells", index)
         if not isinstance(cell, Mapping):
-            diagnostics.append(
-                diagnostic("IPYNB_CELL", "cell must be an object", path)
-            )
+            diagnostics.append(diagnostic("IPYNB_CELL", "cell must be an object", path))
             continue
         cell_type = cell.get("cell_type")
         known_cell = cell_type in KNOWN_CELL_TYPES
         if not known_cell:
-            code = (
-                "IPYNB_FORWARD_CELL_TYPE"
-                if profile.allow_forward
-                else "IPYNB_CELL_TYPE"
-            )
+            code = "IPYNB_FORWARD_CELL_TYPE" if profile.allow_forward else "IPYNB_CELL_TYPE"
             diagnostics.append(
                 diagnostic(
                     code,
                     f"unrecognized cell_type {cell_type!r}",
                     (*path, "cell_type"),
-                    severity=Severity.WARNING
-                    if profile.allow_forward
-                    else Severity.ERROR,
+                    severity=Severity.WARNING if profile.allow_forward else Severity.ERROR,
                 )
             )
 
@@ -556,9 +523,7 @@ def validate_model(
         if not known_cell or cell_type != "code":
             continue
         count = cell.get("execution_count")
-        if isinstance(count, bool) or (
-            count is not None and not isinstance(count, int)
-        ):
+        if isinstance(count, bool) or (count is not None and not isinstance(count, int)):
             diagnostics.append(
                 diagnostic(
                     "IPYNB_EXECUTION_COUNT",

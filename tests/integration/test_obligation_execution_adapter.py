@@ -111,9 +111,7 @@ def test_failing_cell_reports_structured_error_not_a_raised_exception() -> None:
 
 
 def test_first_error_surfaces_the_earliest_failure() -> None:
-    document = _document(
-        [_code("print('ok')", "a"), _code("raise KeyError('missing')", "b")]
-    )
+    document = _document([_code("print('ok')", "a"), _code("raise KeyError('missing')", "b")])
 
     report = execute_notebook(document, timeout=10)
 
@@ -165,9 +163,7 @@ def test_invalid_on_error_value_is_rejected() -> None:
 
 
 def test_timeout_is_reported_structurally_not_raised() -> None:
-    document = _document(
-        [_code("print('before')", "a"), _code("import time; time.sleep(5)", "b")]
-    )
+    document = _document([_code("print('before')", "a"), _code("import time; time.sleep(5)", "b")])
 
     report = execute_notebook(document, timeout=1)
 

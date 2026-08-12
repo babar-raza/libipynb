@@ -65,7 +65,7 @@ class _AuditRecorder:
             if event == forbidden or event.startswith(forbidden):
                 self.events.append(event)
 
-    def __enter__(self) -> "_AuditRecorder":
+    def __enter__(self) -> _AuditRecorder:  # noqa: PYI034
         self._armed = True
         return self
 
@@ -132,9 +132,7 @@ def test_load_never_executes_cell_source(recorder: _AuditRecorder, source: str) 
 
 
 @pytest.mark.parametrize("source", HOSTILE_SOURCES)
-def test_validate_never_executes_cell_source(
-    recorder: _AuditRecorder, source: str
-) -> None:
+def test_validate_never_executes_cell_source(recorder: _AuditRecorder, source: str) -> None:
     notebook = _notebook([source])
     with recorder:
         recorder.events.clear()
@@ -233,10 +231,10 @@ def test_execute_notebook_is_the_sole_execution_entry_point() -> None:
     lifecycle functions are not secretly aliases for it and do not reach it."""
     from libipynb import diff_notebooks as diff_fn
     from libipynb import dumps as dumps_fn
-    from libipynb.adapters import execute_notebook
     from libipynb import loads as loads_fn
     from libipynb import upgrade as upgrade_fn
     from libipynb import validate as validate_fn
+    from libipynb.adapters import execute_notebook
     from libipynb.adapters.execute import execute_notebook as adapter_fn
 
     core_functions = (loads_fn, dumps_fn, validate_fn, diff_fn, upgrade_fn)

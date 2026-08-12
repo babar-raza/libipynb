@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from libipynb import load, loads, NotebookResourceLimitError
+from libipynb import NotebookResourceLimitError, load, loads
 from libipynb.security.limits import NotebookResourceLimits
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -23,7 +23,8 @@ def _minimal_notebook(
     return {
         "nbformat": 4,
         "nbformat_minor": 5,
-        "metadata": metadata or {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
+        "metadata": metadata
+        or {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
         "cells": cells or [],
     }
 

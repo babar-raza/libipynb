@@ -11,8 +11,9 @@ from importlib import resources
 from types import MappingProxyType
 from typing import Any, Final
 
-from ..diagnostics import Diagnostic, SourceLocation
 from jsonschema import ValidationError, validators  # type: ignore[import-untyped]
+
+from ..diagnostics import Diagnostic, SourceLocation
 
 SCHEMA_SOURCE_VERSION: Final = "nbformat-5.10.4"
 SCHEMA_DIGESTS: Final[Mapping[int, str]] = MappingProxyType(
@@ -47,9 +48,7 @@ def canonical_schema_digest(payload: bytes) -> str:
     difference -- a changed key, a changed value, even an extra space inside a
     string -- still changes the digest, so the guard keeps its real purpose.
     """
-    return hashlib.sha256(
-        payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-    ).hexdigest()
+    return hashlib.sha256(payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
 
 
 def _resource_name(minor: int) -> str:
@@ -62,30 +61,21 @@ def _resource_name(minor: int) -> str:
 def _schema(minor: int) -> dict[str, Any]:
     name = _resource_name(minor)
     try:
-        payload = (
-            resources.files(__package__)
-            .joinpath("schemas", name)
-            .read_bytes()
-        )
+        payload = resources.files(__package__).joinpath("schemas", name).read_bytes()
     except (FileNotFoundError, OSError) as exc:
         raise SchemaArtifactError(f"official schema resource {name} is missing") from exc
     actual = canonical_schema_digest(payload)
     expected = SCHEMA_DIGESTS[minor]
     if actual != expected:
         raise SchemaArtifactError(
-            f"official schema resource {name} has digest {actual}, "
-            f"expected {expected}"
+            f"official schema resource {name} has digest {actual}, expected {expected}"
         )
     try:
         value = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SchemaArtifactError(
-            f"official schema resource {name} is not valid JSON"
-        ) from exc
+        raise SchemaArtifactError(f"official schema resource {name} is not valid JSON") from exc
     if not isinstance(value, dict):
-        raise SchemaArtifactError(
-            f"official schema resource {name} must contain an object"
-        )
+        raise SchemaArtifactError(f"official schema resource {name} must contain an object")
     return value
 
 
@@ -144,9 +134,7 @@ def _relevant_errors(error: ValidationError) -> Iterator[ValidationError]:
 def _additional_property_paths(
     error: ValidationError,
 ) -> tuple[tuple[str | int, ...], ...]:
-    if not isinstance(error.instance, Mapping) or not isinstance(
-        error.schema, Mapping
-    ):
+    if not isinstance(error.instance, Mapping) or not isinstance(error.schema, Mapping):
         return ()
     properties = error.schema.get("properties", {})
     known = set(properties) if isinstance(properties, Mapping) else set()
@@ -159,8 +147,7 @@ def _additional_property_paths(
     unknown = [
         key
         for key in error.instance
-        if key not in known
-        and not any(pattern.search(str(key)) for pattern in patterns)
+        if key not in known and not any(pattern.search(str(key)) for pattern in patterns)
     ]
     base = tuple(error.absolute_path)
     return tuple((*base, str(key)) for key in sorted(unknown, key=str))
@@ -176,9 +163,7 @@ def _required_property_paths(
         return ()
     base = tuple(error.absolute_path)
     return tuple(
-        (*base, str(key))
-        for key in required
-        if isinstance(key, str) and key not in error.instance
+        (*base, str(key)) for key in required if isinstance(key, str) and key not in error.instance
     )
 
 
@@ -229,9 +214,7 @@ def schema_diagnostics(
     return sorted(
         diagnostics,
         key=lambda item: (
-            tuple(str(part) for part in item.location.path)
-            if item.location is not None
-            else (),
+            tuple(str(part) for part in item.location.path) if item.location is not None else (),
             item.code,
             item.message,
         ),

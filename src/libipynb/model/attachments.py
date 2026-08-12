@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-import re
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -50,10 +50,7 @@ def _json_value(value: object) -> bool:
     if isinstance(value, list):
         return all(_json_value(item) for item in value)
     if isinstance(value, dict):
-        return all(
-            isinstance(key, str) and _json_value(item)
-            for key, item in value.items()
-        )
+        return all(isinstance(key, str) and _json_value(item) for key, item in value.items())
     return False
 
 
@@ -68,16 +65,10 @@ def _validate_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(bundle, dict) or not bundle:
         raise ValueError("attachment MIME bundle must be a non-empty object")
     for media_type, payload in bundle.items():
-        if (
-            not isinstance(media_type, str)
-            or not media_type
-            or "/" not in media_type
-        ):
+        if not isinstance(media_type, str) or not media_type or "/" not in media_type:
             raise ValueError(f"invalid attachment MIME type: {media_type!r}")
         if not _json_value(payload):
-            raise ValueError(
-                f"attachment MIME payload for {media_type!r} is not JSON-compatible"
-            )
+            raise ValueError(f"attachment MIME payload for {media_type!r} is not JSON-compatible")
     return deepcopy(bundle)
 
 
@@ -210,16 +201,12 @@ class AttachmentManager:
         cell_id: str,
         name: str,
         *,
-        reference_policy: AttachmentReferencePolicy = (
-            AttachmentReferencePolicy.REFUSE
-        ),
+        reference_policy: AttachmentReferencePolicy = (AttachmentReferencePolicy.REFUSE),
         dry_run: bool = False,
     ) -> AttachmentReport:
         _validate_name(name)
         if not isinstance(reference_policy, AttachmentReferencePolicy):
-            raise TypeError(
-                "reference_policy must be an AttachmentReferencePolicy"
-            )
+            raise TypeError("reference_policy must be an AttachmentReferencePolicy")
         target = deepcopy(self.document.raw)
         index, cell = _cell(target, cell_id)
         values = _attachments(cell)
@@ -227,9 +214,7 @@ class AttachmentManager:
             raise KeyError(name)
         references = _reference_count(cell, name)
         if references and reference_policy is AttachmentReferencePolicy.REFUSE:
-            raise ValueError(
-                f"attachment {name!r} is still referenced {references} time(s)"
-            )
+            raise ValueError(f"attachment {name!r} is still referenced {references} time(s)")
         before = deepcopy(values[name])
         del values[name]
         change = AttachmentChange(
@@ -265,17 +250,12 @@ class AttachmentManager:
 
         bundle = deepcopy(values[old_name])
         reordered = {
-            (new_name if name == old_name else name): value
-            for name, value in values.items()
+            (new_name if name == old_name else name): value for name, value in values.items()
         }
         values.clear()
         values.update(reordered)
         references = _reference_count(cell, old_name)
-        rewritten = (
-            _rewrite_references(cell, old_name, new_name)
-            if rewrite_references
-            else 0
-        )
+        rewritten = _rewrite_references(cell, old_name, new_name) if rewrite_references else 0
         change = AttachmentChange(
             "rename",
             ("cells", index, "attachments", old_name),

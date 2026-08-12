@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Callable
-from copy import deepcopy
 from importlib import resources
 from typing import Any
 
 import nbformat
 import pytest
+
 from libipynb import (
     NotebookParseError,
     loads,
@@ -151,7 +150,7 @@ def test_exact_supported_minor_schema_accepts_valid_document(minor: int) -> None
 
 @pytest.mark.parametrize("minor", [1, 2, 3, 4, 5])
 def test_schema_diagnostics_enforce_the_minor_version_floor(minor: int) -> None:
-    """"the nbformat_minor field has a minimum equal to that schema's minor
+    """ "the nbformat_minor field has a minimum equal to that schema's minor
     number" -- each pinned schema declares nbformat_minor's own JSON Schema
     "minimum" as its own minor, so a document that under-declares its minor
     is rejected by the very schema it claims to satisfy."""
@@ -229,12 +228,8 @@ def test_vendored_schema_bundle_has_pinned_exact_digests() -> None:
     test_obligation_schema_digest_encoding.py asserts directly.
     """
     assert SCHEMA_SOURCE_VERSION == "nbformat-5.10.4"
-    root = resources.files("libipynb.validation").joinpath(
-        "schemas"
-    )
+    root = resources.files("libipynb.validation").joinpath("schemas")
 
     for minor, expected in SCHEMA_DIGESTS.items():
-        payload = root.joinpath(
-            f"nbformat.v4.{minor}.schema.json"
-        ).read_bytes()
+        payload = root.joinpath(f"nbformat.v4.{minor}.schema.json").read_bytes()
         assert canonical_schema_digest(payload) == expected

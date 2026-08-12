@@ -7,18 +7,17 @@ or JavaScript into a safe subset.
 
 from __future__ import annotations
 
+import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
 from html.parser import HTMLParser
-import json
-import re
 from typing import Any
 
-from .limits import NotebookResourceLimits as ResourceLimits
-
 from ..model import NotebookDocument
+from .limits import NotebookResourceLimits as ResourceLimits
 from .limits import effective_limits
 
 DEFAULT_ACTIVE_MIME_TYPES = frozenset(
@@ -67,9 +66,7 @@ _URI_ATTRIBUTES = frozenset(
         "xlink:href",
     }
 )
-_MARKDOWN_TARGET = re.compile(
-    r"!?\[[^\]]*]\(\s*(?:<([^>]+)>|([^\s)]+))"
-)
+_MARKDOWN_TARGET = re.compile(r"!?\[[^\]]*]\(\s*(?:<([^>]+)>|([^\s)]+))")
 _MARKDOWN_AUTOLINK = re.compile(
     r"<((?:https?|ftp|file|mailto|javascript|data):[^>\s]+)>",
     re.IGNORECASE,
@@ -110,9 +107,7 @@ class SanitizationPolicy:
             not isinstance(media_type, str) or "/" not in media_type
             for media_type in self.active_mime_types
         ):
-            raise ValueError(
-                "active_mime_types must contain syntactically valid MIME types"
-            )
+            raise ValueError("active_mime_types must contain syntactically valid MIME types")
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,28 +187,19 @@ class _MarkupScanner(HTMLParser):
                 continue
             if name == "style":
                 for match in _CSS_URL.finditer(value):
-                    reference = next(
-                        item for item in match.groups() if item is not None
-                    )
+                    reference = next(item for item in match.groups() if item is not None)
                     self._add_reference(reference)
             if name in _URI_ATTRIBUTES:
-                references = (
-                    value.split(",") if name == "srcset" else [value]
-                )
+                references = value.split(",") if name == "srcset" else [value]
                 for reference in references:
                     target = (
-                        reference.strip().split(maxsplit=1)[0]
-                        if name == "srcset"
-                        else reference
+                        reference.strip().split(maxsplit=1)[0] if name == "srcset" else reference
                     )
                     self._add_reference(target)
 
     def _add_reference(self, value: str) -> None:
         reference = value.strip()
-        if (
-            self.inspect_external_references
-            and _is_external_reference(reference)
-        ):
+        if self.inspect_external_references and _is_external_reference(reference):
             self._observe()
             self.references.add(reference)
 
@@ -261,9 +247,7 @@ def _canonical_payload(payload: Any) -> bytes:
 def _payload_text(payload: Any) -> str:
     if isinstance(payload, str):
         return payload
-    if isinstance(payload, list) and all(
-        isinstance(item, str) for item in payload
-    ):
+    if isinstance(payload, list) and all(isinstance(item, str) for item in payload):
         return "".join(payload)
     return ""
 
@@ -343,9 +327,7 @@ def _add_candidate(
     policy: SanitizationPolicy,
     markdown: bool = False,
 ) -> None:
-    active_mime = media_type.casefold() in {
-        item.casefold() for item in policy.active_mime_types
-    }
+    active_mime = media_type.casefold() in {item.casefold() for item in policy.active_mime_types}
     text = _payload_text(payload)
     hazards: set[str] = set()
     references: set[str] = set()
@@ -399,9 +381,7 @@ def _collect_candidates(
     candidates: list[_Candidate] = []
     for cell_index, cell in enumerate(cells):
         if not isinstance(cell, dict):
-            raise TypeError(
-                f"cell {cell_index} must be an object before sanitization"
-            )
+            raise TypeError(f"cell {cell_index} must be an object before sanitization")
         cell_path: tuple[str | int, ...] = ("cells", cell_index)
         if policy.inspect_markdown and cell.get("cell_type") == "markdown":
             _add_candidate(
@@ -420,15 +400,11 @@ def _collect_candidates(
         attachments = cell.get("attachments")
         if attachments is not None:
             if not isinstance(attachments, dict):
-                raise TypeError(
-                    f"cell {cell_index} attachments must be an object"
-                )
+                raise TypeError(f"cell {cell_index} attachments must be an object")
             for name in sorted(attachments):
                 bundle = attachments[name]
                 if not isinstance(bundle, dict):
-                    raise TypeError(
-                        f"attachment {name!r} MIME bundle must be an object"
-                    )
+                    raise TypeError(f"attachment {name!r} MIME bundle must be an object")
                 for media_type in sorted(bundle):
                     _add_candidate(
                         candidates,
@@ -451,21 +427,15 @@ def _collect_candidates(
         if outputs is None:
             continue
         if not isinstance(outputs, list):
-            raise TypeError(
-                f"cell {cell_index} outputs must be an array before sanitization"
-            )
+            raise TypeError(f"cell {cell_index} outputs must be an array before sanitization")
         for output_index, output in enumerate(outputs):
             if not isinstance(output, dict):
-                raise TypeError(
-                    f"output {cell_index}:{output_index} must be an object"
-                )
+                raise TypeError(f"output {cell_index}:{output_index} must be an object")
             data = output.get("data")
             if data is None:
                 continue
             if not isinstance(data, dict):
-                raise TypeError(
-                    f"output {cell_index}:{output_index} data must be an object"
-                )
+                raise TypeError(f"output {cell_index}:{output_index} data must be an object")
             for media_type in sorted(data):
                 _add_candidate(
                     candidates,
@@ -524,10 +494,7 @@ def _apply_candidates(
         return
     if mode is SanitizationMode.MARK_UNTRUSTED:
         security = _security_metadata(root)
-        marks = [
-            _entry(candidate, "marked_untrusted", payload=False)
-            for candidate in candidates
-        ]
+        marks = [_entry(candidate, "marked_untrusted", payload=False) for candidate in candidates]
         if security.get("untrusted") != marks:
             security["untrusted"] = marks
         return
@@ -536,23 +503,13 @@ def _apply_candidates(
         if candidate.delete_key:
             del candidate.container[candidate.key]
         else:
-            candidate.container[candidate.key] = (
-                [] if isinstance(candidate.payload, list) else ""
-            )
+            candidate.container[candidate.key] = [] if isinstance(candidate.payload, list) else ""
     if mode is SanitizationMode.QUARANTINE and candidates:
         security = _security_metadata(root)
         existing = security.get("quarantine", [])
-        if not isinstance(existing, list) or any(
-            not isinstance(item, dict) for item in existing
-        ):
-            raise TypeError(
-                "metadata.notebook_security.quarantine must be an array "
-                "of objects"
-            )
-        additions = [
-            _entry(candidate, "quarantined", payload=True)
-            for candidate in candidates
-        ]
+        if not isinstance(existing, list) or any(not isinstance(item, dict) for item in existing):
+            raise TypeError("metadata.notebook_security.quarantine must be an array of objects")
+        additions = [_entry(candidate, "quarantined", payload=True) for candidate in candidates]
         security["quarantine"] = [*existing, *additions]
 
 

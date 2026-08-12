@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
-from dataclasses import dataclass
-from enum import Enum
 import hashlib
 import hmac
-from threading import RLock
+from collections import OrderedDict
 from collections.abc import Iterator
+from dataclasses import dataclass
+from enum import Enum
+from threading import RLock
 from typing import Any, Protocol, runtime_checkable
 
-from .limits import NotebookResourceLimits as ResourceLimits
-
 from ..model import NotebookDocument
+from .limits import NotebookResourceLimits as ResourceLimits
 from .limits import effective_limits
 
 STRONG_HMAC_ALGORITHMS = frozenset({"sha256", "sha384", "sha512"})
@@ -46,14 +45,14 @@ class TrustNotary(Protocol):
         document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
-    ) -> "TrustRecord": ...
+    ) -> TrustRecord: ...
 
     def verify(
         self,
         document: NotebookDocument,
         *,
         limits: ResourceLimits | None = None,
-    ) -> "TrustVerification": ...
+    ) -> TrustVerification: ...
 
     def revoke(
         self,
@@ -223,13 +222,11 @@ class HmacNotebookNotary:
         normalized_algorithm = algorithm.casefold()
         if normalized_algorithm not in STRONG_HMAC_ALGORITHMS:
             raise ValueError(
-                "algorithm must be one of: "
-                + ", ".join(sorted(STRONG_HMAC_ALGORITHMS))
+                "algorithm must be one of: " + ", ".join(sorted(STRONG_HMAC_ALGORITHMS))
             )
         if normalized_algorithm not in hashlib.algorithms_available:
             raise ValueError(
-                f"algorithm is unavailable in this Python runtime: "
-                f"{normalized_algorithm}"
+                f"algorithm is unavailable in this Python runtime: {normalized_algorithm}"
             )
         selected_store = store or MemorySignatureStore()
         if not isinstance(selected_store, SignatureStore):
@@ -334,9 +331,9 @@ class HmacNotebookNotary:
 
 
 __all__ = [
+    "STRONG_HMAC_ALGORITHMS",
     "HmacNotebookNotary",
     "MemorySignatureStore",
-    "STRONG_HMAC_ALGORITHMS",
     "SignatureStore",
     "TrustNotary",
     "TrustRecord",

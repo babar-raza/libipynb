@@ -76,7 +76,7 @@ def test_common_lifecycle_and_unknown_member_preservation(tmp_path: Path) -> Non
 
 
 def test_load_from_a_readable_text_stream() -> None:
-    """"Provide load from ... a readable stream" -- Source is typed to accept
+    """ "Provide load from ... a readable stream" -- Source is typed to accept
     anything with a str-returning read(), not only bytes/str/path, but no
     existing test constructed an actual stream object until this one."""
     source = json.dumps(
@@ -94,11 +94,9 @@ def test_load_from_a_readable_text_stream() -> None:
 
 
 def test_dump_writes_to_a_writable_text_stream() -> None:
-    """"Provide save to ... a writable stream" -- Destination is typed to
+    """ "Provide save to ... a writable stream" -- Destination is typed to
     accept anything with a str-accepting write(), not only a path."""
-    document = load(
-        json.dumps({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
-    )
+    document = load(json.dumps({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}))
     buffer = io.StringIO()
 
     dump(document, buffer)

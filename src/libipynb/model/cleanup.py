@@ -27,9 +27,7 @@ class CleanupPolicy:
             "cell_metadata_keys",
         ):
             value = getattr(self, name)
-            if value is not None and any(
-                not isinstance(item, str) or not item for item in value
-            ):
+            if value is not None and any(not isinstance(item, str) or not item for item in value):
                 raise ValueError(f"{name} must contain only non-empty strings")
 
 

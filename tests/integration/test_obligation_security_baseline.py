@@ -35,9 +35,7 @@ from pathlib import Path
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "libipynb"
 
-_FULLY_FORBIDDEN_MODULES = frozenset(
-    {"socket", "http", "ftplib", "smtplib", "pkgutil", "ctypes"}
-)
+_FULLY_FORBIDDEN_MODULES = frozenset({"socket", "http", "ftplib", "smtplib", "pkgutil", "ctypes"})
 
 #: Confined to exactly this one file (the obligation-required opt-in
 #: execution adapter); forbidden everywhere else.
@@ -76,9 +74,10 @@ def test_subprocess_is_imported_only_by_the_execution_adapter() -> None:
     for path in _iter_source_files():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if "subprocess" in _import_names(node):
-                if not path.as_posix().endswith(_SUBPROCESS_ALLOWED_FILE):
-                    offenders.append(str(path))
+            if "subprocess" in _import_names(node) and not path.as_posix().endswith(
+                _SUBPROCESS_ALLOWED_FILE
+            ):
+                offenders.append(str(path))
 
     assert offenders == []
 
@@ -139,8 +138,11 @@ def test_no_eval_or_exec_call_exists_anywhere() -> None:
     for path in _iter_source_files():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id in ("eval", "exec", "compile"):
-                    offenders.append(f"{path}: {node.func.id}(...)")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("eval", "exec", "compile")
+            ):
+                offenders.append(f"{path}: {node.func.id}(...)")
 
     assert offenders == []

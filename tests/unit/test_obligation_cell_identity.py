@@ -98,28 +98,20 @@ def test_absent_names_pass_in_every_profile(profile: str) -> None:
 def test_cells_without_metadata_do_not_break_the_uniqueness_check(
     profile: str,
 ) -> None:
-    notebook = _notebook(
-        profile, [_cell(with_metadata=False), _cell(name="only-one")]
-    )
+    notebook = _notebook(profile, [_cell(with_metadata=False), _cell(name="only-one")])
     assert "IPYNB_CELL_NAME_DUPLICATE" not in _codes(notebook, profile)
 
 
 def test_only_the_colliding_cell_is_reported() -> None:
-    notebook = _notebook(
-        "4.5", [_cell(name="dup"), _cell(name="unique"), _cell(name="dup")]
-    )
+    notebook = _notebook("4.5", [_cell(name="dup"), _cell(name="unique"), _cell(name="dup")])
     report = validate(notebook, profile="4.5")
-    duplicates = [
-        d for d in report.diagnostics if d.code == "IPYNB_CELL_NAME_DUPLICATE"
-    ]
+    duplicates = [d for d in report.diagnostics if d.code == "IPYNB_CELL_NAME_DUPLICATE"]
     assert len(duplicates) == 1, "the first occurrence is not itself a duplicate"
     assert 2 in duplicates[0].location.path, "must point at the second colliding cell"
 
 
 def test_three_way_collision_reports_each_repeat() -> None:
-    notebook = _notebook(
-        "4.5", [_cell(name="dup"), _cell(name="dup"), _cell(name="dup")]
-    )
+    notebook = _notebook("4.5", [_cell(name="dup"), _cell(name="dup"), _cell(name="dup")])
     duplicates = [
         d
         for d in validate(notebook, profile="4.5").diagnostics
@@ -150,7 +142,7 @@ def test_empty_name_fails_in_every_supported_profile(profile: str) -> None:
 
 @pytest.mark.parametrize("profile", ALL_PROFILES)
 def test_names_are_never_synthesized_during_a_passive_read(profile: str) -> None:
-    """"without synthesizing names during passive reads" — load must not invent
+    """ "without synthesizing names during passive reads" — load must not invent
     a name for a cell that has none.
 
     The write is pinned to the declared profile: writing a pre-4.5 notebook at

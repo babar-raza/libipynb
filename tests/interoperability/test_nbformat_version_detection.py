@@ -19,7 +19,7 @@ VALID_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "valid"
 # Collect versioned fixtures: nbformat-4-0.ipynb through nbformat-4-4.ipynb
 # plus minimal.ipynb (which is 4.5)
 _VERSION_FIXTURES: list[tuple[Path, int, int]] = []
-for minor in range(0, 5):
+for minor in range(5):
     path = VALID_DIR / f"nbformat-4-{minor}.ipynb"
     if path.exists():
         _VERSION_FIXTURES.append((path, 4, minor))
@@ -33,6 +33,7 @@ if _minimal.exists():
 # ---------------------------------------------------------------------------
 # Version detection
 # ---------------------------------------------------------------------------
+
 
 class TestVersionDetection:
     """Both libraries should agree on the declared nbformat version."""
@@ -50,9 +51,7 @@ class TestVersionDetection:
     ):
         # libipynb
         doc = libipynb.load(str(path), mode="recovery")
-        assert doc.nbformat == expected_major, (
-            f"libipynb major version mismatch for {path.name}"
-        )
+        assert doc.nbformat == expected_major, f"libipynb major version mismatch for {path.name}"
         assert doc.nbformat_minor == expected_minor, (
             f"libipynb minor version mismatch for {path.name}"
         )
@@ -60,9 +59,7 @@ class TestVersionDetection:
         # nbformat
         with open(path, encoding="utf-8") as fh:
             nb = nbformat_mod.read(fh, as_version=4)
-        assert nb.nbformat == expected_major, (
-            f"nbformat major version mismatch for {path.name}"
-        )
+        assert nb.nbformat == expected_major, f"nbformat major version mismatch for {path.name}"
         assert nb.nbformat_minor == expected_minor, (
             f"nbformat minor version mismatch for {path.name}"
         )
@@ -71,6 +68,7 @@ class TestVersionDetection:
 # ---------------------------------------------------------------------------
 # Cell ID handling (introduced in nbformat 4.5)
 # ---------------------------------------------------------------------------
+
 
 class TestCellIdHandling:
     """v4.5 notebooks should have cell IDs; pre-4.5 should not (or may have
@@ -106,8 +104,7 @@ class TestCellIdHandling:
             # notebook both should preserve the original IDs.
             if lib_id is not None and nb_id is not None:
                 assert lib_id == nb_id, (
-                    f"cell {idx} ID mismatch: "
-                    f"libipynb={lib_id!r}, nbformat={nb_id!r}"
+                    f"cell {idx} ID mismatch: libipynb={lib_id!r}, nbformat={nb_id!r}"
                 )
 
     @pytest.mark.parametrize(
@@ -150,6 +147,4 @@ class TestCellIdHandling:
                 lib_src = "".join(lib_src)
             if isinstance(nb_src, list):
                 nb_src = "".join(nb_src)
-            assert lib_src == nb_src, (
-                f"cell {idx} source mismatch in {path.name}"
-            )
+            assert lib_src == nb_src, f"cell {idx} source mismatch in {path.name}"

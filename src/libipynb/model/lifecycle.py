@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 
 from ..errors import NotebookValidationError
 
@@ -90,9 +91,7 @@ class ConversionResult:
     @property
     def losses(self) -> tuple[ConversionIssue, ...]:
         return tuple(
-            issue
-            for issue in self.issues
-            if issue.disposition is ConversionDisposition.REMOVE
+            issue for issue in self.issues if issue.disposition is ConversionDisposition.REMOVE
         )
 
 
@@ -108,9 +107,7 @@ class DowngradePlan:
     @property
     def losses(self) -> tuple[ConversionIssue, ...]:
         return tuple(
-            issue
-            for issue in self.issues
-            if issue.disposition is ConversionDisposition.REMOVE
+            issue for issue in self.issues if issue.disposition is ConversionDisposition.REMOVE
         )
 
     @property
@@ -118,16 +115,13 @@ class DowngradePlan:
         return tuple(
             issue
             for issue in self.issues
-            if issue.disposition
-            is ConversionDisposition.PRESERVE_AS_EXTENSION
+            if issue.disposition is ConversionDisposition.PRESERVE_AS_EXTENSION
         )
 
     @property
     def blockers(self) -> tuple[ConversionIssue, ...]:
         return tuple(
-            issue
-            for issue in self.issues
-            if issue.disposition is ConversionDisposition.BLOCK
+            issue for issue in self.issues if issue.disposition is ConversionDisposition.BLOCK
         )
 
     @property
@@ -166,8 +160,7 @@ def _declared_version(data: Mapping[str, Any]) -> tuple[int, int]:
         or minor < 0
     ):
         raise NotebookValidationError(
-            "conversion requires integer nbformat and non-negative "
-            "nbformat_minor fields",
+            "conversion requires integer nbformat and non-negative nbformat_minor fields",
             code="IPYNB_CONVERSION_VERSION",
             context={"path": ("nbformat",)},
         )
@@ -225,9 +218,7 @@ def plan_downgrade(
     source_major, source_minor = _declared_version(data)
     target_major, target_minor = _target_version(target)
     if (target_major, target_minor) >= (source_major, source_minor):
-        raise ValueError(
-            "downgrade target must be older than the declared notebook version"
-        )
+        raise ValueError("downgrade target must be older than the declared notebook version")
 
     source_version = NotebookVersion(source_major, source_minor)
     target_version = NotebookVersion(target_major, target_minor)
@@ -280,10 +271,10 @@ def plan_downgrade(
 
     cells = data.get("cells")
     if not isinstance(cells, list):
-        raise AssertionError("validated notebook cells must be an array")
+        raise AssertionError("validated notebook cells must be an array")  # noqa: TRY004
     for index, cell in enumerate(cells):
         if not isinstance(cell, Mapping):
-            raise AssertionError("validated notebook cells must be objects")
+            raise AssertionError("validated notebook cells must be objects")  # noqa: TRY004
         cell_metadata = cell.get("metadata")
         if isinstance(cell_metadata, Mapping):
             if target_minor < 3 and "jupyter" in cell_metadata:
@@ -308,8 +299,7 @@ def plan_downgrade(
                     code="IPYNB_DOWNGRADE_CELL_ID_REMOVED",
                     path=("cells", index, "id"),
                     message=(
-                        f"cell ID is not allowed by nbformat 4.{target_minor} "
-                        "and will be removed"
+                        f"cell ID is not allowed by nbformat 4.{target_minor} and will be removed"
                     ),
                     disposition=ConversionDisposition.REMOVE,
                 )
@@ -335,10 +325,10 @@ def downgrade(
         raise TypeError("plan must be a DowngradePlan")
     data = _copy_source(value)
     source_major, source_minor = _declared_version(data)
-    if (
-        plan.source_version.as_tuple() != (source_major, source_minor)
-        or plan.source_digest != _source_digest(data)
-    ):
+    if plan.source_version.as_tuple() != (
+        source_major,
+        source_minor,
+    ) or plan.source_digest != _source_digest(data):
         raise NotebookValidationError(
             "downgrade plan does not match the current source content",
             code="IPYNB_DOWNGRADE_STALE_PLAN",
@@ -369,9 +359,7 @@ def downgrade(
             "downgrade plan contains blocking unknown-version semantics",
             code="IPYNB_DOWNGRADE_BLOCKED",
             context={
-                "blocker_codes": tuple(
-                    issue.code for issue in plan.blockers
-                ),
+                "blocker_codes": tuple(issue.code for issue in plan.blockers),
             },
         )
     if plan.losses and not accept_loss:
@@ -397,11 +385,11 @@ def downgrade(
     ]
     cells = data.get("cells")
     if not isinstance(cells, list):
-        raise AssertionError("validated notebook cells must be an array")
+        raise AssertionError("validated notebook cells must be an array")  # noqa: TRY004
     if target_minor < 5:
         for index, cell in enumerate(cells):
             if not isinstance(cell, dict):
-                raise AssertionError("validated notebook cells must be objects")
+                raise AssertionError("validated notebook cells must be objects")  # noqa: TRY004
             if "id" in cell:
                 del cell["id"]
                 actions.append(

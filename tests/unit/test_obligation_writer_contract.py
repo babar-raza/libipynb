@@ -184,9 +184,7 @@ def test_unknown_mime_entries_are_retained_at_every_indent(
     indent: int | None,
 ) -> None:
     parsed = json.loads(_write(indent=indent))
-    assert parsed["cells"][0]["outputs"][0]["data"]["application/vnd.acme+json"] == {
-        "k": [3, 1, 2]
-    }
+    assert parsed["cells"][0]["outputs"][0]["data"]["application/vnd.acme+json"] == {"k": [3, 1, 2]}
 
 
 # ── Valid UTF-8 JSON ───────────────────────────────────────────────────────
@@ -200,9 +198,7 @@ def test_non_ascii_is_written_as_utf8_not_escaped(indent: int | None) -> None:
 
 
 @pytest.mark.parametrize("indent", INDENTS)
-def test_dump_writes_utf8_bytes_to_a_file(
-    tmp_path: Path, indent: int | None
-) -> None:
+def test_dump_writes_utf8_bytes_to_a_file(tmp_path: Path, indent: int | None) -> None:
     target = tmp_path / "notebook.ipynb"
     document = loads(json.dumps(_notebook()))
     dump(document, target, indent=indent)  # type: ignore[arg-type]

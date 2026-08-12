@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, fields
-from typing import Any, Callable
+from typing import Any
 
 from ..errors import NotebookResourceLimitError
 
@@ -24,7 +25,7 @@ class NotebookResourceLimits:
             if value <= 0:
                 raise ValueError(f"{descriptor.name} must be greater than zero")
 
-    def with_overrides(self, **values: int) -> "NotebookResourceLimits":
+    def with_overrides(self, **values: int) -> NotebookResourceLimits:
         field_names = {item.name for item in fields(self)}
         unknown = set(values).difference(field_names)
         if unknown:
@@ -32,9 +33,11 @@ class NotebookResourceLimits:
         for name, value in values.items():
             if isinstance(value, bool) or not isinstance(value, int):
                 raise TypeError(f"{name} must be an integer")
-        return NotebookResourceLimits(**{f.name: int(values.get(f.name, getattr(self, f.name))) for f in fields(self)})
+        return NotebookResourceLimits(
+            **{f.name: int(values.get(f.name, getattr(self, f.name))) for f in fields(self)}
+        )
 
-    def enforce(self, name: str, actual: int | float) -> None:
+    def enforce(self, name: str, actual: float) -> None:
         if not hasattr(self, name):
             raise TypeError(f"unknown resource limit: {name}")
         maximum = getattr(self, name)

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from ..codec.reader import Source, load
 
@@ -21,9 +22,7 @@ def cell_type_histogram(
     return dict(
         sorted(
             Counter(
-                str(cell.get("cell_type", "unknown"))
-                for cell in cells
-                if isinstance(cell, Mapping)
+                str(cell.get("cell_type", "unknown")) for cell in cells if isinstance(cell, Mapping)
             ).items()
         )
     )
@@ -47,11 +46,7 @@ def has_execution_errors(value: Source | Mapping[str, Any]) -> bool:
 
 
 def average_source_length(value: Source | Mapping[str, Any]) -> float:
-    cells = [
-        cell
-        for cell in _model(value).get("cells", [])
-        if isinstance(cell, Mapping)
-    ]
+    cells = [cell for cell in _model(value).get("cells", []) if isinstance(cell, Mapping)]
     if not cells:
         return 0.0
     sizes = []

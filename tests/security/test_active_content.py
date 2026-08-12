@@ -6,11 +6,7 @@ MIME types, SVG-embedded scripts, and file-protocol references.
 
 from __future__ import annotations
 
-import json
-
-import pytest
-
-from libipynb import loads, sanitize, NotebookDocument
+from libipynb import NotebookDocument, sanitize
 from libipynb.security import SanitizationMode, SanitizationPolicy
 
 

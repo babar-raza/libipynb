@@ -54,7 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     upgrade_cmd.add_argument("source", help="Path to the .ipynb file.")
     upgrade_cmd.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         metavar="PATH",
         default=None,
         help="Write the upgraded notebook to PATH instead of stdout.",
@@ -89,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 # Command handlers
 # ---------------------------------------------------------------------------
 
+
 def _cmd_probe(args: argparse.Namespace) -> int:
     result = probe(args.source)
     print(json.dumps({"matched": result.matched, "profile": result.profile}))
@@ -101,10 +103,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "valid": report.is_valid,
-                "diagnostics": [
-                    {"code": item.code, "message": item.message}
-                    for item in report
-                ],
+                "diagnostics": [{"code": item.code, "message": item.message} for item in report],
             },
             sort_keys=True,
         )

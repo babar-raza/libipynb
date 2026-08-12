@@ -11,9 +11,7 @@ def get_output_representation(output: dict[str, Any], mime_type: str) -> Any:
     return Output(output).get_representation(mime_type)
 
 
-def add_output_representation(
-    output: dict[str, Any], mime_type: str, value: Any
-) -> dict[str, Any]:
+def add_output_representation(output: dict[str, Any], mime_type: str, value: Any) -> dict[str, Any]:
     Output(output).add_representation(mime_type, value)
     return output
 

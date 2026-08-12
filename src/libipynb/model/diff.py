@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from bisect import bisect_left
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-import hashlib
-import json
 from typing import Any
 
 from .document import NotebookDocument
@@ -44,9 +44,7 @@ class DiffPolicy:
             raise TypeError("ignored_metadata_keys must be a tuple")
         for key in self.ignored_metadata_keys:
             if not isinstance(key, str) or not key:
-                raise ValueError(
-                    "ignored_metadata_keys must contain non-empty strings"
-                )
+                raise ValueError("ignored_metadata_keys must contain non-empty strings")
         object.__setattr__(
             self,
             "ignored_metadata_keys",
@@ -179,9 +177,7 @@ def _canonical_bytes(value: object) -> bytes:
             sort_keys=True,
         ).encode("utf-8")
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "notebook diff requires JSON-compatible finite values"
-        ) from exc
+        raise ValueError("notebook diff requires JSON-compatible finite values") from exc
 
 
 def _strip_named_key(value: Any, key: str) -> None:
@@ -246,9 +242,7 @@ def _cell_index(
             raise TypeError(f"cell at index {position} must be an object")
         cell_id = value.get("id")
         if not isinstance(cell_id, str) or not cell_id:
-            raise ValueError(
-                f"cell at index {position} is missing a stable non-empty ID"
-            )
+            raise ValueError(f"cell at index {position} is missing a stable non-empty ID")
         if cell_id in index:
             raise ValueError(f"cell IDs must be unique: {cell_id}")
         order.append(cell_id)
@@ -412,12 +406,8 @@ def _moved_cell_ids(
     right_order: list[str],
 ) -> set[str]:
     """Return the minimum deterministic set outside the common subsequence."""
-    right_positions = {
-        cell_id: position for position, cell_id in enumerate(right_order)
-    }
-    common_left = [
-        cell_id for cell_id in left_order if cell_id in right_positions
-    ]
+    right_positions = {cell_id: position for position, cell_id in enumerate(right_order)}
+    common_left = [cell_id for cell_id in left_order if cell_id in right_positions]
     if not common_left:
         return set()
 
@@ -468,9 +458,7 @@ def diff_notebooks(
     moved_ids = _moved_cell_ids(left_order, right_order)
 
     cell_changes: list[CellChange] = []
-    for cell_id in right_order + [
-        value for value in left_order if value not in right_index
-    ]:
+    for cell_id in right_order + [value for value in left_order if value not in right_index]:
         left_item = left_index.get(cell_id)
         right_item = right_index.get(cell_id)
         before_index = left_item[0] if left_item is not None else None

@@ -113,9 +113,7 @@ def test_typed_search_avoids_raw_dictionary_access() -> None:
     document = loads(json.dumps(_model_vector()), mode="preservation")
 
     assert [cell.id for cell in document.find_cells(cell_id="code")] == ["code"]
-    assert [cell.id for cell in document.find_cells(cell_type="markdown")] == [
-        "markdown"
-    ]
+    assert [cell.id for cell in document.find_cells(cell_type="markdown")] == ["markdown"]
     assert [cell.id for cell in document.find_cells(tag="run")] == ["code"]
     assert [cell.id for cell in document.find_cells(source_text="text")] == [
         "markdown",

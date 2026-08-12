@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Iterable, Iterator, Mapping
 
 
 class DiagnosticSeverity(StrEnum):
@@ -76,7 +76,5 @@ class ValidationResult:
     def __iter__(self) -> Iterator[Diagnostic]:
         return iter(self.diagnostics)
 
-    def extend(self, diagnostics: Iterable[Diagnostic]) -> "ValidationResult":
+    def extend(self, diagnostics: Iterable[Diagnostic]) -> ValidationResult:
         return ValidationResult((*self.diagnostics, *diagnostics))
-
-

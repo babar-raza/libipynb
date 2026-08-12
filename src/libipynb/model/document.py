@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from .lifecycle import NotebookVersion, RecoveryAction
 
@@ -86,7 +87,7 @@ class Cell:
         return False
 
     @property
-    def output_objects(self) -> list["NotebookOutput"]:
+    def output_objects(self) -> list[NotebookOutput]:
         return []
 
     def to_dict(self) -> dict[str, Any]:
@@ -108,15 +109,11 @@ class CodeCell(Cell):
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
     @property
-    def output_objects(self) -> list["NotebookOutput"]:
+    def output_objects(self) -> list[NotebookOutput]:
         values = self._data.get("outputs", [])
         if not isinstance(values, list):
             return []
-        return [
-            output_from_dict(value)
-            for value in values
-            if isinstance(value, dict)
-        ]
+        return [output_from_dict(value) for value in values if isinstance(value, dict)]
 
 
 class UnknownCell(Cell):
@@ -224,8 +221,7 @@ class NotebookDocument:
         self._data = data
         inferred = NotebookVersion(
             data.get("nbformat")
-            if isinstance(data.get("nbformat"), int)
-            and not isinstance(data.get("nbformat"), bool)
+            if isinstance(data.get("nbformat"), int) and not isinstance(data.get("nbformat"), bool)
             else None,
             data.get("nbformat_minor")
             if isinstance(data.get("nbformat_minor"), int)
@@ -237,7 +233,7 @@ class NotebookDocument:
         self._recovery_actions = tuple(recovery_actions)
 
     @classmethod
-    def from_file(cls, path: str) -> "NotebookDocument":
+    def from_file(cls, path: str) -> NotebookDocument:
         from ..codec.reader import load
 
         return load(path, mode="preservation")
@@ -332,9 +328,7 @@ class NotebookDocument:
     ) -> dict[str, Any]:
         from ..codec.reader import ensure_cell_id
 
-        used_ids = {
-            cell["id"] for cell in self.cells if isinstance(cell.get("id"), str)
-        }
+        used_ids = {cell["id"] for cell in self.cells if isinstance(cell.get("id"), str)}
         cell: dict[str, Any] = {
             "cell_type": cell_type,
             "source": source,
@@ -364,9 +358,9 @@ class NotebookDocument:
     def cleanup(
         self,
         *,
-        policy: "CleanupPolicy | None" = None,
+        policy: CleanupPolicy | None = None,
         dry_run: bool = False,
-    ) -> "ChangeReport":
+    ) -> ChangeReport:
         from .cleanup import cleanup
 
         return cleanup(self, policy=policy, dry_run=dry_run)

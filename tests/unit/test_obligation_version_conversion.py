@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import nbformat
 import pytest
+
 from libipynb import (
     NotebookDocument,
     NotebookValidationError,
@@ -79,16 +80,12 @@ def test_downgrade_plan_reports_loss_and_preserved_extensions() -> None:
     assert first.target_version.as_tuple() == (4, 0)
     assert first.requires_loss_acceptance
     assert not first.blockers
-    assert {issue.code for issue in first.losses} == {
-        "IPYNB_DOWNGRADE_CELL_ID_REMOVED"
-    }
+    assert {issue.code for issue in first.losses} == {"IPYNB_DOWNGRADE_CELL_ID_REMOVED"}
     assert {issue.path for issue in first.losses} == {
         ("cells", 0, "id"),
         ("cells", 1, "id"),
     }
-    assert {
-        issue.code for issue in first.preserved_extensions
-    } == {
+    assert {issue.code for issue in first.preserved_extensions} == {
         "IPYNB_DOWNGRADE_EXECUTION_METADATA_EXTENSION",
         "IPYNB_DOWNGRADE_JUPYTER_METADATA_EXTENSION",
         "IPYNB_DOWNGRADE_NOTEBOOK_METADATA_EXTENSION",
@@ -128,10 +125,7 @@ def test_accepted_downgrade_is_valid_for_every_supported_older_minor(
     assert all("id" not in cell for cell in result.document.cells)
     assert result.document.raw["metadata"]["title"] == "Conversion vector"
     assert result.document.cells[0]["metadata"]["jupyter"]["vendor"] == "keep"
-    assert (
-        result.document.cells[0]["metadata"]["execution"]["vendor"]
-        == "keep"
-    )
+    assert result.document.cells[0]["metadata"]["execution"]["vendor"] == "keep"
     assert result.issues == plan.issues
     assert result.losses == plan.losses
     assert [action.code for action in result.actions] == [
@@ -193,9 +187,7 @@ def test_future_minor_downgrade_is_reported_but_blocked() -> None:
 
     plan = plan_downgrade(document, target="4.5")
 
-    assert [issue.code for issue in plan.blockers] == [
-        "IPYNB_DOWNGRADE_FUTURE_MINOR_UNSUPPORTED"
-    ]
+    assert [issue.code for issue in plan.blockers] == ["IPYNB_DOWNGRADE_FUTURE_MINOR_UNSUPPORTED"]
     with pytest.raises(NotebookValidationError) as raised:
         downgrade(document, plan=plan, accept_loss=True)
     assert raised.value.code == "IPYNB_DOWNGRADE_BLOCKED"
@@ -226,7 +218,7 @@ def test_downgrade_refuses_non_older_or_unsupported_targets(
 
 
 def test_reading_a_higher_minor_preserves_unknown_future_additions() -> None:
-    """"preserve unknown future additions when reading higher minors" -- this
+    """ "preserve unknown future additions when reading higher minors" -- this
     is a plain read, not a downgrade: nothing here is ever converted or
     saved, only loaded and inspected."""
     source = {

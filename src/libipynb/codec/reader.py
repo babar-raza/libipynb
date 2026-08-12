@@ -11,10 +11,9 @@ from pathlib import Path
 from typing import Any, NoReturn, TextIO
 
 from .._internal.probe import ProbeResult
-from ..security.limits import NotebookResourceLimits as ResourceLimits
-
 from ..errors import NotebookParseError
 from ..model import NotebookDocument, NotebookVersion, RecoveryAction
+from ..security.limits import NotebookResourceLimits as ResourceLimits
 from ..security.limits import bounded_object_pairs_hook, effective_limits, enforce_structure
 
 CELL_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -58,9 +57,7 @@ def _generate_cell_id(used_ids: set[str]) -> str:
     return _generate_cell_id_for({}, used_ids)
 
 
-def _generate_cell_id_for(
-    cell: dict[str, Any], used_ids: set[str]
-) -> str:
+def _generate_cell_id_for(cell: dict[str, Any], used_ids: set[str]) -> str:
     canonical = json.dumps(
         {key: value for key, value in cell.items() if key != "id"},
         ensure_ascii=False,
@@ -113,9 +110,7 @@ def _recover_missing(
         actions.append(RecoveryAction(code, path, message))
 
 
-def _parse(
-    text: str, *, mode: str, limits: ResourceLimits
-) -> NotebookDocument:
+def _parse(text: str, *, mode: str, limits: ResourceLimits) -> NotebookDocument:
     if mode not in {"strict", "preservation", "recovery"}:
         raise ValueError("mode must be 'strict', 'preservation', or 'recovery'")
     try:
@@ -199,22 +194,17 @@ def _parse(
         )
 
     minor = notebook.get("nbformat_minor")
-    if minor is not None and (
-        isinstance(minor, bool) or not isinstance(minor, int) or minor < 0
-    ):
+    if minor is not None and (isinstance(minor, bool) or not isinstance(minor, int) or minor < 0):
         _raise_parse(
             "IPYNB_MINOR_VERSION",
             "nbformat_minor must be a non-negative integer",
             ("nbformat_minor",),
         )
-    if mode == "strict" and (
-        major != 4 or not isinstance(minor, int) or minor > 5
-    ):
+    if mode == "strict" and (major != 4 or not isinstance(minor, int) or minor > 5):
         rendered_minor = "missing" if minor is None else str(minor)
         _raise_parse(
             "IPYNB_UNSUPPORTED_VERSION",
-            f"strict profile supports nbformat 4.0 through 4.5, "
-            f"got {major}.{rendered_minor}",
+            f"strict profile supports nbformat 4.0 through 4.5, got {major}.{rendered_minor}",
             ("nbformat", "nbformat_minor"),
         )
 
@@ -343,9 +333,7 @@ def _parse(
                     "strict mode requires code-cell outputs to be an array",
                     (*cell_path, "outputs"),
                 )
-            if isinstance(count, bool) or (
-                count is not None and not isinstance(count, int)
-            ):
+            if isinstance(count, bool) or (count is not None and not isinstance(count, int)):
                 _raise_parse(
                     "IPYNB_EXECUTION_COUNT",
                     "execution_count must be an integer or null",
@@ -417,9 +405,7 @@ def load(
     return _parse(_read_source(source, selected), mode=mode, limits=selected)
 
 
-def load_ipynb(
-    source: Source, *, limits: ResourceLimits | None = None
-) -> dict[str, Any]:
+def load_ipynb(source: Source, *, limits: ResourceLimits | None = None) -> dict[str, Any]:
     notebook = load(source, mode="recovery", limits=limits).raw
     used_ids: set[str] = set()
     cells = notebook.get("cells", [])
@@ -430,12 +416,10 @@ def load_ipynb(
     return notebook
 
 
-def probe(
-    source: Source, *, limits: ResourceLimits | None = None
-) -> ProbeResult:
+def probe(source: Source, *, limits: ResourceLimits | None = None) -> ProbeResult:
     try:
         document = load(source, mode="preservation", limits=limits)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return ProbeResult(False, 0.0, "ipynb", reason=str(exc))
     confidence = 1.0 if document.nbformat == 4 else 0.5
     return ProbeResult(

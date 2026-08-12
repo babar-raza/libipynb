@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 
+import nbformat
 import pytest
 
-import nbformat
 from libipynb import NotebookParseError, NotebookWriteError, dumps, loads, upgrade
 
 
@@ -69,9 +69,7 @@ def test_future_minor_unknown_constructs_match_official_preservation() -> None:
         official_serialized["nbformat_minor"],
     ) == (4, 6)
     assert official_serialized["vendor_root"] == source["vendor_root"]
-    assert official_serialized["cells"][0]["vendor_payload"] == {
-        "ordered": [1, 2, 3]
-    }
+    assert official_serialized["cells"][0]["vendor_payload"] == {"ordered": [1, 2, 3]}
     assert official_serialized["cells"][1]["outputs"][0]["vendor_payload"] == {
         "mime": "application/vnd.example+json"
     }

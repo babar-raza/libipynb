@@ -15,10 +15,10 @@ nbformat_mod = pytest.importorskip("nbformat", reason="nbformat is not installed
 
 import libipynb
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _nbformat_is_valid(path: Path) -> bool:
     """Return True if nbformat considers the notebook valid."""
@@ -29,8 +29,7 @@ def _nbformat_is_valid(path: Path) -> bool:
         return True
     except nbformat_mod.ValidationError:
         return False
-    except Exception:
-        # Read failures (bad JSON, encoding errors) count as invalid
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -39,14 +38,14 @@ def _libipynb_is_valid(path: Path) -> bool:
     try:
         result = libipynb.validate(str(path))
         return result.is_valid
-    except Exception:
-        # Parse failures count as invalid
+    except Exception:  # noqa: BLE001
         return False
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestValidNotebooks:
     """Valid fixtures must pass both validators."""
@@ -57,12 +56,8 @@ class TestValidNotebooks:
         lib_valid = _libipynb_is_valid(valid_fixture_path)
 
         # Both should accept valid fixtures
-        assert lib_valid, (
-            f"libipynb rejected valid fixture {valid_fixture_path.name}"
-        )
-        assert nb_valid, (
-            f"nbformat rejected valid fixture {valid_fixture_path.name}"
-        )
+        assert lib_valid, f"libipynb rejected valid fixture {valid_fixture_path.name}"
+        assert nb_valid, f"nbformat rejected valid fixture {valid_fixture_path.name}"
 
 
 class TestInvalidNotebooks:
@@ -79,9 +74,7 @@ class TestInvalidNotebooks:
         lib_valid = _libipynb_is_valid(invalid_fixture_path)
 
         # libipynb should reject invalid fixtures
-        assert not lib_valid, (
-            f"libipynb accepted invalid fixture {invalid_fixture_path.name}"
-        )
+        assert not lib_valid, f"libipynb accepted invalid fixture {invalid_fixture_path.name}"
 
         # nbformat should also reject them.
         # Some invalid fixtures may be accepted by nbformat due to differences
