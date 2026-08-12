@@ -30,6 +30,7 @@ dependencies = [
 reference = ["nbformat==5.10.4"]
 test = [
     "pytest>=8.3",
+    "pytest-cov>=6.0",
     "hypothesis>=6.100",
     "nbformat>=5.10",
     "pyyaml>=6.0",
@@ -56,6 +57,18 @@ extend-exclude = ["*.ipynb"]
 python_version = "3.11"
 strict = true
 packages = ["libipynb"]
+
+[tool.coverage.run]
+source = ["libipynb"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
