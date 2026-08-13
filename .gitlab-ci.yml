@@ -70,6 +70,31 @@ test-py313:
   variables:
     PYTHON_VERSION: "3.13"
 
+# ── Fuzz (LIBIPYNB-V3, scheduled pipelines only — never blocks a normal push/MR) ──
+# Requires a GitLab CI/CD Schedule (Settings > CI/CD > Schedules) to actually run
+# periodically; that schedule itself is project-server-side config, not part of this
+# file, and has not been created (no GitLab project access from this environment).
+# Until a schedule exists, this job is defined but dormant — it will not appear in
+# any ordinary pipeline (rules below), so it introduces no behavior change today.
+# Gate G2 note: `.[fuzz]` has no atheris upper bound, so this job resolves whatever
+# is latest at run time on python:3.12-slim; only atheris 2.3 on Python 3.11 (via
+# WSL) has actually been run locally (plans/phase2b-execution-evidence.md) — the
+# exact atheris/3.12 combination CI will install has not been locally verified.
+
+fuzz:
+  stage: test
+  image: python:3.12-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  needs: []
+  before_script:
+    - pip install -e ".[fuzz]"
+  script:
+    - python fuzz/fuzz_parser.py -max_total_time=120
+    - python fuzz/fuzz_validator.py -max_total_time=120
+    - python fuzz/fuzz_sanitizer.py -max_total_time=120
+    - python fuzz/fuzz_diff_merge.py -max_total_time=120
+
 # ── Interoperability ─────────────────────────────────────────────────────────
 
 interop:
@@ -95,7 +120,7 @@ package-wheel:
     - /tmp/wheel-test/bin/pip install dist/libipynb-*.whl
     - cd /tmp
     - /tmp/wheel-test/bin/python -c "from libipynb import NotebookDocument, load, validate, NotebookError; print('wheel import OK')"
-    - /tmp/wheel-test/bin/python -c "import libipynb; import pathlib; p = pathlib.Path(libipynb.__file__).resolve(); assert 'site-packages' in str(p), f'not from site-packages: {p}'; print(f'resolved from {p}')"
+    - "/tmp/wheel-test/bin/python -c \"import libipynb; import pathlib; p = pathlib.Path(libipynb.__file__).resolve(); assert 'site-packages' in str(p), f'not from site-packages: {p}'; print(f'resolved from {p}')\""
     - /tmp/wheel-test/bin/libipynb --help
   artifacts:
     paths:

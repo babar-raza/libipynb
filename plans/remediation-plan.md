@@ -19,6 +19,7 @@
 | 2026-08-13 (hardening, this pass) | Added sections 1-13 below (this Change Log, Audit Findings Incorporated, Resolved/Preserved Work, Unresolved Work Register, Taskcard Register, Lane Ownership, Gate Contract, Evidence Contract, Verification Matrix, Repair Loop, Anti-Overclaim Rules, Closeout Criteria, Remaining True Blockers); expanded Tier V from a summary table into 8 full taskcards with status/priority/lane/verification/evidence/stop-conditions/allowed-forbidden-actions/closeout fields; added the same governance fields to the existing B1-B5/M1-M2 cards without removing their original content | Explicit plan-file-hardening request: convert advisory/table-only sections into actionable, gated, evidence-bound taskcards and stop treating "code exists" or "tests pass" as sufficient closure proof |
 | 2026-08-13 (Full-Parity lineage) | Added §15 below (**not** §14 — a concurrent session added its own §14, "V-Tier Execution Batch," to this file while this row was being drafted; the collision was caught before publishing by re-reading the file immediately before editing, not assumed away — see the note at the top of §15 itself), linking to a new, separate child plan, [plans/full-parity-plan.md](full-parity-plan.md), which scopes libipynb's evolution into a full, professional, one-library alternative to the nbformat/nbstripout/nbdime/nbconvert/papermill toolchain, using each as design inspiration and a test-time oracle. That plan explicitly absorbs and completes `LIBIPYNB-V4` (reframed given V4's own now-`partially_done` status), `V5`, `V6` (merge half), and `V7` from this plan's own Tier V rather than duplicating them — see its own §5 Taskcard Register for the absorption mapping. No other content in this file was changed. | User-directed scope expansion beyond publication-readiness remediation; recorded here so the link is discoverable from either document, per this plan's own Gate G9-equivalent concern (a plan going stale relative to a sibling initiative) surfaced during that plan's own forensic drafting — and, concretely, by a real concurrent-edit collision caught during that same drafting, see `full-parity-plan.md` §14 Round 3 |
 | 2026-08-13 (Gate G9 reconciliation) | Added §16 (Gate G9 Reconciliation Log); updated `LIBIPYNB-V7` from `not_attempted` to `partially_done` in §4, §5, §15's absorption table, and its own Tier V taskcard, citing `full-parity-plan.md`'s already-`completed_verified` `P3a`/`P3c` and the real executed `nbdime` oracle comparison in that plan's Round 2 evidence. Jupytext oracle and JupyterLab/VS Code round-trip fixtures left unchanged at `not_attempted` — no evidence exists for those. No product code touched. | Governed convergence loop (this session), Stage 2 post-sprint audit surfaced this plan's own status for `V7` was stale relative to evidence already recorded in a sibling plan — a real Gate G9 finding, not a hypothetical one |
+| 2026-08-13 (V-tier convergence, V3) | Added §17 (Convergence Loop Execution Log). Advanced `LIBIPYNB-V3`: wired the 4 fuzz targets into `.gitlab-ci.yml` as a schedule-gated job; found and fixed a genuine pre-existing YAML syntax defect in the same file (`package-wheel` job, confirmed already present in HEAD, not introduced this session). Gate G1 (regression + YAML parse) and Gate G2 (independent review, `ISSUES_FOUND`/all low severity) both recorded in §17. Stays `partially_done` — remaining gaps (GitLab Schedule activation, corpus-seed directory, CI-exact atheris version untested locally) honestly disclosed, not glossed over. | Governed convergence loop (this session), executing the ungated Tier V backlog per user directive |
 
 No prior content was deleted. All original objective/files/dependencies/tests/acceptance-criteria/non-goals prose for B1-B5 and M1-M2 is preserved verbatim below; V1-V8 are expanded from their original table row content, not replaced.
 
@@ -65,7 +66,7 @@ Final regression state after all of the above: **674 passed, 2 skipped, 0 failed
 | `LIBIPYNB-V1` | `completed_verified` | Secret/PII scanning implemented, tested, independently reviewed (a real redaction leak the review found was fixed) — see §14 addendum |
 | `LIBIPYNB-V2`, `V5`, `V6` | `not_attempted` | Not pulled into this batch; still tracked backlog |
 | `LIBIPYNB-V7` | `partially_done` (reconciled 2026-08-13, see §16) | `nbdime` oracle-comparison half satisfied by `full-parity-plan.md`'s `P3a`/`P3c` (real `nbdime` installed and compared in that plan's Round 2); Jupytext oracle and JupyterLab/VS Code round-trip fixtures remain `not_attempted` |
-| `LIBIPYNB-V3` | `partially_done` | 4 fuzz targets implemented and manually verified (found a real crash, see V8 below); **not** wired into `.gitlab-ci.yml` as an actual periodic job — the card's own acceptance criteria requires that, not just working targets |
+| `LIBIPYNB-V3` | `partially_done` (advanced 2026-08-13, see §17) | 4 fuzz targets implemented and manually verified (found a real crash, see V8 below); now wired into `.gitlab-ci.yml` as a schedule-gated job (never blocks a normal push/MR), but the schedule itself requires a GitLab project-settings action this environment cannot perform, and the exact CI-installed atheris version has not been locally run — see §17 |
 | `LIBIPYNB-V4` | `partially_done` | cwd isolation, env isolation, bounded output capture, and POSIX memory limiting implemented and verified on both Windows and Linux/WSL; CPU-time limiting and network-access denial explicitly deferred, not half-implemented — see §14 addendum |
 | `LIBIPYNB-V8` | `completed_verified` | 4 fresh, dated, independently-reproducible kill-rate reports produced, replacing the stale 2026-08-04 Format Factory figures — see §14 addendum |
 | Tier L (cross-language bindings, plugin SDK, signed manifests, platform-profile validation) | `not_attempted`, deliberately not task-carded | Later differentiation; carding these now would overstate their priority relative to V1-V8 |
@@ -296,6 +297,57 @@ evidence that the reconciliation was checked, not assumed.
 
 ---
 
+## 17. Convergence Loop Execution Log (2026-08-13, this session)
+
+A governed audit → harden → execute → verify loop (`.supervisor/prompts/prompt1..4`)
+picked up the ungated backlog (Tier V items with no Gate G3/G6 blocker) after the
+§16 reconciliation. Each entry below is a taskcard advanced this session, with its
+Gate G1/G2 evidence, following the Repair Loop (§10) and this file's own Evidence
+Contract (§8) exactly as for any other taskcard.
+
+### LIBIPYNB-V3 — fuzz harness wired into CI (schedule-gated), one pre-existing defect found and fixed along the way
+
+**Gate G1:** `.gitlab-ci.yml` now parses (`yaml.safe_load` succeeds); full core regression
+after this change: 696 passed, 2 skipped (`pytest tests/unit/ tests/integration/ tests/security/`);
+`ruff format --check`/`ruff check`/`mypy --strict` all clean. (No Python source was touched
+by this specific change, so the regression run is a smoke check that nothing else drifted,
+not evidence about the CI change itself — the YAML parse and the fuzz command/flag
+cross-check against `fuzz/README.md` are what actually verify this change.)
+
+**What changed:** added a `fuzz:` job to `.gitlab-ci.yml`, gated to `rules: - if:
+'$CI_PIPELINE_SOURCE == "schedule"'` so it never runs on a normal push/MR, running all
+four `fuzz/fuzz_*.py` targets via `pip install -e ".[fuzz]"` (the extras group `pyproject.toml`
+already defined for exactly this). **Incidental fix, found while validating this exact
+file:** `package-wheel`'s second `python -c` script line had an unquoted `: ` inside a
+plain YAML scalar, which is a real, spec-level YAML syntax error, not a style nit --
+confirmed by parsing `git show HEAD:.gitlab-ci.yml` with the same parser and reproducing
+the identical failure there, so this was **not** introduced by this session; it has
+apparently been latent since this line was written, never caught because CI has never
+actually run for real (`LIBIPYNB-B4`, still `blocker` on Gate G3). Fixed by quoting the
+scalar; the underlying shell command is byte-for-byte unchanged (verified by parsing both
+forms and comparing the resulting string). `LIBIPYNB-B4`'s own card permits CI-file edits
+"with cause" -- this is that cause, recorded here since B4 itself remains blocked.
+
+**Gate G2 (independent review, separate agent invocation):** verdict `ISSUES_FOUND`, all
+low severity, none blocking: (1) the exact atheris version CI will resolve on
+`python:3.12-slim` has not been locally run (only atheris 2.3 on Python 3.11 via WSL has,
+per `phase2b-execution-evidence.md`) -- noted as a comment in `.gitlab-ci.yml`; (2) the job
+used a separate `pip install atheris` instead of the existing `fuzz` extras group -- fixed,
+now uses `pip install -e ".[fuzz]"`; (3) `fuzz/` still has no corpus-seed directory, one of
+the card's named "Required evidence" items -- left open, recorded below. Reviewer
+independently re-derived and confirmed the YAML-defect finding and the schedule-gating
+mechanics, and explicitly recommended **not** closing this card as `completed_verified` yet.
+
+**Why this stays `partially_done`, not `completed_verified`:** three real gaps remain, all
+honestly disclosed rather than shipped as an unqualified "done" (Anti-Overclaim Rule AO-2/AO-6):
+(a) actually triggering periodic execution requires a GitLab CI/CD Schedule, a project-settings
+action needing GitLab access this environment does not have; (b) no corpus-seed directory
+exists yet; (c) the CI-resolved atheris version has not been run locally. None of these are
+Gate G3 concerns (no push/tag/publish is involved) -- they are genuine, separate capability
+gaps, recorded precisely rather than glossed over.
+
+---
+
 ## Critical path and dependency graph
 
 ```
@@ -494,7 +546,7 @@ Every card below was previously a single summary-table row; now fully carded per
 
 ### LIBIPYNB-V3 — Coverage-guided fuzz harness
 
-**Status:** `partially_done` (2026-08-13) · **Priority:** P1 · **Lane:** Validation Depth · **Dependencies:** none · **Evidence:** §14 addendum, `plans/phase2b-execution-evidence.md` · **Remaining:** wire into `.gitlab-ci.yml` as a periodic job (targets themselves are implemented and proven working, including finding a real crash)
+**Status:** `partially_done` (advanced 2026-08-13, see §17) · **Priority:** P1 · **Lane:** Validation Depth · **Dependencies:** none · **Evidence:** §14 addendum, `plans/phase2b-execution-evidence.md`, §17 · **Remaining:** a GitLab CI/CD Schedule to actually trigger the now-wired job (project-settings action, out of this environment's reach), a corpus-seed directory, and a local run of the exact atheris version CI will install
 
 - **Source audit finding:** `publication-readiness-assessment.md` §6.7 — "No fuzz corpus/harness exists despite a real adversarial-fixture test suite."
 - **Why it matters:** Hypothesis property tests are schema-constrained generators, not coverage-guided fuzzing; the parser/validator/sanitizer boundary is the highest-value fuzz target given it processes untrusted input by design.
