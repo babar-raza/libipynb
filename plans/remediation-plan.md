@@ -701,6 +701,19 @@ Every card below was previously a single summary-table row; now fully carded per
 - **Forbidden actions:** Reimplementing the Jupyter kernel wire protocol.
 - **Non-goals:** Do not attempt to reimplement the Jupyter kernel wire protocol — stay Python-subprocess-based.
 - **Closeout rules:** `completed_verified` requires Gates G1 and G2, plus demonstrated (not just implemented) enforcement of every named limit.
+- **2026-08-13 (convergence loop, not attempted this pass):** CPU-time limiting needs
+  `resource.setrlimit(RLIMIT_CPU, ...)`, POSIX-only (the `resource` module does not exist on
+  Windows at all -- confirmed directly: `import resource` raises `ModuleNotFoundError` on this
+  session's Windows host). Network-access denial has no dependency-minimal cross-platform
+  primitive either. This session's environment has no POSIX/Linux execution access (no WSL
+  invocation available), unlike the earlier `cwd`/`env`/output/POSIX-memory work, which was
+  demonstrated on Linux via WSL (`phase2b-execution-evidence.md`). Per this card's own Stop
+  Conditions ("do not silently ship partial coverage as complete"), no code was written this
+  pass: an unverifiable implementation would be `claimed_unproven` at best (Evidence Contract,
+  §8) -- exactly the outcome Anti-Overclaim Rule AO-5 warns against, not a real step toward
+  `completed_verified`. Remains `partially_done`. **Resume condition:** pick this up from an
+  environment with real POSIX/Linux execution access (WSL or a Linux host), same as the
+  already-demonstrated half of this card required.
 
 ### LIBIPYNB-V5 — HTML and Jupytext adapters
 
