@@ -21,6 +21,7 @@
 | 2026-08-13 (Gate G9 reconciliation) | Added §16 (Gate G9 Reconciliation Log); updated `LIBIPYNB-V7` from `not_attempted` to `partially_done` in §4, §5, §15's absorption table, and its own Tier V taskcard, citing `full-parity-plan.md`'s already-`completed_verified` `P3a`/`P3c` and the real executed `nbdime` oracle comparison in that plan's Round 2 evidence. Jupytext oracle and JupyterLab/VS Code round-trip fixtures left unchanged at `not_attempted` — no evidence exists for those. No product code touched. | Governed convergence loop (this session), Stage 2 post-sprint audit surfaced this plan's own status for `V7` was stale relative to evidence already recorded in a sibling plan — a real Gate G9 finding, not a hypothetical one |
 | 2026-08-13 (V-tier convergence, V3) | Added §17 (Convergence Loop Execution Log). Advanced `LIBIPYNB-V3`: wired the 4 fuzz targets into `.gitlab-ci.yml` as a schedule-gated job; found and fixed a genuine pre-existing YAML syntax defect in the same file (`package-wheel` job, confirmed already present in HEAD, not introduced this session). Gate G1 (regression + YAML parse) and Gate G2 (independent review, `ISSUES_FOUND`/all low severity) both recorded in §17. Stays `partially_done` — remaining gaps (GitLab Schedule activation, corpus-seed directory, CI-exact atheris version untested locally) honestly disclosed, not glossed over. | Governed convergence loop (this session), executing the ungated Tier V backlog per user directive |
 | 2026-08-13 (V-tier convergence, V2) | Closed `LIBIPYNB-V2`: added `SqliteSignatureStore` to `security/trust.py` (opt-in, stdlib `sqlite3`, no new dependency). Found and fixed a real, separate, pre-existing defect in `HmacNotebookNotary.__init__` (`store or MemorySignatureStore()` truthiness bug silently discarding any explicitly-provided empty store) via the Repair Loop, with a regression test. Gate G2 independent review (separate agent) reproduced the bug for real (reverted the fix, watched the tests fail, restored it) and found one further real WARNING (WAL/SHM sidecar file permissions) — fixed. `completed_verified`. | Governed convergence loop (this session) |
+| 2026-08-13 (V-tier convergence, V6) | Closed `LIBIPYNB-V6`'s remaining `trust`/`analytics` CLI halves (`merge` half already done via `full-parity-plan.md`'s `P3b`): two new `cli/main.py` subcommands, `README.md` updated in the same change (9→11 subcommands), `test_doc_drift.py` passing for real. Gate G2 found and this session fixed one real WARNING (a too-short trust secret raised a raw traceback instead of a clean JSON error). `completed_verified`. | Governed convergence loop (this session) |
 
 No prior content was deleted. All original objective/files/dependencies/tests/acceptance-criteria/non-goals prose for B1-B5 and M1-M2 is preserved verbatim below; V1-V8 are expanded from their original table row content, not replaced.
 
@@ -66,7 +67,8 @@ Final regression state after all of the above: **674 passed, 2 skipped, 0 failed
 | `LIBIPYNB-B4` (remainder: real CI run) | `blocker` | Same authority dependency as B3 — requires a push to trigger a real GitLab pipeline run, see §13 |
 | `LIBIPYNB-V1` | `completed_verified` | Secret/PII scanning implemented, tested, independently reviewed (a real redaction leak the review found was fixed) — see §14 addendum |
 | `LIBIPYNB-V2` | `completed_verified` (2026-08-13, see §17) | `SqliteSignatureStore` implemented, tested, independently reviewed (a real pre-existing `store or MemorySignatureStore()` truthiness bug found and fixed, plus a WAL/SHM sidecar permission gap found and fixed) |
-| `V5`, `V6` | `not_attempted` | Not pulled into this batch; still tracked backlog |
+| `LIBIPYNB-V6` | `completed_verified` (2026-08-13, see §17) | `trust`/`analytics` CLI exposure implemented, tested, independently reviewed (a raw-traceback-on-short-secret defect found and fixed) |
+| `V5` | `not_attempted` | Not pulled into this batch; still tracked backlog |
 | `LIBIPYNB-V7` | `partially_done` (reconciled 2026-08-13, see §16) | `nbdime` oracle-comparison half satisfied by `full-parity-plan.md`'s `P3a`/`P3c` (real `nbdime` installed and compared in that plan's Round 2); Jupytext oracle and JupyterLab/VS Code round-trip fixtures remain `not_attempted` |
 | `LIBIPYNB-V3` | `partially_done` (advanced 2026-08-13, see §17) | 4 fuzz targets implemented and manually verified (found a real crash, see V8 below); now wired into `.gitlab-ci.yml` as a schedule-gated job (never blocks a normal push/MR), but the schedule itself requires a GitLab project-settings action this environment cannot perform, and the exact CI-installed atheris version has not been locally run — see §17 |
 | `LIBIPYNB-V4` | `partially_done` | cwd isolation, env isolation, bounded output capture, and POSIX memory limiting implemented and verified on both Windows and Linux/WSL; CPU-time limiting and network-access denial explicitly deferred, not half-implemented — see §14 addendum |
@@ -94,7 +96,7 @@ Master index. Full card detail for each ID is in the Tier sections further below
 | `LIBIPYNB-V3` | Coverage-guided fuzz harness | `partially_done` | P1 | Validation Depth | none |
 | `LIBIPYNB-V4` | Full execution sandbox | `partially_done` | P1 | Execution Security | M2 (supersedes/extends Approach A) |
 | `LIBIPYNB-V5` | HTML and Jupytext adapters | `not_attempted` | P2 | Conversion & CLI Surface | none |
-| `LIBIPYNB-V6` | CLI exposure for `merge`, `trust`, `analytics` | `not_attempted` | P2 | Conversion & CLI Surface | none |
+| `LIBIPYNB-V6` | CLI exposure for `merge`, `trust`, `analytics` | `completed_verified` | P2 | Conversion & CLI Surface | none |
 | `LIBIPYNB-V7` | Cross-tool oracle expansion | `partially_done` | P2 | Validation Depth | none |
 | `LIBIPYNB-V8` | Re-run mutation testing on current standalone code | `completed_verified` | P1 | Validation Depth | none |
 
@@ -279,7 +281,7 @@ Every limit is **demonstrated**, not just implemented, on **both** platforms thi
 |---|---|---|
 | `LIBIPYNB-V4` | `partially_done` (cwd/env/output/POSIX-memory done; CPU-time and network denial deferred, per §14 above) | `full-parity-plan.md`'s `LIBIPYNB-P4a-1`/`P4a-2`, reframed as "add a second, opt-in kernel-protocol execution engine" rather than "harden the existing subprocess engine further" — the two are complementary, not competing: this file's V4 work hardens the engine that stays the default; the other plan's work adds a new, richer, opt-in alternative engine on top of an already-hardened base |
 | `LIBIPYNB-V5` | `not_attempted` | `P5a`/`P5b`/`P5c` cover the export-adapter question only incidentally (via papermill's output-notebook production); HTML/Jupytext specifically remain this file's own unclaimed scope |
-| `LIBIPYNB-V6` | `not_attempted` | `P3b` (merge CLI exposure) and `P4c` (execute CLI exposure) absorb V6's `merge`/execution halves; **`trust`/`analytics` CLI exposure is not covered by the other plan and remains this file's own open scope** |
+| `LIBIPYNB-V6` | `completed_verified` (2026-08-13, see §17 — `trust`/`analytics` half) | `P3b` (merge CLI exposure) absorbs V6's `merge` half; `P4c` (execute CLI exposure) remains `blocker` on Gate G6 via `full-parity-plan.md`'s own P4a-1 chain, unaffected by this file's own `trust`/`analytics` closure |
 | `LIBIPYNB-V7` | `partially_done` (reconciled 2026-08-13, see §16 — `nbdime` half satisfied via `P3a`/`P3c`) | `P7`/`P8`/`P3c` build the actual cross-tool oracle infrastructure (nbdime, nbconvert, papermill, nbstripout) this card called for |
 
 If a future session picks up `V5`/`V6` (the `trust`/`analytics` half), it should read `full-parity-plan.md` first to avoid re-deriving CLI conventions that plan's `P3b`/`P4c` cards will already have established.
@@ -390,6 +392,40 @@ not trust integrity.) The two INFO notes (an LRU-recency behavioral difference f
 
 **Closeout:** Gates G1 and G2 both satisfied; the one real (WARNING-level) finding was fixed, not
 just accepted, before this taskcard is marked `completed_verified`.
+
+### LIBIPYNB-V6 — `trust`/`analytics` CLI exposure
+
+**What changed:** two new subcommands in `cli/main.py`, following the existing 9 commands'
+JSON-to-stdout/`sort_keys=True` convention exactly. `libipynb analytics <source>` wraps the four
+read-only functions in `libipynb.analytics`. `libipynb trust <source> --sign|--verify|--revoke
+--store PATH --secret-env VAR [--algorithm ...]` wraps `HmacNotebookNotary` + `SqliteSignatureStore`
+(`LIBIPYNB-V2`, already `completed_verified`) -- deliberately **no** `--secret` flag exists; the
+HMAC secret is only ever read from an environment variable, never accepted as a CLI argument,
+so it can't leak into shell history or a process listing. `README.md`'s CLI section updated in
+the same change (9 -> 11 subcommands), verified by the existing automated `test_doc_drift.py`
+guardrail passing for real, not just by eyeballing the diff.
+
+**Gate G1:** full core+property regression, 710 passed/2 skipped; `ruff format --check`/
+`ruff check`/`mypy --strict` clean. New CLI tests cover sign->verify round-trip, trust surviving
+a *separate* `main()` invocation against the same `--store` file (the actual point of pairing
+this with `V2` -- a fresh `SqliteSignatureStore` is constructed on every CLI call, so this is
+real cross-invocation persistence, not just one Python object's lifetime), verify-before-sign
+returning untrusted with exit code 1, revoke removing trust, and a missing `--secret-env`
+variable failing cleanly with exit code 2.
+
+**Gate G2 (independent review, separate agent invocation):** verdict `ISSUES_FOUND`, one real
+WARNING: `HmacNotebookNotary`'s `ValueError` on a too-short (<32 byte) secret was not caught by
+`_cmd_trust`, so it surfaced as a raw Python traceback instead of the established clean-JSON-
+error/exit-2 convention already used one branch above it for a missing env var -- **fixed**,
+with a regression test. Two INFO notes required no change: this file's own then-stale `V6`
+status (corrected as part of this closeout), and an unrelated, pre-existing footgun in a
+different command (`diff --install-git`/`--uninstall-git`/`--git-status`'s missing mutual-
+exclusivity guard, `LIBIPYNB-P3c` scope, not this taskcard's) flagged as a follow-up, not fixed
+here (out of this card's `Allowed actions`).
+
+**Closeout:** Gates G1 and G2 both satisfied for the `trust`/`analytics` halves; the one real
+finding was fixed before `completed_verified`. Combined with `P3b`'s already-verified `merge`
+CLI, all three of this card's originally-named subcommands now exist.
 
 ---
 
@@ -639,7 +675,7 @@ Every card below was previously a single summary-table row; now fully carded per
 
 ### LIBIPYNB-V6 — CLI exposure for `merge`, `trust`, `analytics`
 
-**Status:** `not_attempted` · **Priority:** P2 · **Lane:** Conversion & CLI Surface · **Dependencies:** none
+**Status:** `completed_verified` (`trust`/`analytics` halves, 2026-08-13, see §17; `merge` half already `completed_verified` via `full-parity-plan.md`'s `P3b`) · **Priority:** P2 · **Lane:** Conversion & CLI Surface · **Dependencies:** none
 
 - **Source audit finding:** `publication-readiness-assessment.md` §4 (CLI row) — `merge_notebooks`, `analytics.notebook`, and `security.trust` all exist as library functions but have no CLI surface.
 - **Why it matters:** A developer using the CLI in CI (a named use case in the original mission) currently cannot reach these capabilities without writing Python.
