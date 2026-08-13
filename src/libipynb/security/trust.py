@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import sqlite3
+import stat
 from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from threading import RLock
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, Self, runtime_checkable
 
 from ..model import NotebookDocument
 from .limits import NotebookResourceLimits as ResourceLimits
@@ -141,6 +144,121 @@ def _store_key(digest: str, algorithm: str) -> tuple[str, str]:
     return digest, algorithm
 
 
+class SqliteSignatureStore:
+    """File-backed signature store that survives a process restart.
+
+    Conforms to the same :class:`SignatureStore` protocol as
+    :class:`MemorySignatureStore`. This is purely opt-in: the default
+    trust behavior (``HmacNotebookNotary()`` with no ``store=``) remains
+    the process-local, non-persistent :class:`MemorySignatureStore` --
+    callers must explicitly construct and pass this store to get
+    durability. This is a from-scratch SQLite schema tailored to this
+    store's own three-method contract, not a byte-compatible adapter over
+    the official nbformat ``nbsignatures.db`` file (a genuinely different,
+    larger undertaking not required by this store's own contract).
+    """
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        max_signatures: int | None = 65_535,
+    ) -> None:
+        if max_signatures is not None and (
+            isinstance(max_signatures, bool)
+            or not isinstance(max_signatures, int)
+            or max_signatures <= 0
+        ):
+            raise ValueError("max_signatures must be a positive integer or None")
+        self._max_signatures = max_signatures
+        self._lock = RLock()
+        # check_same_thread=False: this store serializes all access itself
+        # via `_lock`, so the underlying connection is never touched by two
+        # threads concurrently despite being shared across them.
+        self._connection = sqlite3.connect(str(path), check_same_thread=False)
+        with self._lock:
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute(
+                "CREATE TABLE IF NOT EXISTS signatures ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "digest TEXT NOT NULL, "
+                "algorithm TEXT NOT NULL, "
+                "UNIQUE (digest, algorithm))"
+            )
+            self._connection.commit()
+        # WAL mode creates `-wal`/`-shm` sidecar files alongside the main
+        # database file; restrict all three (Gate G2 finding: only the main
+        # file was restricted originally, leaving the sidecars -- which can
+        # hold recently-written digest/algorithm rows, though never the HMAC
+        # secret itself -- world-readable on POSIX until the next checkpoint).
+        for suffix in ("", "-wal", "-shm"):
+            _restrict_to_owner(f"{path}{suffix}")
+
+    def store_signature(self, digest: str, algorithm: str) -> None:
+        digest, algorithm = _store_key(digest, algorithm)
+        with self._lock:
+            self._connection.execute(
+                "INSERT OR REPLACE INTO signatures (digest, algorithm) VALUES (?, ?)",
+                (digest, algorithm),
+            )
+            if self._max_signatures is not None:
+                self._connection.execute(
+                    "DELETE FROM signatures WHERE id NOT IN "
+                    "(SELECT id FROM signatures ORDER BY id DESC LIMIT ?)",
+                    (self._max_signatures,),
+                )
+            self._connection.commit()
+
+    def check_signature(self, digest: str, algorithm: str) -> bool:
+        digest, algorithm = _store_key(digest, algorithm)
+        with self._lock:
+            cursor = self._connection.execute(
+                "SELECT 1 FROM signatures WHERE digest = ? AND algorithm = ? LIMIT 1",
+                (digest, algorithm),
+            )
+            return cursor.fetchone() is not None
+
+    def remove_signature(self, digest: str, algorithm: str) -> None:
+        digest, algorithm = _store_key(digest, algorithm)
+        with self._lock:
+            self._connection.execute(
+                "DELETE FROM signatures WHERE digest = ? AND algorithm = ?",
+                (digest, algorithm),
+            )
+            self._connection.commit()
+
+    def __len__(self) -> int:
+        with self._lock:
+            cursor = self._connection.execute("SELECT COUNT(*) FROM signatures")
+            row = cursor.fetchone()
+            return int(row[0]) if row is not None else 0
+
+    def close(self) -> None:
+        with self._lock:
+            self._connection.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
+
+
+def _restrict_to_owner(path: str | Path) -> None:
+    """Best-effort owner-only file permissions (POSIX); a no-op where
+    unsupported (Windows has no equivalent `chmod` bit for this) or where
+    the underlying filesystem rejects the change -- this is defense in
+    depth for a locally-stored trust database, not the sole control: an
+    attacker able to write to this file still cannot forge a signature the
+    HMAC notary will accept, since doing so requires the notary's own
+    secret, which this store never sees or stores."""
+
+    try:
+        Path(path).chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+
+
 @dataclass(frozen=True, slots=True)
 class _Value:
     value: Any
@@ -228,7 +346,16 @@ class HmacNotebookNotary:
             raise ValueError(
                 f"algorithm is unavailable in this Python runtime: {normalized_algorithm}"
             )
-        selected_store = store or MemorySignatureStore()
+        # Not `store or MemorySignatureStore()`: any store implementing
+        # `__len__` (both MemorySignatureStore and SqliteSignatureStore do)
+        # is falsy while empty, so `or` would silently discard a caller's
+        # explicit, empty store on every first use and replace it with a
+        # throwaway MemorySignatureStore -- discovered via SqliteSignatureStore
+        # (LIBIPYNB-V2): a fresh persistent store looked identical to "no
+        # store provided," so nothing was ever actually persisted. Check
+        # identity against None instead, which is correct regardless of the
+        # store's own truthiness.
+        selected_store = store if store is not None else MemorySignatureStore()
         if not isinstance(selected_store, SignatureStore):
             raise TypeError("store must implement the SignatureStore protocol")
         self._secret = bytes(secret)
@@ -335,6 +462,7 @@ __all__ = [
     "HmacNotebookNotary",
     "MemorySignatureStore",
     "SignatureStore",
+    "SqliteSignatureStore",
     "TrustNotary",
     "TrustRecord",
     "TrustStatus",

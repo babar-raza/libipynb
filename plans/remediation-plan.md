@@ -20,6 +20,7 @@
 | 2026-08-13 (Full-Parity lineage) | Added §15 below (**not** §14 — a concurrent session added its own §14, "V-Tier Execution Batch," to this file while this row was being drafted; the collision was caught before publishing by re-reading the file immediately before editing, not assumed away — see the note at the top of §15 itself), linking to a new, separate child plan, [plans/full-parity-plan.md](full-parity-plan.md), which scopes libipynb's evolution into a full, professional, one-library alternative to the nbformat/nbstripout/nbdime/nbconvert/papermill toolchain, using each as design inspiration and a test-time oracle. That plan explicitly absorbs and completes `LIBIPYNB-V4` (reframed given V4's own now-`partially_done` status), `V5`, `V6` (merge half), and `V7` from this plan's own Tier V rather than duplicating them — see its own §5 Taskcard Register for the absorption mapping. No other content in this file was changed. | User-directed scope expansion beyond publication-readiness remediation; recorded here so the link is discoverable from either document, per this plan's own Gate G9-equivalent concern (a plan going stale relative to a sibling initiative) surfaced during that plan's own forensic drafting — and, concretely, by a real concurrent-edit collision caught during that same drafting, see `full-parity-plan.md` §14 Round 3 |
 | 2026-08-13 (Gate G9 reconciliation) | Added §16 (Gate G9 Reconciliation Log); updated `LIBIPYNB-V7` from `not_attempted` to `partially_done` in §4, §5, §15's absorption table, and its own Tier V taskcard, citing `full-parity-plan.md`'s already-`completed_verified` `P3a`/`P3c` and the real executed `nbdime` oracle comparison in that plan's Round 2 evidence. Jupytext oracle and JupyterLab/VS Code round-trip fixtures left unchanged at `not_attempted` — no evidence exists for those. No product code touched. | Governed convergence loop (this session), Stage 2 post-sprint audit surfaced this plan's own status for `V7` was stale relative to evidence already recorded in a sibling plan — a real Gate G9 finding, not a hypothetical one |
 | 2026-08-13 (V-tier convergence, V3) | Added §17 (Convergence Loop Execution Log). Advanced `LIBIPYNB-V3`: wired the 4 fuzz targets into `.gitlab-ci.yml` as a schedule-gated job; found and fixed a genuine pre-existing YAML syntax defect in the same file (`package-wheel` job, confirmed already present in HEAD, not introduced this session). Gate G1 (regression + YAML parse) and Gate G2 (independent review, `ISSUES_FOUND`/all low severity) both recorded in §17. Stays `partially_done` — remaining gaps (GitLab Schedule activation, corpus-seed directory, CI-exact atheris version untested locally) honestly disclosed, not glossed over. | Governed convergence loop (this session), executing the ungated Tier V backlog per user directive |
+| 2026-08-13 (V-tier convergence, V2) | Closed `LIBIPYNB-V2`: added `SqliteSignatureStore` to `security/trust.py` (opt-in, stdlib `sqlite3`, no new dependency). Found and fixed a real, separate, pre-existing defect in `HmacNotebookNotary.__init__` (`store or MemorySignatureStore()` truthiness bug silently discarding any explicitly-provided empty store) via the Repair Loop, with a regression test. Gate G2 independent review (separate agent) reproduced the bug for real (reverted the fix, watched the tests fail, restored it) and found one further real WARNING (WAL/SHM sidecar file permissions) — fixed. `completed_verified`. | Governed convergence loop (this session) |
 
 No prior content was deleted. All original objective/files/dependencies/tests/acceptance-criteria/non-goals prose for B1-B5 and M1-M2 is preserved verbatim below; V1-V8 are expanded from their original table row content, not replaced.
 
@@ -64,7 +65,8 @@ Final regression state after all of the above: **674 passed, 2 skipped, 0 failed
 | `LIBIPYNB-B3` | `blocker` | Requires explicit maintainer authority to commit/push/tag (Gate G3) — not a missing-credential or missing-work problem, see §13 |
 | `LIBIPYNB-B4` (remainder: real CI run) | `blocker` | Same authority dependency as B3 — requires a push to trigger a real GitLab pipeline run, see §13 |
 | `LIBIPYNB-V1` | `completed_verified` | Secret/PII scanning implemented, tested, independently reviewed (a real redaction leak the review found was fixed) — see §14 addendum |
-| `LIBIPYNB-V2`, `V5`, `V6` | `not_attempted` | Not pulled into this batch; still tracked backlog |
+| `LIBIPYNB-V2` | `completed_verified` (2026-08-13, see §17) | `SqliteSignatureStore` implemented, tested, independently reviewed (a real pre-existing `store or MemorySignatureStore()` truthiness bug found and fixed, plus a WAL/SHM sidecar permission gap found and fixed) |
+| `V5`, `V6` | `not_attempted` | Not pulled into this batch; still tracked backlog |
 | `LIBIPYNB-V7` | `partially_done` (reconciled 2026-08-13, see §16) | `nbdime` oracle-comparison half satisfied by `full-parity-plan.md`'s `P3a`/`P3c` (real `nbdime` installed and compared in that plan's Round 2); Jupytext oracle and JupyterLab/VS Code round-trip fixtures remain `not_attempted` |
 | `LIBIPYNB-V3` | `partially_done` (advanced 2026-08-13, see §17) | 4 fuzz targets implemented and manually verified (found a real crash, see V8 below); now wired into `.gitlab-ci.yml` as a schedule-gated job (never blocks a normal push/MR), but the schedule itself requires a GitLab project-settings action this environment cannot perform, and the exact CI-installed atheris version has not been locally run — see §17 |
 | `LIBIPYNB-V4` | `partially_done` | cwd isolation, env isolation, bounded output capture, and POSIX memory limiting implemented and verified on both Windows and Linux/WSL; CPU-time limiting and network-access denial explicitly deferred, not half-implemented — see §14 addendum |
@@ -88,7 +90,7 @@ Master index. Full card detail for each ID is in the Tier sections further below
 | `LIBIPYNB-M1` | Close the base64-validity gap in the validator | `completed_verified` | P1 | Validation Depth | none |
 | `LIBIPYNB-M2` | Decide and implement the execution adapter's production posture | `completed_verified` | P1 | Execution Security | B1 (documentation it reinforces) |
 | `LIBIPYNB-V1` | Secret/PII scanning hooks | `completed_verified` | P1 | Governance & Trust | none |
-| `LIBIPYNB-V2` | Persistent trust/signature store | `not_attempted` | P2 | Governance & Trust | none |
+| `LIBIPYNB-V2` | Persistent trust/signature store | `completed_verified` | P2 | Governance & Trust | none |
 | `LIBIPYNB-V3` | Coverage-guided fuzz harness | `partially_done` | P1 | Validation Depth | none |
 | `LIBIPYNB-V4` | Full execution sandbox | `partially_done` | P1 | Execution Security | M2 (supersedes/extends Approach A) |
 | `LIBIPYNB-V5` | HTML and Jupytext adapters | `not_attempted` | P2 | Conversion & CLI Surface | none |
@@ -346,6 +348,49 @@ exists yet; (c) the CI-resolved atheris version has not been run locally. None o
 Gate G3 concerns (no push/tag/publish is involved) -- they are genuine, separate capability
 gaps, recorded precisely rather than glossed over.
 
+### LIBIPYNB-V2 — persistent SQLite trust store, and a real pre-existing bug it exposed
+
+**What changed:** `SqliteSignatureStore` added to `security/trust.py`, conforming to the same
+`SignatureStore` protocol as `MemorySignatureStore` -- opt-in only, the default
+`HmacNotebookNotary()` with no `store=` is unchanged. File-backed via stdlib `sqlite3` (no new
+dependency), WAL mode, an in-process `RLock` serializing all connection access, parameterized
+queries throughout, an optional `max_signatures` bound matching `MemorySignatureStore`'s own
+culling behavior, and best-effort owner-only file permissions.
+
+**Gate G1:** full core+property regression after this taskcard and `V6` (below) together:
+709 passed, 2 skipped; `ruff format --check`/`ruff check`/`mypy --strict` all clean.
+
+**A real, separate, pre-existing defect found and fixed while testing this (Repair Loop, §10):**
+the very first version of the new store's own restart-survival test failed --
+`test_sqlite_store_trust_survives_a_process_restart` asserted `True`, got `False`. Root-caused,
+not patched at the symptom: `HmacNotebookNotary.__init__` used `store or MemorySignatureStore()`,
+which relies on Python truthiness -- and any store implementing `__len__` (both the pre-existing
+`MemorySignatureStore` and the new `SqliteSignatureStore`) evaluates as falsy while empty, which
+is true the very first time *any* fresh store is used. The caller's explicit store was silently
+discarded and replaced with a throwaway in-memory one, so nothing was ever actually persisted --
+this was not a new bug introduced by this taskcard, it was a latent defect in code that predates
+this session, only ever masked because the one existing test double for a pluggable store
+(`RecordingStore`) happens not to implement `__len__`. Fixed to `store if store is not None else
+MemorySignatureStore()`; a regression test (`test_explicit_empty_store_is_not_silently_replaced`)
+was added, encoding the exact failure mode so it cannot silently reappear.
+
+**Gate G2 (independent review, separate agent invocation):** verdict `ISSUES_FOUND`, one real
+WARNING, two INFO notes, nothing CRITICAL. **The reviewer independently reproduced the root-cause
+bug**, not just read the claim: reverted the one-line fix, re-ran the two affected tests, watched
+both fail exactly as predicted, then restored the fix and confirmed all 19 tests pass again --
+this is recorded here as the strongest form of evidence this plan's own Gate G2 discipline calls
+for (Anti-Overclaim Rule AO-2: tests passing is not the same as independently verified). The one
+real finding: SQLite's `-wal`/`-shm` sidecar files (created alongside the main database file in
+WAL mode) were not permission-restricted the way the main file was, verified on real POSIX (WSL)
+to be world-readable (`0o644`) versus the main file's `0o600` -- **fixed** by restricting all
+three paths, not just the primary one. (Not a signature-forgery risk either way: this store never
+holds the HMAC secret, only digest/algorithm pairs, so the exposure was metadata confidentiality,
+not trust integrity.) The two INFO notes (an LRU-recency behavioral difference from
+`MemorySignatureStore`, and this plan-file-drift note itself) required no code change.
+
+**Closeout:** Gates G1 and G2 both satisfied; the one real (WARNING-level) finding was fixed, not
+just accepted, before this taskcard is marked `completed_verified`.
+
 ---
 
 ## Critical path and dependency graph
@@ -530,7 +575,7 @@ Every card below was previously a single summary-table row; now fully carded per
 
 ### LIBIPYNB-V2 — Persistent trust/signature store
 
-**Status:** `not_attempted` · **Priority:** P2 · **Lane:** Governance & Trust · **Dependencies:** none
+**Status:** `completed_verified` (2026-08-13, see §17) · **Priority:** P2 · **Lane:** Governance & Trust · **Dependencies:** none
 
 - **Source audit finding:** `publication-readiness-assessment.md` §4 (Trust/HMAC notary row) — bundled `SignatureStore` is process-local memory only.
 - **Why it matters:** "Trusted" status currently does not survive a process restart unless the caller supplies their own store, limiting real-world utility of the otherwise-complete HMAC notary implementation.

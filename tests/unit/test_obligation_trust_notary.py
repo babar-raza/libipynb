@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
 from copy import deepcopy
+from pathlib import Path
 
 import nbformat
 import pytest
@@ -13,6 +15,7 @@ from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security import (
     HmacNotebookNotary,
     MemorySignatureStore,
+    SqliteSignatureStore,
     TrustStatus,
 )
 from libipynb.security.limits import NotebookResourceLimits as ResourceLimits
@@ -142,6 +145,28 @@ def test_signature_store_is_pluggable_and_uses_official_method_contract() -> Non
     ]
 
 
+def test_explicit_empty_store_is_not_silently_replaced() -> None:
+    # Regression test for a real defect found while adding
+    # SqliteSignatureStore (LIBIPYNB-V2): `store or MemorySignatureStore()`
+    # used truthiness, so ANY explicitly-provided, currently-empty store
+    # implementing `__len__` (MemorySignatureStore included) was silently
+    # discarded and replaced on every first use -- a caller's persistent
+    # store looked indistinguishable from "no store provided" until it
+    # happened to already contain at least one signature, which it never
+    # could, since this bug prevented the very first write from ever
+    # reaching it.
+    explicit_store = MemorySignatureStore()
+    assert len(explicit_store) == 0  # falsy under the old `or` check
+
+    notary = HmacNotebookNotary(secret=SECRET, store=explicit_store)
+    assert notary.store is explicit_store
+
+    document = _document()
+    notary.sign(document)
+    assert len(explicit_store) == 1
+    assert explicit_store.check_signature(notary.compute_signature(document), notary.algorithm)
+
+
 def test_memory_store_is_bounded_and_deterministically_culls_oldest() -> None:
     store = MemorySignatureStore(max_signatures=2)
     store.store_signature("first", "sha256")
@@ -194,3 +219,113 @@ def test_notary_never_calls_notebook_objects_or_payloads() -> None:
 
     with pytest.raises(TypeError, match="JSON-compatible"):
         notary.compute_signature(document)
+
+
+# ── LIBIPYNB-V2: persistent (SQLite) signature store ────────────────────────
+
+
+def test_sqlite_store_round_trips_sign_verify_revoke(tmp_path: Path) -> None:
+    store = SqliteSignatureStore(tmp_path / "trust.db")
+    document = _document()
+    notary = HmacNotebookNotary(secret=SECRET, store=store)
+
+    record = notary.sign(document)
+    assert notary.check_signature(document) is True
+    assert notary.verify(document).status is TrustStatus.TRUSTED
+    assert notary.revoke(document) is True
+    assert notary.check_signature(document) is False
+    assert notary.revoke_record(record) is False
+    store.close()
+
+
+def test_sqlite_store_uses_the_official_method_contract(tmp_path: Path) -> None:
+    store = SqliteSignatureStore(tmp_path / "trust.db")
+    assert hasattr(store, "store_signature")
+    assert hasattr(store, "check_signature")
+    assert hasattr(store, "remove_signature")
+    store.close()
+
+
+def test_sqlite_store_trust_survives_a_process_restart(tmp_path: Path) -> None:
+    db_path = tmp_path / "trust.db"
+    document = _document()
+
+    first_process_store = SqliteSignatureStore(db_path)
+    first_process_notary = HmacNotebookNotary(secret=SECRET, store=first_process_store)
+    first_process_notary.sign(document)
+    first_process_store.close()  # simulates the process exiting
+
+    second_process_store = SqliteSignatureStore(db_path)
+    second_process_notary = HmacNotebookNotary(secret=SECRET, store=second_process_store)
+    assert second_process_notary.check_signature(document) is True
+    second_process_store.close()
+
+
+def test_sqlite_store_is_opt_in_default_notary_behavior_is_unchanged() -> None:
+    # Constructing a notary with no `store=` must still use the in-memory,
+    # non-persistent default -- this store's mere existence must not change
+    # HmacNotebookNotary's own default.
+    notary = HmacNotebookNotary(secret=SECRET)
+    assert isinstance(notary.store, MemorySignatureStore)
+
+
+def test_sqlite_store_is_bounded_and_culls_oldest(tmp_path: Path) -> None:
+    store = SqliteSignatureStore(tmp_path / "trust.db", max_signatures=2)
+    store.store_signature("first", "sha256")
+    store.store_signature("second", "sha256")
+    store.store_signature("third", "sha256")
+
+    assert store.check_signature("first", "sha256") is False
+    assert store.check_signature("second", "sha256") is True
+    assert store.check_signature("third", "sha256") is True
+    assert len(store) == 2
+    store.close()
+
+
+def test_sqlite_store_unbounded_when_max_signatures_is_none(tmp_path: Path) -> None:
+    store = SqliteSignatureStore(tmp_path / "trust.db", max_signatures=None)
+    for index in range(10):
+        store.store_signature(f"digest-{index}", "sha256")
+    assert len(store) == 10
+    store.close()
+
+
+def test_sqlite_store_rejects_invalid_max_signatures(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_signatures"):
+        SqliteSignatureStore(tmp_path / "trust.db", max_signatures=0)
+    with pytest.raises(ValueError, match="max_signatures"):
+        SqliteSignatureStore(tmp_path / "trust.db", max_signatures=True)
+
+
+def test_sqlite_store_concurrent_writes_from_multiple_threads(tmp_path: Path) -> None:
+    import threading
+
+    store = SqliteSignatureStore(tmp_path / "trust.db", max_signatures=None)
+    errors: list[BaseException] = []
+
+    def _write(index: int) -> None:
+        try:
+            store.store_signature(f"digest-{index}", "sha256")
+        except BaseException as exc:  # noqa: BLE001 -- captured for the assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_write, args=(i,)) for i in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert len(store) == 20
+    for index in range(20):
+        assert store.check_signature(f"digest-{index}", "sha256") is True
+    store.close()
+
+
+def test_sqlite_store_context_manager_closes_the_connection(tmp_path: Path) -> None:
+    db_path = tmp_path / "trust.db"
+    with SqliteSignatureStore(db_path) as store:
+        store.store_signature("digest", "sha256")
+        assert store.check_signature("digest", "sha256") is True
+    with pytest.raises(sqlite3.ProgrammingError):
+        store.check_signature("digest", "sha256")
