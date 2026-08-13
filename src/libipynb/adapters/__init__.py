@@ -13,6 +13,8 @@ from .export import (
     AncillaryResource,
     ExportAdapter,
     ExportResult,
+    HtmlExporter,
+    JupytextExporter,
     MarkdownExporter,
     PythonScriptExporter,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "ExecutionReport",
     "ExportAdapter",
     "ExportResult",
+    "HtmlExporter",
+    "JupytextExporter",
     "MarkdownExporter",
     "PythonScriptExporter",
     "execute_notebook",

@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
+from ..errors import NotebookError
 from ..model.document import NotebookDocument, cell_from_dict
 
 
@@ -154,5 +159,141 @@ class PythonScriptExporter:
             metadata={
                 "format": "python",
                 "cell_count": document.cell_count,
+            },
+        )
+
+
+class HtmlExporter:
+    """Export a notebook to self-contained HTML via the real `nbconvert` tool.
+
+    LIBIPYNB-V5: wraps `python -m nbconvert --to html --stdout` as a
+    subprocess rather than importing nbconvert as a Python module --
+    `src/libipynb/**` must never do so (`tests/unit/test_import_boundary.py`
+    statically enforces this for exactly this reason: `nbconvert` is a
+    test-time oracle/exec-extra tool, not a runtime dependency of the core
+    package). This is the same "wrap the real tool without a Python import
+    dependency on it" pattern already used by :mod:`libipynb.adapters.execute`
+    and the git diff/merge driver integration -- not a workaround invented
+    for this adapter alone.
+
+    One-directional: HTML is not a format libipynb (or nbconvert) can read
+    back into an equivalent notebook, unlike :class:`JupytextExporter`.
+    Requires the ``export`` extra (``pip install libipynb[export]``), or any
+    other installation that provides ``python -m nbconvert`` on this same
+    interpreter.
+    """
+
+    def __init__(self, *, timeout: float = 120.0) -> None:
+        self.timeout = timeout
+
+    def export(self, document: NotebookDocument) -> ExportResult:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "notebook.ipynb"
+            source_path.write_text(json.dumps(document.raw), encoding="utf-8")
+            try:
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "nbconvert",
+                        "--to",
+                        "html",
+                        "--stdout",
+                        str(source_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=self.timeout,
+                    check=False,
+                )
+            except FileNotFoundError as exc:
+                raise NotebookError(
+                    "HTML export requires nbconvert to be installed "
+                    "(pip install libipynb[export] or pip install nbconvert)",
+                    code="export_tool_unavailable",
+                ) from exc
+            except subprocess.TimeoutExpired as exc:
+                raise NotebookError(
+                    f"nbconvert did not finish converting to HTML within {self.timeout}s",
+                    code="export_tool_timeout",
+                ) from exc
+
+        if completed.returncode != 0:
+            # Gate G2 finding: the common "not installed" case does not
+            # raise FileNotFoundError (sys.executable itself always exists)
+            # -- `python -m nbconvert` runs successfully as a process and
+            # exits non-zero with "No module named nbconvert" on stderr.
+            # Detect that specific message so this case gets the same
+            # actionable, install-pointing error as a genuinely missing
+            # interpreter, instead of a generic "failed" message.
+            if "No module named nbconvert" in completed.stderr:
+                raise NotebookError(
+                    "HTML export requires nbconvert to be installed "
+                    "(pip install libipynb[export] or pip install nbconvert)",
+                    code="export_tool_unavailable",
+                )
+            raise NotebookError(
+                f"nbconvert failed converting to HTML: {completed.stderr.strip()}",
+                code="export_tool_failed",
+            )
+        return ExportResult(
+            content=completed.stdout,
+            resources=(),
+            metadata={
+                "format": "html",
+                "cell_count": document.cell_count,
+                "reversible": False,
+            },
+        )
+
+
+class JupytextExporter:
+    """Export a notebook to Jupytext's paired-text format via the real
+    `jupytext` library.
+
+    LIBIPYNB-V5: unlike :class:`HtmlExporter`, `jupytext` is imported
+    directly -- it is not in `test_import_boundary.py`'s forbidden list.
+    `jupytext.reads()`/`writes()` are used with the notebook passed as a
+    JSON *string* (``fmt="ipynb"``), not a dict, so jupytext's own internal
+    ipynb reader constructs whatever object it needs -- this module never
+    imports `nbformat` itself, preserving libipynb's independent-
+    implementation design even though jupytext transitively depends on it.
+
+    Round-trips: unlike HTML, Jupytext's text formats are designed to be
+    read back into an equivalent notebook (by jupytext itself, not by
+    libipynb). Requires the ``export`` extra (``pip install
+    libipynb[export]``) or a standalone `jupytext` install.
+    """
+
+    def __init__(self, *, fmt: str = "py:percent") -> None:
+        self.fmt = fmt
+
+    def export(self, document: NotebookDocument) -> ExportResult:
+        try:
+            import jupytext  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise NotebookError(
+                "Jupytext export requires the jupytext package "
+                "(pip install libipynb[export] or pip install jupytext)",
+                code="export_tool_unavailable",
+            ) from exc
+
+        try:
+            node = jupytext.reads(json.dumps(document.raw), fmt="ipynb")
+            content = jupytext.writes(node, fmt=self.fmt)
+        except Exception as exc:  # jupytext raises its own varied error types
+            raise NotebookError(
+                f"jupytext failed exporting to {self.fmt!r}: {exc}",
+                code="export_tool_failed",
+            ) from exc
+
+        return ExportResult(
+            content=content,
+            resources=(),
+            metadata={
+                "format": f"jupytext:{self.fmt}",
+                "cell_count": document.cell_count,
+                "reversible": True,
             },
         )

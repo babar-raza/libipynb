@@ -31,10 +31,32 @@ reference = ["nbformat==5.10.4"]
 test = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    "pytest-timeout>=2.3",
     "hypothesis>=6.100",
     "nbformat>=5.10",
     "pyyaml>=6.0",
 ]
+# Linux-only: atheris has no Windows wheels and fails to build from source
+# there. See fuzz/README.md.
+fuzz = ["atheris>=2.3; sys_platform == 'linux'"]
+# Real Jupyter kernel-protocol execution (plans/full-parity-plan.md LIBIPYNB-P4).
+# Ships to end users who opt into engine="kernel"; never imported by core
+# src/libipynb code -- see tests/unit/test_import_boundary.py.
+exec = ["jupyter_client>=8.6", "nbclient>=0.10"]
+# Test-only cross-tool oracle comparisons (plans/full-parity-plan.md Gate G8).
+# Never imported by src/libipynb; only by tests/oracle/.
+oracle = ["nbdime>=4.0", "nbconvert>=7.16", "papermill>=2.6", "nbstripout>=0.7"]
+# End-user-facing export adapters (LIBIPYNB-V5): HtmlExporter and
+# JupytextExporter. jupytext is imported directly by adapters/export.py
+# (allowed -- it is not in test_import_boundary.py's forbidden list).
+# nbconvert is intentionally NOT imported anywhere in src/libipynb/ (it IS
+# forbidden -- see test_import_boundary.py); HtmlExporter instead shells out
+# to `python -m nbconvert` as a subprocess, the same "wrap the real tool
+# without taking a Python import dependency on it" pattern already used by
+# adapters/execute.py and the git diff/merge driver integration. nbconvert
+# is still listed here so `pip install libipynb[export]` is a complete,
+# one-line install for both adapters.
+export = ["jupytext>=1.16", "nbconvert>=7.16"]
 
 [project.scripts]
 libipynb = "libipynb.cli:main"

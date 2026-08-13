@@ -22,6 +22,7 @@
 | 2026-08-13 (V-tier convergence, V3) | Added §17 (Convergence Loop Execution Log). Advanced `LIBIPYNB-V3`: wired the 4 fuzz targets into `.gitlab-ci.yml` as a schedule-gated job; found and fixed a genuine pre-existing YAML syntax defect in the same file (`package-wheel` job, confirmed already present in HEAD, not introduced this session). Gate G1 (regression + YAML parse) and Gate G2 (independent review, `ISSUES_FOUND`/all low severity) both recorded in §17. Stays `partially_done` — remaining gaps (GitLab Schedule activation, corpus-seed directory, CI-exact atheris version untested locally) honestly disclosed, not glossed over. | Governed convergence loop (this session), executing the ungated Tier V backlog per user directive |
 | 2026-08-13 (V-tier convergence, V2) | Closed `LIBIPYNB-V2`: added `SqliteSignatureStore` to `security/trust.py` (opt-in, stdlib `sqlite3`, no new dependency). Found and fixed a real, separate, pre-existing defect in `HmacNotebookNotary.__init__` (`store or MemorySignatureStore()` truthiness bug silently discarding any explicitly-provided empty store) via the Repair Loop, with a regression test. Gate G2 independent review (separate agent) reproduced the bug for real (reverted the fix, watched the tests fail, restored it) and found one further real WARNING (WAL/SHM sidecar file permissions) — fixed. `completed_verified`. | Governed convergence loop (this session) |
 | 2026-08-13 (V-tier convergence, V6) | Closed `LIBIPYNB-V6`'s remaining `trust`/`analytics` CLI halves (`merge` half already done via `full-parity-plan.md`'s `P3b`): two new `cli/main.py` subcommands, `README.md` updated in the same change (9→11 subcommands), `test_doc_drift.py` passing for real. Gate G2 found and this session fixed one real WARNING (a too-short trust secret raised a raw traceback instead of a clean JSON error). `completed_verified`. | Governed convergence loop (this session) |
+| 2026-08-13 (V-tier convergence, V5) | Closed `LIBIPYNB-V5`: `HtmlExporter` (subprocess-wraps `python -m nbconvert`, never imports it -- a real conflict between this card's original "wrap nbconvert" text and `test_import_boundary.py`'s blanket ban, resolved by wrapping via subprocess instead of Python import) and `JupytextExporter` (imports `jupytext` directly; avoids importing `nbformat` itself by passing JSON text through jupytext's own reader). New `export` extras group in `pyproject.toml`. Gate G2 found and this session fixed two real WARNINGs: a not-installed-vs-generic-failure misclassification, and a missing static check confining the new subprocess call to `nbconvert`-only (added, mirroring the existing git-only checker). `completed_verified`. | Governed convergence loop (this session) |
 
 No prior content was deleted. All original objective/files/dependencies/tests/acceptance-criteria/non-goals prose for B1-B5 and M1-M2 is preserved verbatim below; V1-V8 are expanded from their original table row content, not replaced.
 
@@ -68,7 +69,7 @@ Final regression state after all of the above: **674 passed, 2 skipped, 0 failed
 | `LIBIPYNB-V1` | `completed_verified` | Secret/PII scanning implemented, tested, independently reviewed (a real redaction leak the review found was fixed) — see §14 addendum |
 | `LIBIPYNB-V2` | `completed_verified` (2026-08-13, see §17) | `SqliteSignatureStore` implemented, tested, independently reviewed (a real pre-existing `store or MemorySignatureStore()` truthiness bug found and fixed, plus a WAL/SHM sidecar permission gap found and fixed) |
 | `LIBIPYNB-V6` | `completed_verified` (2026-08-13, see §17) | `trust`/`analytics` CLI exposure implemented, tested, independently reviewed (a raw-traceback-on-short-secret defect found and fixed) |
-| `V5` | `not_attempted` | Not pulled into this batch; still tracked backlog |
+| `LIBIPYNB-V5` | `completed_verified` (2026-08-13, see §17) | `HtmlExporter`/`JupytextExporter` implemented, tested against the real installed tools, independently reviewed (a not-installed-vs-generic-failure misclassification and a missing subprocess-scope static check found and fixed) |
 | `LIBIPYNB-V7` | `partially_done` (reconciled 2026-08-13, see §16) | `nbdime` oracle-comparison half satisfied by `full-parity-plan.md`'s `P3a`/`P3c` (real `nbdime` installed and compared in that plan's Round 2); Jupytext oracle and JupyterLab/VS Code round-trip fixtures remain `not_attempted` |
 | `LIBIPYNB-V3` | `partially_done` (advanced 2026-08-13, see §17) | 4 fuzz targets implemented and manually verified (found a real crash, see V8 below); now wired into `.gitlab-ci.yml` as a schedule-gated job (never blocks a normal push/MR), but the schedule itself requires a GitLab project-settings action this environment cannot perform, and the exact CI-installed atheris version has not been locally run — see §17 |
 | `LIBIPYNB-V4` | `partially_done` | cwd isolation, env isolation, bounded output capture, and POSIX memory limiting implemented and verified on both Windows and Linux/WSL; CPU-time limiting and network-access denial explicitly deferred, not half-implemented — see §14 addendum |
@@ -95,7 +96,7 @@ Master index. Full card detail for each ID is in the Tier sections further below
 | `LIBIPYNB-V2` | Persistent trust/signature store | `completed_verified` | P2 | Governance & Trust | none |
 | `LIBIPYNB-V3` | Coverage-guided fuzz harness | `partially_done` | P1 | Validation Depth | none |
 | `LIBIPYNB-V4` | Full execution sandbox | `partially_done` | P1 | Execution Security | M2 (supersedes/extends Approach A) |
-| `LIBIPYNB-V5` | HTML and Jupytext adapters | `not_attempted` | P2 | Conversion & CLI Surface | none |
+| `LIBIPYNB-V5` | HTML and Jupytext adapters | `completed_verified` | P2 | Conversion & CLI Surface | none |
 | `LIBIPYNB-V6` | CLI exposure for `merge`, `trust`, `analytics` | `completed_verified` | P2 | Conversion & CLI Surface | none |
 | `LIBIPYNB-V7` | Cross-tool oracle expansion | `partially_done` | P2 | Validation Depth | none |
 | `LIBIPYNB-V8` | Re-run mutation testing on current standalone code | `completed_verified` | P1 | Validation Depth | none |
@@ -280,7 +281,7 @@ Every limit is **demonstrated**, not just implemented, on **both** platforms thi
 | This plan's card | Current status (this file) | Absorbed/extended by |
 |---|---|---|
 | `LIBIPYNB-V4` | `partially_done` (cwd/env/output/POSIX-memory done; CPU-time and network denial deferred, per §14 above) | `full-parity-plan.md`'s `LIBIPYNB-P4a-1`/`P4a-2`, reframed as "add a second, opt-in kernel-protocol execution engine" rather than "harden the existing subprocess engine further" — the two are complementary, not competing: this file's V4 work hardens the engine that stays the default; the other plan's work adds a new, richer, opt-in alternative engine on top of an already-hardened base |
-| `LIBIPYNB-V5` | `not_attempted` | `P5a`/`P5b`/`P5c` cover the export-adapter question only incidentally (via papermill's output-notebook production); HTML/Jupytext specifically remain this file's own unclaimed scope |
+| `LIBIPYNB-V5` | `completed_verified` (2026-08-13, see §17) | `P5a`/`P5b`/`P5c` (still `blocker` on Gate G6) cover the export-adapter question only incidentally (via papermill's output-notebook production); this file's own HTML/Jupytext scope is now independently closed, unaffected by P5's gate status |
 | `LIBIPYNB-V6` | `completed_verified` (2026-08-13, see §17 — `trust`/`analytics` half) | `P3b` (merge CLI exposure) absorbs V6's `merge` half; `P4c` (execute CLI exposure) remains `blocker` on Gate G6 via `full-parity-plan.md`'s own P4a-1 chain, unaffected by this file's own `trust`/`analytics` closure |
 | `LIBIPYNB-V7` | `partially_done` (reconciled 2026-08-13, see §16 — `nbdime` half satisfied via `P3a`/`P3c`) | `P7`/`P8`/`P3c` build the actual cross-tool oracle infrastructure (nbdime, nbconvert, papermill, nbstripout) this card called for |
 
@@ -426,6 +427,50 @@ here (out of this card's `Allowed actions`).
 **Closeout:** Gates G1 and G2 both satisfied for the `trust`/`analytics` halves; the one real
 finding was fixed before `completed_verified`. Combined with `P3b`'s already-verified `merge`
 CLI, all three of this card's originally-named subcommands now exist.
+
+### LIBIPYNB-V5 — HTML and Jupytext adapters, wrapping the real tools without importing nbconvert
+
+**What changed:** `HtmlExporter` and `JupytextExporter` added to `adapters/export.py`, plus a new
+`export` extras group in `pyproject.toml` (`jupytext`, `nbconvert`). Two materially different
+designs, both deliberate: `JupytextExporter` imports `jupytext` directly (lazily, inside
+`export()`) since it is not on `test_import_boundary.py`'s forbidden list, and calls
+`jupytext.reads(json.dumps(document.raw), fmt="ipynb")` -- passing a JSON *string*, not a dict
+-- so jupytext's own internal reader constructs whatever object it needs; this module never
+imports `nbformat` itself, preserving the "zero runtime dependency on any of the five reference
+tools" design principle even though jupytext transitively depends on it. `HtmlExporter` **never**
+imports `nbconvert` (it IS forbidden -- `test_import_boundary.py` blanket-bans it anywhere under
+`src/libipynb/`, a real, direct conflict with this card's own "wrap nbconvert" text as originally
+written): it shells out to `[sys.executable, "-m", "nbconvert", "--to", "html", "--stdout",
+<tempfile>]` as a subprocess instead, the same pattern `adapters/execute.py` already uses to wrap
+a tool without a Python import dependency on it. `HtmlExporter.export()`'s `ExportResult.metadata`
+carries `reversible: False`; `JupytextExporter`'s carries `reversible: True` -- both asserted by
+tests, not just claimed in docstrings.
+
+**Gate G1:** full core+property regression, 723 passed/2 skipped; `ruff format --check`/
+`ruff check`/`mypy --strict` clean; `test_import_boundary.py` (4/4) confirms `nbconvert` is never
+imported and `nbformat` is never imported anywhere in `src/libipynb/`. New tests in
+`tests/integration/test_obligation_html_jupytext_export.py` exercise the real installed
+`nbconvert`/`jupytext` (both were installed into this session's `.venv` specifically to verify
+this card for real, matching this plan's own precedent of installing real oracle tools rather
+than trusting an untested implementation) for the success paths, and monkeypatching for the
+tool-unavailable/failure/timeout paths; `JupytextExporter`'s round-trip claim is backed by an
+actual export-then-reimport-via-real-jupytext test, not just an assertion about metadata.
+
+**Gate G2 (independent review, separate agent invocation):** verdict `ISSUES_FOUND`, two real
+WARNINGs, both fixed: (1) the "tool not installed" error path only ever caught
+`FileNotFoundError`, which does not actually occur when `nbconvert` is merely uninstalled (
+`sys.executable` always exists; `python -m nbconvert` runs and exits non-zero with "No module
+named nbconvert" on stderr instead) -- the original test only monkeypatched the untriggered
+branch, giving false confidence; **fixed** by detecting that specific stderr message and a new
+test simulating the real failure shape, not just the rare missing-interpreter case. (2) unlike
+`cli/main.py`'s git-only subprocess exception, `adapters/export.py`'s new subprocess exception
+had no static check confining it to `nbconvert`-only invocations -- **fixed** by adding
+`_subprocess_nbconvert_only_offenders` (mirroring `_subprocess_git_only_offenders`'s structure
+and self-tests exactly) to `tests/integration/test_obligation_security_baseline.py`, plus
+extending that file's `_SUBPROCESS_ALLOWED_FILES` allowlist and its explanatory docstring.
+
+**Closeout:** Gates G1 and G2 both satisfied; both real findings fixed and independently
+verifiable by running the tests named above, not just re-asserted.
 
 ---
 
@@ -659,7 +704,7 @@ Every card below was previously a single summary-table row; now fully carded per
 
 ### LIBIPYNB-V5 — HTML and Jupytext adapters
 
-**Status:** `not_attempted` · **Priority:** P2 · **Lane:** Conversion & CLI Surface · **Dependencies:** none
+**Status:** `completed_verified` (2026-08-13, see §17) · **Priority:** P2 · **Lane:** Conversion & CLI Surface · **Dependencies:** none
 
 - **Source audit finding:** `publication-readiness-assessment.md` §4 (Export adapters row) — Markdown + Python-script export only; no HTML, no Jupytext, no importer.
 - **Why it matters:** Format Factory's own capability contract marked this `OPTIONAL_ADAPTER_REQUIRED` — even the source program didn't consider one exporter sufficient.
