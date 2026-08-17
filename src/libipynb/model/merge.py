@@ -243,6 +243,36 @@ def merge_notebooks(
         if ours_change.removed and theirs_change.removed:
             continue
 
+        if ours_change.added and theirs_change.added:
+            # Neither side's diff is against a base cell -- `cell_id` was
+            # never in `base` at all (both sides independently created it,
+            # e.g. via deterministic/content-derived cell-ID generation).
+            # base_cells[cell_id] does not exist here; reconciling against
+            # a nonexistent base cell would be a KeyError, not a merge.
+            ours_cell = ours_cells[cell_id]
+            theirs_cell = theirs_cells[cell_id]
+            if ours_cell == theirs_cell:
+                merged_by_id[cell_id] = deepcopy(ours_cell)
+            else:
+                conflicts.append(
+                    CellConflict(
+                        cell_id=cell_id,
+                        kind=ConflictKind.EDIT_EDIT,
+                        field_name=None,
+                        ours_value=ours_cell,
+                        theirs_value=theirs_cell,
+                        description=(
+                            f"cell {cell_id!r} was added independently on both "
+                            "sides with different content"
+                        ),
+                    )
+                )
+                # No base value exists to fall back on for an add/add
+                # conflict -- `ours` is kept as an explicit, reported
+                # placeholder (never silently treated as resolved).
+                merged_by_id[cell_id] = deepcopy(ours_cell)
+            continue
+
         if ours_change.removed or theirs_change.removed:
             surviving = theirs_change if ours_change.removed else ours_change
             if surviving.modified or surviving.moved:

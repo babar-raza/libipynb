@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -191,6 +193,41 @@ def _validate_tags(
             )
 
 
+def _is_valid_base64(text: str) -> bool:
+    """Whether ``text`` is syntactically valid base64.
+
+    Deliberately strict (``validate=True``): non-strict decoding silently
+    discards any character outside the base64 alphabet and still returns
+    "success" for almost any input containing a handful of valid characters
+    (proven by test_image_mime_payload_with_invalid_base64_fails_closed --
+    a first, lenient version of this function accepted
+    "THIS-IS-NOT!!!VALID===BASE64@@@" as valid), so only strict mode is
+    an actual validity check rather than a near-unconditional pass. This is
+    intentionally stricter than adapters/export.py's lenient decode, which
+    is extracting a best-effort resource rather than validating one.
+
+    Whitespace is stripped everywhere (not just at the ends) before strict
+    validation: 76-column line-wrapped base64 with embedded newlines is a
+    real, legitimate representation (confirmed by
+    tests/fixtures/valid/code-and-markdown.ipynb, which nbformat itself
+    accepts), so whitespace is not treated as a validity defect the way
+    other out-of-alphabet characters are.
+
+    No separate size bound is applied here: by the time this runs through
+    the public ``validate()`` entry point, ``enforce_structure()`` has
+    already bounded every string's byte size, so a pathological payload
+    never reaches this function in the first place.
+    """
+    stripped = "".join(text.split())
+    if not stripped:
+        return False
+    try:
+        base64.b64decode(stripped, validate=True)
+    except (ValueError, binascii.Error):
+        return False
+    return True
+
+
 def _is_json_value(value: object) -> bool:
     if value is None or isinstance(value, (str, int, float, bool)):
         return True
@@ -229,22 +266,30 @@ def _validate_mime_bundle(
                     item_path,
                 )
             )
-        if (
-            isinstance(mime_type, str)
-            and mime_type.startswith("image/")
-            and not (
-                isinstance(payload, str)
-                or isinstance(payload, list)
-                and all(isinstance(item, str) for item in payload)
+        if isinstance(mime_type, str) and mime_type.startswith("image/"):
+            shape_ok = isinstance(payload, str) or (
+                isinstance(payload, list) and all(isinstance(item, str) for item in payload)
             )
-        ):
-            diagnostics.append(
-                diagnostic(
-                    "IPYNB_BINARY_MIME_VALUE",
-                    "image MIME payload must be a string or string array",
-                    item_path,
+            if not shape_ok:
+                diagnostics.append(
+                    diagnostic(
+                        "IPYNB_BINARY_MIME_VALUE",
+                        "image MIME payload must be a string or string array",
+                        item_path,
+                    )
                 )
-            )
+            elif mime_type.casefold() == "image/svg+xml":
+                pass  # SVG is literal XML text per nbformat convention, not base64.
+            else:
+                text = payload if isinstance(payload, str) else "".join(payload)
+                if not _is_valid_base64(text):
+                    diagnostics.append(
+                        diagnostic(
+                            "IPYNB_MIME_BASE64_INVALID",
+                            "image MIME payload is not valid base64",
+                            item_path,
+                        )
+                    )
 
 
 def _validate_attachments(

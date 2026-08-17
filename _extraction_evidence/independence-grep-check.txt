@@ -1,1 +1,14 @@
+$ grep -rni "format_factory" src/
+(no matches)
 Exit code: 1
+
+$ grep -rni "format factory" src/
+(no matches)
+Exit code: 1
+
+Regenerated 2026-08-13 as part of LIBIPYNB-B5 (see plans/remediation-plan.md).
+The prior version of this file recorded only "Exit code: 1" with no command
+or output shown, which made the independence claim unverifiable from the
+file alone. Independently re-run from a fresh session against HEAD
+(7eed4d8397dd940197fdbcdc55302a73311767ae) with the same result: zero
+"format_factory" / "Format Factory" occurrences anywhere under src/.

@@ -116,6 +116,68 @@ def test_addition_on_one_side_is_carried_into_the_merge() -> None:
     assert len(result.merged.cells) == 4
 
 
+def test_identical_cell_added_independently_on_both_sides_is_not_a_conflict() -> None:
+    """Neither side's diff is against a base cell here -- the id never
+    existed in base. Found by fuzzing (fuzz/fuzz_diff_merge.py): the first
+    version of this code assumed every non-removed, non-`None`-change cell
+    id existed in base_cells and crashed with a raw KeyError."""
+    base = _base()
+    ours = _clone(base)
+    theirs = _clone(base)
+    new_cell = {
+        "cell_type": "code",
+        "id": "new-shared-id",
+        "metadata": {},
+        "source": "same = True",
+        "execution_count": None,
+        "outputs": [],
+    }
+    ours.raw["cells"].append(deepcopy(new_cell))
+    theirs.raw["cells"].append(deepcopy(new_cell))
+
+    result = merge_notebooks(base, ours, theirs)
+
+    assert result.report.has_conflicts is False
+    assert _find(result.merged, "new-shared-id")["source"] == "same = True"
+
+
+def test_cell_added_independently_on_both_sides_with_different_content_conflicts() -> None:
+    base = _base()
+    ours = _clone(base)
+    theirs = _clone(base)
+    ours.raw["cells"].append(
+        {
+            "cell_type": "code",
+            "id": "new-shared-id",
+            "metadata": {},
+            "source": "ours_version = True",
+            "execution_count": None,
+            "outputs": [],
+        }
+    )
+    theirs.raw["cells"].append(
+        {
+            "cell_type": "code",
+            "id": "new-shared-id",
+            "metadata": {},
+            "source": "theirs_version = True",
+            "execution_count": None,
+            "outputs": [],
+        }
+    )
+
+    result = merge_notebooks(base, ours, theirs)
+
+    assert result.report.has_conflicts is True
+    (conflict,) = [c for c in result.report.conflicts if c.cell_id == "new-shared-id"]
+    assert conflict.kind is ConflictKind.EDIT_EDIT
+    assert conflict.ours_value["source"] == "ours_version = True"
+    assert conflict.theirs_value["source"] == "theirs_version = True"
+    # A merged cell still exists (never a KeyError) -- ours, explicitly
+    # reported as an unresolved placeholder, not silently final.
+    assert _find(result.merged, "new-shared-id")["source"] == "ours_version = True"
+
+
 # ── EDIT_EDIT: both sides change the same field to different values ────────
 
 

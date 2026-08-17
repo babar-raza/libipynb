@@ -6,7 +6,7 @@ execution report; never execute during load/validate/diff/save."
 
 The second half of that obligation -- that load/validate/diff/save never
 execute cell code -- is proven separately in
-tests/python/ipynb/test_obligation_core_path_no_execution.py with a CPython
+tests/integration/test_obligation_core_path_no_execution.py with a CPython
 audit hook, and holds independently of this module: nothing in
 codec/reader, codec/writer, validation, or model/diff imports this file.
 
@@ -34,13 +34,62 @@ subprocess per cell.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from ..errors import NotebookExecutionError
 from ..model.document import NotebookDocument
+
+#: Environment variables kept by default when ``isolate_env=True`` -- just
+#: enough for the interpreter itself to start on each platform (PATH,
+#: temp-directory, and the Windows-specific variables cmd/CreateProcess
+#: need). Everything else (API keys, tokens, unrelated app config) the
+#: calling process happens to have set is NOT passed through. Pass
+#: ``extra_env=`` to add anything a specific notebook genuinely needs.
+_MINIMAL_ENV_KEYS = (
+    "PATH",
+    "TEMP",
+    "TMP",
+    "HOME",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "PATHEXT",
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+)
+
+
+def _minimal_env(extra_env: dict[str, str] | None) -> dict[str, str]:
+    kept = {key: os.environ[key] for key in _MINIMAL_ENV_KEYS if key in os.environ}
+    if extra_env:
+        kept.update(extra_env)
+    return kept
+
+
+def _memory_limit_preexec_fn(max_memory_bytes: int) -> Callable[[], None] | None:
+    """A ``preexec_fn`` enforcing an address-space cap via ``RLIMIT_AS`` --
+    POSIX only. ``subprocess.Popen`` raises ``ValueError`` if ``preexec_fn``
+    is passed at all on Windows (not merely a no-op there), so callers must
+    not pass one on that platform; Windows memory limiting needs the Job
+    Objects API instead, not implemented here -- see LIBIPYNB-V4 in
+    plans/remediation-plan.md for that follow-up scope decision.
+    """
+    if sys.platform == "win32":
+        return None
+
+    def _set_limit() -> None:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
+
+    return _set_limit
+
 
 #: Runs inside the child subprocess. Reads a JSON request from stdin
 #: (sources: list[str], on_error: "stop"|"continue"), executes each source
@@ -111,6 +160,15 @@ class ExecutionReport:
     total_code_cells: int
     timed_out: bool = False
     kernel_launch_error: str | None = None
+    #: Run-provenance fields (LIBIPYNB-V4): what isolation was actually
+    #: applied to this specific run, not just what the API allows asking
+    #: for -- e.g. memory_limit_bytes is None whenever a limit was
+    #: requested but this platform can't enforce one (Windows), not only
+    #: when no limit was requested at all.
+    work_dir: str | None = None
+    memory_limit_bytes: int | None = None
+    output_limit_bytes: int | None = None
+    output_truncated: bool = False
 
     @property
     def completed(self) -> bool:
@@ -158,11 +216,23 @@ def _cell_source(cell: dict[str, Any]) -> str:
 
 
 def _parse_results(raw_output: str) -> tuple[CellExecutionResult, ...]:
+    """Parse the driver's newline-delimited JSON result stream.
+
+    A trailing line can be incomplete -- not just from a timeout-kill
+    (already the case before max_output_bytes existed) but now also from
+    byte-boundary truncation, which has no reason to land on a record
+    boundary. Either way it's the same situation the driver's own
+    contract already accepted: a result already flushed is kept; a
+    result cut off mid-write is dropped, not surfaced as a crash.
+    """
     results = []
     for line in raw_output.splitlines():
         if not line.strip():
             continue
-        payload = json.loads(line)
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         error = None
         if payload["error"] is not None:
             error = ExecutionError(**payload["error"])
@@ -178,45 +248,133 @@ def execute_notebook(
     kernel: str | None = None,
     timeout: float | None = 30.0,
     on_error: str = "stop",
+    acknowledge_unsandboxed: bool = False,
+    isolate_cwd: bool = True,
+    isolate_env: bool = True,
+    extra_env: dict[str, str] | None = None,
+    max_memory_bytes: int | None = None,
+    max_output_bytes: int | None = 10 * 1024 * 1024,
 ) -> ExecutionReport:
     """Execute every code cell in one isolated subprocess and report the outcome.
 
     Never called by load/validate/diff/save -- this is the sole entry point
     into execution, and callers must invoke it explicitly.
+
+    Security: this is process isolation, not a full sandbox. LIBIPYNB-V4
+    narrowed the gap between those two by adding, on top of the
+    subprocess boundary and wall-clock ``timeout`` that already existed:
+
+    - ``isolate_cwd`` (default True): the subprocess runs in a fresh,
+      empty temporary directory instead of the caller's working
+      directory, so executed code can't casually read or overwrite files
+      next to the caller's own. Removed after the run regardless of
+      outcome.
+    - ``isolate_env`` (default True): the subprocess gets a minimal
+      environment (just enough for the interpreter to start -- PATH,
+      temp-dir, locale) instead of a full copy of the caller's
+      environment, so secrets/tokens/config the caller happens to have
+      set are not implicitly exposed. Pass ``extra_env`` for anything a
+      specific notebook genuinely needs.
+    - ``max_output_bytes`` (default 10 MiB): captured stdout is
+      truncated to this size; ``ExecutionReport.output_truncated`` says
+      whether that happened. This bounds what's *returned*, not
+      necessarily peak memory while the OS pipe buffer fills during
+      capture -- a true streaming-bounded read is a further step, not
+      implemented here.
+    - ``max_memory_bytes`` (default None = no limit): enforced via
+      ``RLIMIT_AS`` on POSIX. **Not enforceable on Windows** -- passing
+      it there raises ``NotebookExecutionError`` rather than silently
+      running unlimited, since a caller who explicitly asked for a
+      memory limit and silently got none is exactly the "looks safe but
+      isn't" failure mode this module tries to avoid elsewhere.
+
+    Still not covered: CPU-time limiting and network access denial --
+    see LIBIPYNB-V4 in plans/remediation-plan.md for why those are
+    deferred rather than half-implemented.
+
+    Callers must pass ``acknowledge_unsandboxed=True`` to confirm they
+    understand the above, or the call raises ``NotebookExecutionError``.
     """
+    if not acknowledge_unsandboxed:
+        raise NotebookExecutionError(
+            "execute_notebook() is not a full sandbox: even with isolate_cwd/"
+            "isolate_env (both default True), CPU time and network access are "
+            "not limited, and a memory limit is only enforceable on POSIX. "
+            "Pass acknowledge_unsandboxed=True to confirm you understand this "
+            "and trust the notebook being executed."
+        )
     if on_error not in ("stop", "continue"):
         raise ValueError("on_error must be 'stop' or 'continue'")
+    if max_memory_bytes is not None and sys.platform == "win32":
+        raise NotebookExecutionError(
+            "max_memory_bytes cannot be enforced on Windows (no RLIMIT_AS-"
+            "equivalent used here). Pass max_memory_bytes=None on this "
+            "platform rather than proceeding without the limit silently."
+        )
     resolved_kernel = _resolve_kernel(document, kernel)
     sources = [_cell_source(cell) for cell in document.code_cells]
     payload = json.dumps({"sources": sources, "on_error": on_error})
     timed_out = False
     launch_error: str | None = None
     raw_output = ""
+
+    resolved_env = _minimal_env(extra_env) if isolate_env else None
+    preexec_fn = _memory_limit_preexec_fn(max_memory_bytes) if max_memory_bytes else None
+    work_dir_ctx = tempfile.TemporaryDirectory(prefix="libipynb-exec-") if isolate_cwd else None
+    work_dir = work_dir_ctx.name if work_dir_ctx is not None else None
     try:
-        completed = subprocess.run(
-            [resolved_kernel, "-c", _DRIVER_SCRIPT],
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        raw_output = completed.stdout
-    except subprocess.TimeoutExpired as exc:
-        raw_output = exc.stdout if isinstance(exc.stdout, str) else ""
-        timed_out = True
-    except OSError as exc:
-        # The kernel process itself could not be started (missing
-        # interpreter, not executable, etc.) -- a controlled, reported
-        # outcome, not an unhandled crash out of an API that promises a
-        # structured report.
-        launch_error = str(exc)
+        try:
+            completed = subprocess.run(
+                [resolved_kernel, "-c", _DRIVER_SCRIPT],
+                input=payload,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                cwd=work_dir,
+                env=resolved_env,
+                preexec_fn=preexec_fn,
+            )
+            raw_output = completed.stdout
+        except subprocess.TimeoutExpired as exc:
+            # subprocess.run's timeout+kill path re-decodes captured output
+            # to str on Windows (it re-invokes communicate() to drain,
+            # which goes through the text-mode wrapper) but attaches raw
+            # bytes on POSIX (no re-drain, so text=True's decoding step is
+            # never reached) -- confirmed by direct reproduction against
+            # this exact driver script and payload on Linux. Decoding here
+            # makes partial-output capture on timeout actually
+            # cross-platform instead of Windows-only.
+            captured: str | bytes | None = exc.stdout
+            if isinstance(captured, bytes):
+                captured = captured.decode("utf-8", errors="replace")
+            raw_output = captured if isinstance(captured, str) else ""
+            timed_out = True
+        except OSError as exc:
+            # The kernel process itself could not be started (missing
+            # interpreter, not executable, etc.) -- a controlled, reported
+            # outcome, not an unhandled crash out of an API that promises a
+            # structured report.
+            launch_error = str(exc)
+    finally:
+        if work_dir_ctx is not None:
+            work_dir_ctx.cleanup()
+
+    output_truncated = False
+    if max_output_bytes is not None and len(raw_output.encode("utf-8")) > max_output_bytes:
+        raw_output = raw_output.encode("utf-8")[:max_output_bytes].decode("utf-8", errors="ignore")
+        output_truncated = True
+
     return ExecutionReport(
         results=_parse_results(raw_output),
         kernel=resolved_kernel,
         total_code_cells=len(sources),
         timed_out=timed_out,
         kernel_launch_error=launch_error,
+        work_dir=work_dir,
+        memory_limit_bytes=max_memory_bytes,
+        output_limit_bytes=max_output_bytes,
+        output_truncated=output_truncated,
     )
 
 

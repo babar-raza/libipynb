@@ -308,6 +308,78 @@ def test_display_data_without_data_fails_closed() -> None:
     assert not report.is_valid
 
 
+# ── image MIME payloads must be valid base64, not just the right shape ─────
+
+
+def test_image_mime_payload_with_invalid_base64_fails_closed() -> None:
+    output = {
+        "output_type": "display_data",
+        "data": {"image/png": "THIS-IS-NOT!!!VALID===BASE64@@@"},
+        "metadata": {},
+    }
+    report = validate(_notebook([output]), profile="4.5")
+    assert not report.is_valid
+    assert "IPYNB_MIME_BASE64_INVALID" in {d.code for d in report.diagnostics}
+
+
+def test_image_mime_payload_with_valid_base64_passes() -> None:
+    report = validate(_notebook([_display_data()]), profile="4.5")
+    assert report.is_valid
+
+
+def test_image_mime_payload_as_string_array_is_joined_before_validation() -> None:
+    """The multiline string-array representation must be joined (not treated
+    per-element) before base64 validity is checked -- splitting valid base64
+    into chunks at arbitrary boundaries must not cause a false rejection."""
+    chunks = [PNG_B64[:4], PNG_B64[4:]]
+    output = {
+        "output_type": "display_data",
+        "data": {"image/png": chunks},
+        "metadata": {},
+    }
+    report = validate(_notebook([output]), profile="4.5")
+    assert report.is_valid
+
+
+def test_line_wrapped_base64_with_embedded_newlines_is_valid() -> None:
+    """76-column line-wrapped base64 (embedded literal newlines inside a
+    single string, not a string array) is real content some tools produce
+    -- tests/fixtures/valid/code-and-markdown.ipynb has exactly this shape
+    for an image/png output, and nbformat itself accepts it as valid."""
+    wrapped = "\n".join(PNG_B64[i : i + 8] for i in range(0, len(PNG_B64), 8))
+    output = {
+        "output_type": "display_data",
+        "data": {"image/png": wrapped},
+        "metadata": {},
+    }
+    report = validate(_notebook([output]), profile="4.5")
+    assert report.is_valid
+
+
+def test_svg_mime_payload_is_not_base64_checked() -> None:
+    """image/svg+xml is literal XML text per nbformat convention, not
+    base64 -- it must only be shape-checked (string/string array), never
+    rejected for failing base64 validity."""
+    output = {
+        "output_type": "display_data",
+        "data": {"image/svg+xml": '<svg xmlns="http://www.w3.org/2000/svg"></svg>'},
+        "metadata": {},
+    }
+    report = validate(_notebook([output]), profile="4.5")
+    assert report.is_valid
+
+
+def test_empty_image_mime_payload_fails_closed() -> None:
+    output = {
+        "output_type": "display_data",
+        "data": {"image/png": ""},
+        "metadata": {},
+    }
+    report = validate(_notebook([output]), profile="4.5")
+    assert not report.is_valid
+    assert "IPYNB_MIME_BASE64_INVALID" in {d.code for d in report.diagnostics}
+
+
 # ── The whole matrix validates as one notebook ─────────────────────────────
 
 

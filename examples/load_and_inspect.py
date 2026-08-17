@@ -8,7 +8,13 @@ from pathlib import Path
 
 from libipynb import load
 
-FIXTURE = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "valid" / "code-and-markdown.ipynb"
+FIXTURE = (
+    Path(__file__).resolve().parent.parent
+    / "tests"
+    / "fixtures"
+    / "valid"
+    / "code-and-markdown.ipynb"
+)
 
 
 def main() -> None:
