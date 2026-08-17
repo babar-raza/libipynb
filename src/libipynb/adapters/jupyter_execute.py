@@ -44,6 +44,39 @@ deep copy of the *original* raw dict, cell-by-cell, by index. Every other
 key -- ``source`` in whatever form it was read, cell ``id``, attachments,
 unknown extension metadata, notebook-level metadata -- is never touched and
 therefore cannot be lost or reshaped by this module.
+
+Cancellation determinism (``execute_async`` only -- there is no equivalent
+concept for the synchronous ``execute()``, which has no enclosing
+``asyncio.Task`` a caller could cancel): the installed ``nbclient==0.11.0``
+has its own internal race between an external cancellation and its
+watchdog-driven dead-kernel detection -- ``async_execute_cell`` contains
+``except asyncio.CancelledError: raise DeadKernelError("Kernel died") from
+None`` around one specific internal ``await``
+(``self.task_poll_for_reply``), on the assumption that only nbclient's own
+watchdog task can cancel it. That assumption is false once an *external*
+caller cancels the task wrapping the whole ``execute_async()`` call:
+whether the resulting ``CancelledError`` lands on that exact ``await`` (and
+gets silently converted to ``DeadKernelError``) or somewhere else (and
+propagates normally) depends purely on event-loop scheduling timing --
+confirmed by direct, repeated reproduction: the identical test surfaced
+``asyncio.CancelledError`` on most runs and a completed ``ExecutionResult``
+with ``kernel_death_error`` set on others, non-deterministically, with no
+code change in between. Left alone, that non-determinism leaks straight
+through this module's own public contract, making "except
+asyncio.CancelledError" unreliable for any caller of ``execute_async()``.
+
+Fixed by consulting the task's own cancellation bookkeeping
+(``Task.cancelling()``, Python 3.11+ -- this project's floor) instead of
+pattern-matching on whichever exception nbclient's race happens to
+produce: see ``_is_requested_cancellation`` and its call site in
+``execute_async`` below. This does not fix nbclient's own internal bug --
+it cannot, from outside -- it guarantees this module's own contract is
+deterministic regardless: cancelling the task always raises
+``asyncio.CancelledError`` to the caller, never a normal result. If a
+future ``nbclient`` release changes this internal behavior, this code
+remains correct (the extra check is simply never triggered) but this
+specific finding becomes stale documentation, not a live bug -- flagged
+here rather than left to be silently rediscovered.
 """
 
 from __future__ import annotations
@@ -150,29 +183,78 @@ class LocalJupyterExecutor:
         except BaseException as exc:
             import asyncio
 
-            if isinstance(exc, asyncio.CancelledError):
-                # asyncio.CancelledError must keep propagating -- Python's
-                # own cancellation contract, not something this module gets
-                # to override. But it must not propagate BEFORE the kernel
-                # is actually shut down: verified directly (in this
-                # environment) that nbclient's own async_setup_kernel
-                # context-manager `finally` clause does NOT reliably run
-                # its kernel teardown when the enclosing task is cancelled
-                # out from under `await client.async_execute()` -- a real,
-                # reproduced kernel-process leak (confirmed via psutil
-                # child-process tracking: the kernel and its interrupt-
-                # event helper process were still alive 15+ seconds after
-                # cancellation with no manual cleanup). Cleaning up
-                # explicitly here, before re-raising, closes that gap
-                # regardless of whether nbclient's own path also runs.
+            current_task = asyncio.current_task()
+            cancelling_count = current_task.cancelling() if current_task is not None else 0
+            if _is_requested_cancellation(exc, cancelling_count):
+                # This task's own cancellation was requested -- guaranteed
+                # deterministic from here, regardless of which exception
+                # nbclient happened to surface. See module docstring
+                # "Cancellation determinism" for the full account of why
+                # `isinstance(exc, asyncio.CancelledError)` alone is not
+                # sufficient: nbclient's own async_execute_cell has an
+                # internal `except asyncio.CancelledError: raise
+                # DeadKernelError(...) from None` around one specific await
+                # (`self.task_poll_for_reply`) that assumes it can only be
+                # cancelled by nbclient's own internal watchdog task -- a
+                # false assumption once an external caller cancels the
+                # enclosing task, which non-deterministically converts our
+                # cancellation into an unrelated-looking exception depending
+                # purely on event-loop scheduling timing (confirmed by
+                # direct, repeated reproduction: the identical test
+                # surfaced CancelledError on most runs and a completed
+                # ExecutionResult with kernel_death_error set on others).
+                # `Task.cancelling()` (Python 3.11+) sidesteps the race
+                # entirely by asking the task's own bookkeeping "was I
+                # cancelled" instead of pattern-matching on nbclient's
+                # exception shape, so this module's own public contract is
+                # deterministic even when the dependency it wraps is not.
+                #
+                # The kernel must be shut down before that guaranteed
+                # CancelledError propagates: verified directly that
+                # nbclient's own async_setup_kernel context-manager
+                # `finally` clause does NOT reliably run its kernel teardown
+                # when the enclosing task is cancelled out from under
+                # `await client.async_execute()` -- a real, reproduced
+                # kernel-process leak (confirmed via psutil child-process
+                # tracking: the kernel and its interrupt-event helper
+                # process were still alive 15+ seconds after cancellation
+                # with no manual cleanup). Cleaning up explicitly here,
+                # before re-raising, closes that gap regardless of whether
+                # nbclient's own path also runs.
                 if client.km is not None:
                     try:
                         await client._async_cleanup_kernel()
                     except Exception:  # noqa: BLE001, S110 -- best-effort; must never mask CancelledError
                         pass
-                raise
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                # nbclient swallowed the real CancelledError (see above) --
+                # synthesize one so this module's own contract holds
+                # ("cancel the task, always get CancelledError"), keeping
+                # what nbclient actually raised visible via __cause__ for
+                # diagnosis rather than discarding it the way nbclient's own
+                # `from None` does.
+                raise asyncio.CancelledError() from exc
             return _finish(document, resolved, nb_node, tracker, client, nbclient_exc, exc)
         return _finish(document, resolved, nb_node, tracker, client, nbclient_exc, None)
+
+
+def _is_requested_cancellation(exc: BaseException, cancelling_count: int) -> bool:
+    """True if *exc* should be treated as this task's own requested
+    cancellation having been delivered somewhere in the call chain --
+    either because *exc* directly is ``asyncio.CancelledError``, or because
+    the enclosing task's own cancellation counter (``Task.cancelling()``,
+    Python 3.11+) is nonzero even though *exc* is something else entirely.
+    The second case is real, not hypothetical: see ``execute_async``'s own
+    call site for the exact nbclient-internal race that produces it. A
+    pure, dependency-free function so this specific decision is unit-
+    testable in milliseconds, independent of the real-kernel wiring around
+    it -- the regression control for a race that is otherwise expensive and
+    inherently unreliable to reproduce on demand.
+    """
+    import asyncio
+
+    return isinstance(exc, asyncio.CancelledError) or cancelling_count > 0
 
 
 def _check_preflight(options: ExecutionOptions) -> None:

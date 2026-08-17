@@ -572,39 +572,42 @@ def test_execute_async_runs_a_notebook(executor: LocalJupyterExecutor) -> None:
 def test_execute_async_cancellation_propagates_and_cleans_up_the_kernel(
     executor: LocalJupyterExecutor,
 ) -> None:
-    """Verified directly (this environment) that nbclient's own cleanup path
-    does not reliably run on task cancellation -- a real, reproduced kernel-
-    process leak (psutil child-process tracking showed the kernel process
-    still alive 15+ seconds after cancellation with no explicit cleanup).
-    ``LocalJupyterExecutor.execute_async`` closes that gap itself.
+    """Two real, independently confirmed bugs this test guards against:
 
-    A second, independently confirmed real race lives inside ``nbclient``
-    itself (``client.py``'s ``async_execute_cell``:
-    ``except asyncio.CancelledError: raise DeadKernelError("Kernel died")
-    from None``, on its own ``await self.task_poll_for_reply``) -- if the
-    external cancellation happens to land while control is suspended at
-    *that specific* await point, nbclient converts it into a
-    ``DeadKernelError`` instead of letting ``CancelledError`` propagate,
-    discarding the cancellation entirely. Reproduced directly, repeatedly,
-    in this environment: the exact same test, byte-for-byte, surfaces
-    ``asyncio.CancelledError`` most runs and a normal ``ExecutionResult``
-    with ``kernel_death_error`` set on others, non-deterministically. Both
-    outcomes are handled correctly by this module (the kernel is shut down
-    either way -- via this module's own explicit cleanup in the
-    ``CancelledError`` case, or via ``nbclient``'s own ordinary
-    ``async_setup_kernel`` teardown in the ``DeadKernelError`` case, since
-    that is a regular exception, not a cancellation). This test therefore
-    asserts the invariant that actually always holds -- no leaked kernel
-    process, no hang -- rather than one single non-deterministic exception
-    shape."""
+    1. nbclient's own ``async_setup_kernel`` context-manager cleanup does
+       not reliably run when the enclosing task is cancelled out from under
+       ``await client.async_execute()`` -- a real, reproduced kernel-process
+       leak (psutil child-process tracking showed the kernel process still
+       alive 15+ seconds after cancellation with no explicit cleanup).
+
+    2. A race inside nbclient itself (``client.py``'s ``async_execute_cell``:
+       ``except asyncio.CancelledError: raise DeadKernelError("Kernel died")
+       from None``, on its own ``await self.task_poll_for_reply``) can
+       convert an external cancellation into an unrelated-looking exception,
+       non-deterministically, depending purely on event-loop scheduling
+       timing at the moment ``task.cancel()`` is delivered -- confirmed by
+       direct, repeated reproduction: the identical test, byte-for-byte,
+       surfaced ``asyncio.CancelledError`` on most runs and a completed
+       ``ExecutionResult`` with ``kernel_death_error`` set on others.
+
+    ``LocalJupyterExecutor.execute_async`` closes both: explicit cleanup
+    before re-raising (bug 1), and ``Task.cancelling()``-based
+    classification (``_is_requested_cancellation``, unit-tested directly in
+    tests/unit/test_jupyter_execute_cancellation.py) that makes the *public
+    contract* deterministic regardless of which exception nbclient's race
+    happens to surface (bug 2) -- cancelling always raises
+    ``asyncio.CancelledError`` to the caller now, never a normal result.
+    Run several times in a loop specifically because the race is timing-
+    dependent: a single pass proves little about a race that only showed
+    up some of the time before the fix."""
     import os
 
     import psutil
 
-    document = _document([_code("import time; time.sleep(30)")])
     me = psutil.Process(os.getpid())
 
-    async def run() -> None:
+    async def run_one_trial() -> None:
+        document = _document([_code("import time; time.sleep(30)")])
         task = asyncio.ensure_future(
             executor.execute_async(document, options=_opts(cell_timeout=60))
         )
@@ -612,16 +615,20 @@ def test_execute_async_cancellation_propagates_and_cleans_up_the_kernel(
         assert me.children(recursive=True), "kernel process should be running by now"
         task.cancel()
         try:
-            result = await task
+            await task
         except asyncio.CancelledError:
             pass
         else:
-            assert result.kernel_death_error is not None, (
-                "if await task did not raise CancelledError, the only legitimate "
-                "reason (see docstring) is nbclient's own internal cancel/dead-"
-                "kernel race -- anything else is a real bug"
+            raise AssertionError(
+                "cancelling the task must always raise asyncio.CancelledError -- "
+                "getting a normal return here means the nbclient race (see "
+                "docstring) was not actually classified as a cancellation"
             )
         assert me.children(recursive=True) == [], "kernel process must be cleaned up"
+
+    async def run() -> None:
+        for _ in range(5):
+            await run_one_trial()
 
     asyncio.run(run())
 

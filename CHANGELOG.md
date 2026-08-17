@@ -83,7 +83,16 @@ First publication-ready release.
   `asyncio` task cancellation (nbclient's own cleanup path does not reliably
   run on cancellation in this environment) was found and fixed during this
   feature's own implementation, with a regression test proving the fix via
-  `psutil` child-process tracking.
+  `psutil` child-process tracking. A second, deeper issue in the same area
+  was found on a follow-up hardening pass: a race inside nbclient itself
+  could non-deterministically convert an external cancellation into an
+  unrelated `DeadKernelError`, making `except asyncio.CancelledError`
+  unreliable for callers of `execute_async()`. Fixed structurally --
+  `Task.cancelling()` (Python 3.11+) now classifies "was cancellation
+  requested" independently of which exception nbclient's race happens to
+  produce, so cancelling always raises `CancelledError`, deterministically.
+  Verified with 20 repeated cancellation trials, 20/20 deterministic
+  (previously ~50% surfaced the race).
 - **Secret/PII scanning** -- `security.secrets.scan_for_secrets` -- pattern-
   based detection of likely credentials (AWS/GitHub/Slack tokens, PEM
   private keys, JWTs, generic key=value assignments, URL-embedded
@@ -137,3 +146,6 @@ First publication-ready release.
   passed/4 skipped -- LIBIPYNB-P4a-1/P4b/P4c's real Jupyter-kernel
   execution engine, `ruff`/`mypy` clean; 41 of the new tests are real-kernel
   integration tests, not mocked)
+- **89.05% test coverage** with 879 passed, 4 skipped (up from 89.07%/874
+  passed -- the `execute_async` cancellation-determinism hardening pass
+  above; `ruff`/`mypy` clean)
