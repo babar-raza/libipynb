@@ -9,6 +9,13 @@ from typing import Any
 from .document import NotebookDocument
 
 
+def _cell_requests_keep_output(cell_metadata: dict[str, Any]) -> bool:
+    if cell_metadata.get("keep_output") is True:
+        return True
+    tags = cell_metadata.get("tags")
+    return isinstance(tags, list) and "keep_output" in tags
+
+
 @dataclass(frozen=True, slots=True)
 class CleanupPolicy:
     """Selection and mutation policy for version-control cleanup."""
@@ -18,6 +25,14 @@ class CleanupPolicy:
     notebook_metadata_keys: frozenset[str] = frozenset()
     cell_metadata_keys: frozenset[str] = frozenset()
     reset_execution_counts: bool = True
+    #: LIBIPYNB-P2 (nbstripout parity): when True (the default), a cell
+    #: whose metadata sets `"keep_output": true` or whose `tags` include
+    #: `"keep_output"` is exempted from output stripping and execution-count
+    #: reset -- matching nbstripout's own per-cell escape hatch. This is a
+    #: default-on library behavior (not CLI-only) because it is an explicit,
+    #: per-cell author decision baked into the notebook itself, not a global
+    #: policy choice the way the CLI's opinionated metadata-key defaults are.
+    respect_keep_output_marker: bool = True
 
     def __post_init__(self) -> None:
         for name in (
@@ -120,6 +135,8 @@ def cleanup(
                     del cell_metadata[key]
         if cell.get("cell_type") != "code":
             continue
+        if selected.respect_keep_output_marker and _cell_requests_keep_output(cell_metadata):
+            continue
         outputs = cell.get("outputs")
         if not isinstance(outputs, list):
             raise TypeError(f"cell {index} outputs must be an array before cleanup")
@@ -155,4 +172,25 @@ def cleanup(
             )
             if not dry_run:
                 cell["execution_count"] = None
+        # LIBIPYNB-P2 Gate G8 finding: real nbstripout resets an
+        # execute_result output's own embedded `execution_count` field in
+        # lockstep with the cell-level one (confirmed by running real
+        # nbstripout: `--keep-output` alone still nulls the nested field;
+        # `--keep-output --keep-count` together preserves both). A kept
+        # output's execution_count is exactly as much version-control noise
+        # as the cell-level one -- resetting one but not the other partially
+        # defeats the point of resetting at all.
+        if selected.reset_execution_counts:
+            for output_index, output in enumerate(retained):
+                if isinstance(output, dict) and output.get("execution_count") is not None:
+                    changes.append(
+                        Change(
+                            "reset_output_execution_count",
+                            ("cells", index, "outputs", output_index, "execution_count"),
+                            output.get("execution_count"),
+                            None,
+                        )
+                    )
+                    if not dry_run:
+                        output["execution_count"] = None
     return ChangeReport(tuple(changes))

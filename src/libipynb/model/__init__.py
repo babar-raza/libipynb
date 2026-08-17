@@ -9,6 +9,7 @@ from .cleanup import Change, ChangeReport, CleanupPolicy, cleanup
 from .diff import (
     CellChange,
     CellField,
+    DiffHunk,
     DiffPolicy,
     FieldChange,
     NotebookDiff,
@@ -111,6 +112,7 @@ __all__ = [
     "ConversionDisposition",
     "ConversionIssue",
     "ConversionResult",
+    "DiffHunk",
     "DiffPolicy",
     "DisplayDataOutput",
     "DowngradePlan",

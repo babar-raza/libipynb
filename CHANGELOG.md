@@ -28,20 +28,52 @@ First publication-ready release.
   preservation/recovery modes
 - **Atomic file writes** -- `dump()` uses write-to-temp-then-rename to prevent
   partial writes from corrupting notebook files on disk
-- **Diff and merge** -- structural notebook diffing (`diff_notebooks`) and
-  three-way merge (`merge_notebooks`) with conflict detection
+- **Diff and merge** -- structural notebook diffing (`diff_notebooks`, with
+  line-level `DiffHunk`s for changed cell source, reconstructed exactly via a
+  Hypothesis-verified property) and three-way merge (`merge_notebooks`) with
+  conflict detection; both exposed from the CLI (`diff`, `merge`) and
+  installable as real git diff/merge drivers (`diff --install-git`,
+  nbdime `config-git` equivalent)
 - **Version conversion** -- `upgrade` and `downgrade` between nbformat 4.x
   minor versions with cell ID generation for 4.5
 - **Cell editing** -- `edit_cells` for query-based batch cell modification
-- **Cleanup** -- `cleanup` to strip outputs, normalize metadata, and remove
-  empty cells with configurable policy
+- **Cleanup** -- `cleanup` to strip outputs, execution counts, and selected
+  metadata with configurable policy, plus a per-cell `keep_output`
+  metadata-flag/tag escape hatch (default-on). The CLI's `normalize`
+  command applies an nbstripout-compatible default strip set (notebook-level
+  `signature`/`widgets`; cell-level `ExecuteTime`/`collapsed`/`execution`/
+  `heading_collapsed`/`hidden`/`scrolled`), configurable via
+  `--keep-output`/`--keep-count`/`--extra-keys`/`--keep-metadata-keys` or
+  `[tool.libipynb.normalize]` in `pyproject.toml`, and can install itself as
+  a real git clean filter (`normalize --install`/`--uninstall`/`--status`,
+  nbstripout `--install` equivalent)
 - **Attachments** -- `manage_attachments` for cell-level MIME attachment
   management with reference validation
 - **Export adapters** -- `MarkdownExporter` and `PythonScriptExporter` for
   notebook conversion
-- **Execution adapter** -- `execute_notebook` with per-cell result tracking
-- **CLI** -- 8 commands: `probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
-  `diff`, `normalize`, `convert` -- all with JSON output
+- **Execution adapter** -- `execute_notebook` with per-cell result tracking.
+  Opt-in only (`acknowledge_unsandboxed=True` required); runs in a separate
+  OS subprocess, and by default in an isolated temp working directory
+  (`isolate_cwd`) with a minimal environment (`isolate_env`, extend via
+  `extra_env`) and a capped, truncation-reported output size
+  (`max_output_bytes`). A memory limit (`max_memory_bytes`) is enforced on
+  POSIX only; requesting one on Windows raises rather than silently running
+  unlimited. Still **not a full sandbox** -- CPU-time limiting and network
+  denial are not implemented. Never invoked by
+  `load`/`validate`/`diff`/`upgrade`/`save`.
+- **Secret/PII scanning** -- `security.secrets.scan_for_secrets` -- pattern-
+  based detection of likely credentials (AWS/GitHub/Slack tokens, PEM
+  private keys, JWTs, generic key=value assignments, URL-embedded
+  credentials, and credential-shaped metadata keys) across cell source,
+  output text, tracebacks, and metadata. Report-only; findings carry a
+  redacted preview, never the matched text. A clean report is not proof a
+  notebook is free of secrets -- only that none of the configured patterns
+  matched.
+- **CLI** -- 9 commands: `probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
+  `diff`, `merge`, `normalize`, `convert` -- all with JSON output. `diff`
+  gains `--install-git`/`--uninstall-git`/`--git-status` (git diff/merge
+  driver integration); `normalize` gains git clean-filter integration (see
+  Cleanup above)
 - **Analytics** -- `cell_type_histogram`, `output_type_histogram`,
   `has_execution_errors`, `average_source_length`
 - **Trust** -- `HmacNotebookNotary` for HMAC-based notebook trust signatures
@@ -54,4 +86,19 @@ First publication-ready release.
   fuzzing
 - **Security tests** -- adversarial input, resource exhaustion, active content,
   path traversal, duplicate-key detection, and atomic write test suites
-- **88% test coverage** with 666 tests (85% threshold enforced)
+- **Import-boundary test** -- static proof (`tests/unit/test_import_boundary.py`)
+  that `src/libipynb` never imports the new optional `exec`
+  (`jupyter_client`/`nbclient`) or `oracle` (`nbdime`/`nbconvert`/`papermill`/
+  `nbstripout`) extras; both extras added to `pyproject.toml`, neither in
+  core `dependencies`
+- **Cross-tool oracle scaffolding** -- `tests/oracle/`, a `pytest.importorskip`-
+  gated fixture set (matching the existing nbformat-oracle pattern in
+  `tests/interoperability/`) for future comparison tests against real
+  `nbstripout`/`nbdime`/`nbconvert`/`papermill` installs; none of those tools
+  are installed in this project's own `.venv`, so these tests currently skip
+  cleanly rather than exercise a live comparison -- see
+  `plans/full-parity-plan.md` Gate G8 for what "parity" is allowed to claim
+- **87.92% test coverage** with 752 passed, 9 skipped (up from 88.36%/704
+  passed/4 skipped before this batch -- coverage dipped slightly because
+  some new CLI branches, e.g. malformed-config-file fallbacks, aren't yet
+  independently exercised; still above the 85% threshold)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 from bisect import bisect_left
@@ -53,6 +54,26 @@ class DiffPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class DiffHunk:
+    """One line-level opcode (LIBIPYNB-P3a), matching difflib's own vocabulary.
+
+    ``op`` is one of ``"equal"``, ``"replace"``, ``"delete"``, ``"insert"``
+    (``difflib.SequenceMatcher.get_opcodes()``'s own tag set, reused
+    unchanged rather than inventing a parallel vocabulary). Concatenating
+    every hunk's ``after_lines`` in order reconstructs the full ``after``
+    text exactly -- this is a tested property, not just a convention.
+    """
+
+    op: str
+    before_start: int
+    before_end: int
+    after_start: int
+    after_end: int
+    before_lines: tuple[str, ...]
+    after_lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FieldChange:
     field: CellField
     path: tuple[str, ...]
@@ -60,6 +81,13 @@ class FieldChange:
     after: Any
     before_present: bool = True
     after_present: bool = True
+    #: Line-level hunks (LIBIPYNB-P3a), populated only when both `before`
+    #: and `after` are present text (currently: `field == CellField.SOURCE`
+    #: only -- text-bearing outputs are a documented, not-yet-implemented
+    #: extension of this same field, see plans/full-parity-plan.md P3a).
+    #: `None` for every other field, including SOURCE changes where either
+    #: side is absent (a pure add/remove has no line-level diff to show).
+    source_hunks: tuple[DiffHunk, ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "before", deepcopy(self.before))
@@ -257,6 +285,41 @@ def _cell_field(name: str) -> CellField:
         return CellField.OTHER
 
 
+def _as_text(source: Any) -> str | None:
+    """Normalize nbformat's two source representations (a single string, or
+    a list of line-strings) to one string. Returns None for anything else
+    (a pure add/remove, or a source value that isn't text-shaped -- the
+    field-level before/after already reports the raw change either way;
+    this only decides whether a *line-level* hunk is also worth computing)."""
+    if isinstance(source, str):
+        return source
+    if isinstance(source, list) and all(isinstance(item, str) for item in source):
+        return "".join(source)
+    return None
+
+
+def _source_hunks(before: Any, after: Any) -> tuple[DiffHunk, ...] | None:
+    before_text = _as_text(before)
+    after_text = _as_text(after)
+    if before_text is None or after_text is None:
+        return None
+    before_lines = before_text.splitlines(keepends=True)
+    after_lines = after_text.splitlines(keepends=True)
+    matcher = difflib.SequenceMatcher(None, before_lines, after_lines, autojunk=False)
+    return tuple(
+        DiffHunk(
+            op=tag,
+            before_start=i1,
+            before_end=i2,
+            after_start=j1,
+            after_end=j2,
+            before_lines=tuple(before_lines[i1:i2]),
+            after_lines=tuple(after_lines[j1:j2]),
+        )
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes()
+    )
+
+
 def _field_changes(
     before: dict[str, Any],
     after: dict[str, Any],
@@ -269,14 +332,21 @@ def _field_changes(
         left = before.get(key, missing)
         right = after.get(key, missing)
         if left != right:
+            field = _cell_field(key)
+            hunks = (
+                _source_hunks(left, right)
+                if field == CellField.SOURCE and left is not missing and right is not missing
+                else None
+            )
             changes.append(
                 FieldChange(
-                    field=_cell_field(key),
+                    field=field,
                     path=(key,),
                     before=None if left is missing else left,
                     after=None if right is missing else right,
                     before_present=left is not missing,
                     after_present=right is not missing,
+                    source_hunks=hunks,
                 )
             )
     return tuple(changes)
@@ -490,6 +560,7 @@ def diff_notebooks(
 __all__ = [
     "CellChange",
     "CellField",
+    "DiffHunk",
     "DiffPolicy",
     "FieldChange",
     "NotebookDiff",
