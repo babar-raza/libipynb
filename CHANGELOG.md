@@ -61,6 +61,29 @@ First publication-ready release.
   unlimited. Still **not a full sandbox** -- CPU-time limiting and network
   denial are not implemented. Never invoked by
   `load`/`validate`/`diff`/`upgrade`/`save`.
+- **Real Jupyter-kernel execution** (`libipynb[exec]`, LIBIPYNB-P4a-1/P4b/P4c,
+  `plans/full-parity-plan.md` Gate G6 sign-off) -- `libipynb.execution`:
+  `LocalJupyterExecutor` (sync `execute()`/async `execute_async()`), backed
+  by `nbclient`, alongside the original subprocess `execute_notebook`
+  adapter above (neither replaces the other). Typed `ExecutionOptions`
+  (kernel selection, per-cell/startup timeouts, `stop_on_error`,
+  `interrupt_on_timeout`, `skip_tag`-tagged cells, `record_timing`,
+  non-mutating-by-default `in_place`, `on_event` lifecycle callback) and
+  `ExecutionResult`/`CellExecutionRecord` (rich outputs -- `stream`/
+  `display_data`/`execute_result`/`error`/multi-MIME -- structured errors
+  reported as values, never raised, for a cell error, a timeout, a missing
+  kernel, or a dead kernel). Requires explicit `acknowledge_unsandboxed=True`
+  (Python) / `--acknowledge-unsandboxed` (CLI, new `execute` command) --
+  **not a sandbox**, same posture as the subprocess adapter. Fidelity: only
+  `outputs`/`execution_count`/(opt-in) timing metadata are ever written back;
+  cell id, source form, attachments, and unknown metadata are never touched.
+  **Oracle-verified** (`tests/oracle/test_nbclient_execution_parity.py`,
+  real `nbconvert --execute` installed): deterministic outputs and
+  execution-count sequencing agree exactly. A real kernel-process leak on
+  `asyncio` task cancellation (nbclient's own cleanup path does not reliably
+  run on cancellation in this environment) was found and fixed during this
+  feature's own implementation, with a regression test proving the fix via
+  `psutil` child-process tracking.
 - **Secret/PII scanning** -- `security.secrets.scan_for_secrets` -- pattern-
   based detection of likely credentials (AWS/GitHub/Slack tokens, PEM
   private keys, JWTs, generic key=value assignments, URL-embedded
@@ -69,11 +92,16 @@ First publication-ready release.
   redacted preview, never the matched text. A clean report is not proof a
   notebook is free of secrets -- only that none of the configured patterns
   matched.
-- **CLI** -- 9 commands: `probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
-  `diff`, `merge`, `normalize`, `convert` -- all with JSON output. `diff`
-  gains `--install-git`/`--uninstall-git`/`--git-status` (git diff/merge
-  driver integration); `normalize` gains git clean-filter integration (see
-  Cleanup above)
+- **CLI** -- 12 commands: `probe`, `inspect`, `validate`, `sanitize`,
+  `upgrade`, `diff`, `merge`, `normalize`, `convert`, `execute`, `analytics`,
+  `trust` -- all with JSON output. `diff` gains `--install-git`/
+  `--uninstall-git`/`--git-status` (git diff/merge driver integration);
+  `normalize` gains git clean-filter integration (see Cleanup above);
+  `execute` is new (see Real Jupyter-kernel execution above) --
+  `--acknowledge-unsandboxed` required, refuses to overwrite the source
+  notebook via `-o` unless `--force` is also given, stable exit codes
+  (0 = every cell succeeded, 1 = the run completed but a cell errored/timed
+  out/the kernel died, 2 = usage error)
 - **Analytics** -- `cell_type_histogram`, `output_type_histogram`,
   `has_execution_errors`, `average_source_length`
 - **Trust** -- `HmacNotebookNotary` for HMAC-based notebook trust signatures
@@ -87,10 +115,13 @@ First publication-ready release.
 - **Security tests** -- adversarial input, resource exhaustion, active content,
   path traversal, duplicate-key detection, and atomic write test suites
 - **Import-boundary test** -- static proof (`tests/unit/test_import_boundary.py`)
-  that `src/libipynb` never imports the new optional `exec`
-  (`jupyter_client`/`nbclient`) or `oracle` (`nbdime`/`nbconvert`/`papermill`/
-  `nbstripout`) extras; both extras added to `pyproject.toml`, neither in
-  core `dependencies`
+  that `src/libipynb` never imports the `oracle` extra
+  (`nbdime`/`nbconvert`/`papermill`/`nbstripout`), and imports the `exec`
+  extra (`jupyter_client`/`nbclient`) only inside the one file that
+  implements it (`adapters/jupyter_execute.py`) -- a narrow, self-testing
+  exception mirroring the existing `subprocess`-import allowlist pattern in
+  `tests/integration/test_obligation_security_baseline.py`; both extras
+  added to `pyproject.toml`, neither in core `dependencies`
 - **Cross-tool oracle scaffolding** -- `tests/oracle/`, a `pytest.importorskip`-
   gated fixture set (matching the existing nbformat-oracle pattern in
   `tests/interoperability/`) for future comparison tests against real
@@ -102,3 +133,7 @@ First publication-ready release.
   passed/4 skipped before this batch -- coverage dipped slightly because
   some new CLI branches, e.g. malformed-config-file fallbacks, aren't yet
   independently exercised; still above the 85% threshold)
+- **89.07% test coverage** with 874 passed, 4 skipped (up from 88.30%/781
+  passed/4 skipped -- LIBIPYNB-P4a-1/P4b/P4c's real Jupyter-kernel
+  execution engine, `ruff`/`mypy` clean; 41 of the new tests are real-kernel
+  integration tests, not mocked)

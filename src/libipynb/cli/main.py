@@ -19,7 +19,7 @@ from ..analytics import (
     output_type_histogram,
 )
 from ..codec import dump, load, probe
-from ..errors import NotebookError
+from ..errors import NotebookError, NotebookExecutionError
 from ..model import CellField, NotebookDocument, diff_notebooks, merge_notebooks, upgrade
 from ..model.cleanup import CleanupPolicy, cleanup
 from ..model.lifecycle import downgrade, plan_downgrade
@@ -272,6 +272,82 @@ def main(argv: list[str] | None = None) -> int:
         help="Write the merged notebook to PATH instead of stdout.",
     )
 
+    # -- execute -----------------------------------------------------------------
+    execute_cmd = commands.add_parser(
+        "execute",
+        help="Execute a notebook's code cells through a real local Jupyter kernel "
+        "(requires the 'exec' extra: pip install \"libipynb[exec]\"). Runs arbitrary "
+        "code from the notebook with this process's own permissions -- only for "
+        "notebooks you already trust; see --help below and libipynb.execution's "
+        "module docs for the full security posture.",
+    )
+    execute_cmd.add_argument("source", help="Path to the .ipynb file.")
+    execute_cmd.add_argument(
+        "-o",
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Write the executed notebook to PATH instead of stdout.",
+    )
+    execute_cmd.add_argument(
+        "--acknowledge-unsandboxed",
+        action="store_true",
+        help="Required. Confirms you understand this runs arbitrary notebook code with no "
+        "sandbox -- the kernel has this process's own filesystem/network/process access.",
+    )
+    execute_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow --output to overwrite the input notebook (SOURCE and PATH resolving to "
+        "the same file). Refused by default to prevent accidentally destroying the "
+        "un-executed original.",
+    )
+    execute_cmd.add_argument(
+        "--kernel",
+        metavar="NAME",
+        default=None,
+        help="Kernel name to launch. Default: the notebook's own declared kernelspec, or "
+        "jupyter_client's installed default if the notebook declares none.",
+    )
+    execute_cmd.add_argument(
+        "--cell-timeout",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="Per-cell wall-clock budget (default: 60). Pass a negative number to disable.",
+    )
+    execute_cmd.add_argument(
+        "--kernel-startup-timeout",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="How long to wait for the kernel to report ready (default: 60).",
+    )
+    execute_cmd.add_argument(
+        "--on-error",
+        choices=("stop", "continue"),
+        default="stop",
+        help="'stop' (default) halts remaining cells after the first cell error; "
+        "'continue' runs every cell regardless.",
+    )
+    execute_cmd.add_argument(
+        "--no-interrupt-on-timeout",
+        action="store_true",
+        help="A per-cell timeout aborts the whole run immediately instead of interrupting "
+        "the kernel and reporting the timeout as that cell's own error.",
+    )
+    execute_cmd.add_argument(
+        "--working-directory",
+        metavar="PATH",
+        default=None,
+        help="Directory the kernel process starts in. Default: the current directory.",
+    )
+    execute_cmd.add_argument(
+        "--record-timing",
+        action="store_true",
+        help="Record per-cell start/idle timestamps into each executed cell's metadata.",
+    )
+
     # -- analytics -------------------------------------------------------------
     analytics_cmd = commands.add_parser(
         "analytics",
@@ -340,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_diff(args)
     if args.command == "merge":
         return _cmd_merge(args)
+    if args.command == "execute":
+        return _cmd_execute(args)
     if args.command == "analytics":
         return _cmd_analytics(args)
     if args.command == "trust":
@@ -965,6 +1043,86 @@ def _cmd_merge(args: argparse.Namespace) -> int:
         print(json.dumps(ledger, sort_keys=True), file=sys.stderr)
         dump(result.merged, sys.stdout, profile="declared")
     return 0 if not result.report.has_conflicts else 1
+
+
+def _cmd_execute(args: argparse.Namespace) -> int:
+    """LIBIPYNB-P4c: CLI exposure of the real Jupyter-kernel-protocol
+    executor (:mod:`libipynb.execution`). Requires the `exec` extra --
+    imported lazily here, never at module import time, so every other CLI
+    command keeps working without it installed."""
+    if (
+        args.output
+        and Path(args.source).resolve() == Path(args.output).resolve()
+        and not args.force
+    ):
+        print(
+            json.dumps(
+                {
+                    "error": "--output resolves to the same file as SOURCE; refusing to "
+                    "overwrite the un-executed original. Pass --force to confirm."
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        from ..execution import ExecutionOptions, LocalJupyterExecutor
+        from ..execution.exceptions import MissingExecutionDependencyError
+    except ImportError as exc:  # pragma: no cover -- libipynb.execution itself has no hard import
+        print(json.dumps({"error": f"execute command is unavailable: {exc}"}), file=sys.stderr)
+        return 2
+
+    document = load(args.source, mode="preservation")
+    options = ExecutionOptions(
+        kernel_name=args.kernel,
+        working_directory=args.working_directory,
+        cell_timeout=args.cell_timeout if args.cell_timeout >= 0 else None,
+        kernel_startup_timeout=args.kernel_startup_timeout,
+        stop_on_error=args.on_error == "stop",
+        interrupt_on_timeout=not args.no_interrupt_on_timeout,
+        record_timing=args.record_timing,
+        acknowledge_unsandboxed=args.acknowledge_unsandboxed,
+    )
+
+    try:
+        executor = LocalJupyterExecutor()
+        result = executor.execute(document, options=options)
+    except MissingExecutionDependencyError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+    except NotebookExecutionError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+
+    ledger = {
+        "kernel": result.kernel_name,
+        "cell_count": len(result.cell_records),
+        "executed_count": sum(1 for r in result.cell_records if r.executed),
+        "succeeded": result.succeeded,
+        "completed": result.completed,
+        "stopped_early": result.stopped_early,
+        "timed_out": result.timed_out,
+        "timed_out_cell_index": result.timed_out_cell_index,
+        "kernel_launch_error": result.kernel_launch_error,
+        "kernel_death_error": result.kernel_death_error,
+        "first_error": (
+            {"ename": result.first_error.ename, "evalue": result.first_error.evalue}
+            if result.first_error is not None
+            else None
+        ),
+    }
+    if args.output:
+        dump(result.notebook, args.output, profile="declared")
+        ledger["output"] = args.output
+        print(json.dumps(ledger, sort_keys=True))
+    else:
+        print(json.dumps(ledger, sort_keys=True), file=sys.stderr)
+        dump(result.notebook, sys.stdout, profile="declared")
+    return 0 if result.succeeded else 1
 
 
 def _cmd_analytics(args: argparse.Namespace) -> int:

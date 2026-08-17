@@ -17,6 +17,17 @@ nbformat itself is intentionally NOT in this forbidden list: it is already a
 declared `reference`/`test`-extra dependency used by tests/interoperability/,
 and this check is about the newly-introduced oracle/exec tools, not about
 re-litigating that pre-existing, already-governed exception.
+
+LIBIPYNB-P4a-1 (plans/full-parity-plan.md Gate G6 sign-off, §7): the kernel-
+protocol execution engine has landed in adapters/jupyter_execute.py, so this
+file now carries the scoped, documented exception this module's own comment
+anticipated -- `jupyter_client`/`nbclient` (and, for the same reason,
+`nbformat`, needed to build the execution-time notebook representation
+`nbclient` expects) may appear ONLY in that one file, mirroring the exact
+allowlist-with-self-test pattern already proven for `subprocess` in
+tests/integration/test_obligation_security_baseline.py. `nbdime`/
+`nbconvert`/`papermill`/`nbstripout` remain forbidden everywhere, with no
+exception -- the kernel backend does not need them.
 """
 
 from __future__ import annotations
@@ -25,11 +36,7 @@ import ast
 import textwrap
 from pathlib import Path
 
-# Names that may only ever appear under tests/oracle/ (oracle tools) or as
-# the exec-extra's own runtime dependency inside adapters/execute.py's future
-# kernel engine (LIBIPYNB-P4a-1, not yet implemented -- when it lands, this
-# list's jupyter_client/nbclient entries will need a scoped, documented
-# exception for that one file, not a blanket removal).
+# Names forbidden everywhere in src/libipynb, no exceptions.
 FORBIDDEN_TOP_LEVEL_MODULES = (
     "jupyter_client",
     "nbclient",
@@ -38,6 +45,14 @@ FORBIDDEN_TOP_LEVEL_MODULES = (
     "papermill",
     "nbstripout",
 )
+
+#: Confined to exactly this one file -- the opt-in kernel-protocol execution
+#: backend (LIBIPYNB-P4a-1). `nbformat` is not in FORBIDDEN_TOP_LEVEL_MODULES
+#: at all (see module docstring), so it needs no entry here; it is listed in
+#: _KERNEL_BACKEND_ALLOWED_MODULES only for documentation symmetry with the
+#: two that are.
+_KERNEL_BACKEND_ALLOWED_FILE = "adapters/jupyter_execute.py"
+_KERNEL_BACKEND_ALLOWED_MODULES = frozenset({"jupyter_client", "nbclient"})
 
 
 def _imported_top_level_names(source: str) -> set[str]:
@@ -53,8 +68,11 @@ def _imported_top_level_names(source: str) -> set[str]:
     return names
 
 
-def _violations(source: str) -> set[str]:
-    return _imported_top_level_names(source) & set(FORBIDDEN_TOP_LEVEL_MODULES)
+def _violations(source: str, *, path: str | None = None) -> set[str]:
+    found = _imported_top_level_names(source) & set(FORBIDDEN_TOP_LEVEL_MODULES)
+    if path is not None and path.replace("\\", "/").endswith(_KERNEL_BACKEND_ALLOWED_FILE):
+        found -= _KERNEL_BACKEND_ALLOWED_MODULES
+    return found
 
 
 def _src_root() -> Path:
@@ -93,6 +111,40 @@ def test_the_checker_flags_from_import_form_too() -> None:
     assert _violations("from papermill import execute_notebook") == {"papermill"}
 
 
+# ── The scoped jupyter_execute.py exception must be narrow, not a loophole ──
+
+
+def test_jupyter_client_and_nbclient_are_still_flagged_outside_the_allowed_file() -> None:
+    """The exception is keyed on the *file path*, not just the module name --
+    the same hostile import in any other file must still be caught."""
+    hostile_source = "import nbclient\nimport jupyter_client\n"
+    assert _violations(hostile_source, path="src/libipynb/model/document.py") == {
+        "nbclient",
+        "jupyter_client",
+    }
+    assert _violations(hostile_source, path="src/libipynb/adapters/execute.py") == {
+        "nbclient",
+        "jupyter_client",
+    }
+
+
+def test_jupyter_client_and_nbclient_are_allowed_only_in_the_kernel_backend_file() -> None:
+    hostile_source = "import nbclient\nimport jupyter_client\n"
+    assert _violations(hostile_source, path="src/libipynb/adapters/jupyter_execute.py") == set()
+
+
+def test_the_kernel_backend_exception_does_not_widen_to_other_forbidden_tools() -> None:
+    """Even inside the one allowed file, nbdime/nbconvert/papermill/nbstripout
+    must still be flagged -- the exception is scoped to exactly two names."""
+    hostile_source = "import nbdime\nimport nbconvert\nimport papermill\nimport nbstripout\n"
+    assert _violations(hostile_source, path="src/libipynb/adapters/jupyter_execute.py") == {
+        "nbdime",
+        "nbconvert",
+        "papermill",
+        "nbstripout",
+    }
+
+
 # ── The real scan over src/libipynb ─────────────────────────────────────────
 
 
@@ -101,7 +153,7 @@ def test_no_source_file_imports_an_oracle_or_exec_extra_tool() -> None:
     assert root.is_dir(), f"expected package root at {root}"
     offenders: dict[str, set[str]] = {}
     for path in root.rglob("*.py"):
-        violations = _violations(path.read_text(encoding="utf-8"))
+        violations = _violations(path.read_text(encoding="utf-8"), path=str(path))
         if violations:
             offenders[str(path.relative_to(root))] = violations
     assert not offenders, (

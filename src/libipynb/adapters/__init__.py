@@ -18,6 +18,7 @@ from .export import (
     MarkdownExporter,
     PythonScriptExporter,
 )
+from .jupyter_execute import LocalJupyterExecutor
 
 __all__ = [
     "AncillaryResource",
@@ -28,6 +29,7 @@ __all__ = [
     "ExportResult",
     "HtmlExporter",
     "JupytextExporter",
+    "LocalJupyterExecutor",
     "MarkdownExporter",
     "PythonScriptExporter",
     "execute_notebook",

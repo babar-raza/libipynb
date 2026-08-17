@@ -1,4 +1,4 @@
-"""Tests for the CLI entry point (all 11 subcommands)."""
+"""Tests for the CLI entry point (all 12 subcommands)."""
 
 from __future__ import annotations
 
@@ -376,3 +376,156 @@ class TestTrust:
         )
         err = json.loads(capsys.readouterr().err)
         assert "32 bytes" in err["error"]
+
+
+def _kernel_available() -> bool:
+    try:
+        from jupyter_client.kernelspec import find_kernel_specs
+    except ImportError:
+        return False
+    return "python3" in find_kernel_specs()
+
+
+@pytest.mark.skipif(
+    not _kernel_available(), reason="libipynb[exec] and an installed python3 kernel are required"
+)
+class TestExecute:
+    """LIBIPYNB-P4c: the `libipynb execute` subcommand. Real-kernel, like
+    tests/integration/test_obligation_jupyter_execution_adapter.py -- skips
+    cleanly (not falsely) when the `exec` extra/a kernel isn't installed."""
+
+    def test_execute_refuses_without_acknowledgment(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["1 + 1"])
+
+        assert main(["execute", str(notebook)]) == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "sandbox" in err["error"]
+
+    def test_execute_to_output_file(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "executed.ipynb"
+        _write_notebook(notebook, sources=["print('hi')"])
+
+        assert main(["execute", str(notebook), "-o", str(dest), "--acknowledge-unsandboxed"]) == 0
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["succeeded"] is True
+        assert ledger["executed_count"] == 1
+        assert ledger["output"] == str(dest)
+
+        executed = json.loads(dest.read_text(encoding="utf-8"))
+        assert executed["cells"][0]["outputs"][0]["text"] == "hi\n"
+        # Source notebook itself is never mutated by the CLI command.
+        original = json.loads(notebook.read_text(encoding="utf-8"))
+        assert original["cells"][0]["outputs"] == []
+
+    def test_execute_to_stdout(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["21 * 2"])
+
+        assert main(["execute", str(notebook), "--acknowledge-unsandboxed"]) == 0
+        captured = capsys.readouterr()
+        ledger = json.loads(captured.err)
+        assert ledger["succeeded"] is True
+        assert '"text/plain": "42"' in captured.out
+
+    def test_execute_refuses_to_overwrite_the_source_without_force(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["1 + 1"])
+
+        assert (
+            main(["execute", str(notebook), "-o", str(notebook), "--acknowledge-unsandboxed"]) == 2
+        )
+        err = json.loads(capsys.readouterr().err)
+        assert "refusing to overwrite" in err["error"]
+
+        # --force explicitly allows it.
+        assert (
+            main(
+                [
+                    "execute",
+                    str(notebook),
+                    "-o",
+                    str(notebook),
+                    "--acknowledge-unsandboxed",
+                    "--force",
+                ]
+            )
+            == 0
+        )
+        executed = json.loads(notebook.read_text(encoding="utf-8"))
+        assert executed["cells"][0]["outputs"][0]["data"]["text/plain"] == "2"
+
+    def test_execute_reports_a_cell_error_with_exit_code_1(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["raise ValueError('boom')"])
+
+        assert main(["execute", str(notebook), "--acknowledge-unsandboxed"]) == 1
+        ledger = json.loads(capsys.readouterr().err)
+        assert ledger["succeeded"] is False
+        assert ledger["first_error"]["ename"] == "ValueError"
+
+    def test_execute_on_error_continue(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["raise ValueError('boom')", "print('still runs')"])
+
+        assert (
+            main(["execute", str(notebook), "--acknowledge-unsandboxed", "--on-error", "continue"])
+            == 1
+        )
+        ledger = json.loads(capsys.readouterr().err)
+        assert ledger["stopped_early"] is False
+        assert ledger["executed_count"] == 2
+
+    def test_execute_missing_kernel_reports_a_clean_error_not_a_traceback(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["pass"])
+
+        assert (
+            main(
+                [
+                    "execute",
+                    str(notebook),
+                    "--acknowledge-unsandboxed",
+                    "--kernel",
+                    "__nonexistent_kernel__",
+                    "--kernel-startup-timeout",
+                    "5",
+                ]
+            )
+            == 1
+        )
+        ledger = json.loads(capsys.readouterr().err)
+        assert ledger["kernel_launch_error"] is not None
+
+    def test_execute_missing_exec_extra_is_reported_structurally(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        import sys
+        from unittest.mock import patch
+
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["1 + 1"])
+
+        with patch.dict(sys.modules, {"nbclient": None, "jupyter_client": None}):
+            for name in ("libipynb.execution", "libipynb.adapters.jupyter_execute"):
+                sys.modules.pop(name, None)
+            try:
+                assert main(["execute", str(notebook), "--acknowledge-unsandboxed"]) == 2
+                err = json.loads(capsys.readouterr().err)
+                assert "exec" in err["error"]
+            finally:
+                for name in ("libipynb.execution", "libipynb.adapters.jupyter_execute"):
+                    sys.modules.pop(name, None)
