@@ -32,7 +32,9 @@ and nbformat 4.0--4.5 fidelity.
   nbstripout-compatible default set and git clean-filter integration
   (`normalize --install`)
 - **Attachments** -- manage cell-level MIME attachments with reference validation
-- **Export adapters** -- convert notebooks to Markdown or Python scripts
+- **Export adapters** -- convert notebooks to Markdown, Python scripts, HTML
+  (`HtmlExporter`, shells out to `nbconvert`, `libipynb[export]`), or to/from
+  Jupytext's paired text formats (`JupytextExporter`, `libipynb[export]`)
 - **Execution** -- two opt-in engines: a dependency-free subprocess adapter, and a
   real local Jupyter-kernel-protocol engine (`libipynb[exec]`) with rich outputs,
   sync/async APIs, and structured results (`libipynb.execution`)
@@ -172,8 +174,15 @@ from libipynb import load, dump
 
 doc = load("input.ipynb")
 # ... modify doc ...
-dump(doc, "output.ipynb")
+dump(doc, "output.ipynb", profile="declared")  # preserves the loaded notebook's own version
 ```
+
+`profile="declared"` preserves whatever nbformat version `input.ipynb` already
+declares (what "round-trip" means here). Omitting `profile` targets nbformat
+4.5 specifically and requires the source to already be 4.5 — call `upgrade()`
+first if it isn't (see [Supported Versions](#supported-versions) below); this
+is a deliberate safety rail, not an oversight — see `dump`/`dumps` in the API
+table above for why.
 
 ## Supported Versions
 
@@ -205,14 +214,17 @@ please report it -- it has not been exercised by an automated gate.
 
 ## API Overview
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module map, the core/optional-extras
+dependency boundary, and the execution trust model behind the APIs below.
+
 ### `libipynb.codec` -- Reading and Writing
 
 | Function | Description |
 |---|---|
 | `load(source)` | Load a notebook from a file path, string, bytes, or stream |
 | `loads(text)` | Load a notebook from a JSON string |
-| `dump(doc, dest)` | Write a notebook to a file path or stream |
-| `dumps(doc)` | Serialize a notebook to a JSON string |
+| `dump(doc, dest)` | Write a notebook to a file path or stream. Default `profile` (omitted/`None`) validates the *entire* document against the nbformat 4.5 schema on every call and requires the document already be declared 4.5 — call `upgrade()` first otherwise. Pass `profile="declared"` for a cheap passthrough that preserves the document's own declared version and skips re-validation. |
+| `dumps(doc)` | Serialize a notebook to a JSON string (same profile behavior as `dump`) |
 | `probe(source)` | Detect whether a source is a valid `.ipynb` file |
 | `roundtrip(source, dest)` | Load and re-serialize with minimal diff |
 
@@ -244,13 +256,24 @@ please report it -- it has not been exercised by an automated gate.
 - **`SanitizationPolicy`** -- configurable mode (`LOSSLESS`, `REMOVE`, `QUARANTINE`)
   and active MIME type set
 - **`NotebookResourceLimits`** -- caps on input size (64 MB), output size (512 MB),
-  decompressed size (2 GB), entries (100K), nesting depth (64)
+  decompressed size (2 GB), entries (2M), nesting depth (64), sanitizer scan tokens (200K)
 - **`HmacNotebookNotary`** -- HMAC-based trust signatures
 
 ### `libipynb.adapters` -- Export and Execution
 
 - **`MarkdownExporter`** / **`PythonScriptExporter`** -- convert notebooks to
   Markdown or `.py` files
+- **`HtmlExporter`** -- one-directional export to self-contained HTML by
+  shelling out to the real `python -m nbconvert --to html --stdout`
+  (`libipynb[export]`) -- never imports `nbconvert` as a Python module, the
+  same "wrap the real tool without a Python import dependency" pattern
+  `execute_notebook()` and the git diff/merge driver integration also use.
+  Tested directly against the real installed tool, not mocked
+  (`tests/integration/test_obligation_html_jupytext_export.py`)
+- **`JupytextExporter`** -- round-trips a notebook to/from Jupytext's paired
+  text formats via the real `jupytext` library (`libipynb[export]`);
+  unlike `HtmlExporter`, `jupytext` is imported directly since it is not on
+  `test_import_boundary.py`'s forbidden list
 - **`execute_notebook()`** -- opt-in execution adapter with result tracking.
   **Still not a full sandbox**, but narrower than a bare subprocess: by
   default it runs in a fresh temporary working directory (`isolate_cwd`,

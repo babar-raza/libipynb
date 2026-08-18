@@ -5,8 +5,8 @@ Thank you for your interest in contributing to libipynb.
 ## Development Setup
 
 ```bash
-# Clone the repository
-git clone https://gitlab.recruitize.ai/sialkot/cantt-smallize/libipynb.git
+# Clone your copy of this repository
+git clone <repository-url>
 cd libipynb
 
 # Create and activate a virtual environment
@@ -18,8 +18,9 @@ python -m venv .venv
 pip install -e ".[test,reference]"
 ```
 
-The `test` extra installs pytest, Hypothesis, and PyYAML. The `reference` extra
-installs `nbformat` for interoperability testing.
+The `test` extra installs pytest, Hypothesis, and `nbformat` (for
+interoperability tests within the suite itself). The `reference` extra
+installs a separately pinned `nbformat` for interoperability testing.
 
 ## Running Tests
 

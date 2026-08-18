@@ -50,7 +50,10 @@ First publication-ready release.
 - **Attachments** -- `manage_attachments` for cell-level MIME attachment
   management with reference validation
 - **Export adapters** -- `MarkdownExporter` and `PythonScriptExporter` for
-  notebook conversion
+  notebook conversion; `HtmlExporter` (one-directional export to
+  self-contained HTML via the real `nbconvert`, `libipynb[export]`) and
+  `JupytextExporter` (round-trips to/from Jupytext's paired text formats via
+  the real `jupytext` library, `libipynb[export]`)
 - **Execution adapter** -- `execute_notebook` with per-cell result tracking.
   Opt-in only (`acknowledge_unsandboxed=True` required); runs in a separate
   OS subprocess, and by default in an isolated temp working directory
