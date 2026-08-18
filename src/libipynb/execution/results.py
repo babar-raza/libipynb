@@ -43,6 +43,11 @@ class CellExecutionRecord:
     error: ExecutionCellError | None
     started_at: float | None
     finished_at: float | None
+    #: LIBIPYNB-Q2: ``True`` when one or more of this cell's own outputs
+    #: were truncated because they exceeded
+    #: :attr:`~.options.ExecutionOptions.max_output_bytes`. Always
+    #: ``False`` when that option is ``None`` (the default).
+    output_truncated: bool = False
 
     @property
     def succeeded(self) -> bool:

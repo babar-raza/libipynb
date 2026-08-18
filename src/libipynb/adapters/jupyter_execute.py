@@ -45,6 +45,14 @@ key -- ``source`` in whatever form it was read, cell ``id``, attachments,
 unknown extension metadata, notebook-level metadata -- is never touched and
 therefore cannot be lost or reshaped by this module.
 
+One exception, scoped to the execution copy only (LIBIPYNB-Q1): list-of-lines
+``source`` -- the standard on-disk Jupyter form -- is joined into a plain
+string on the execution copy before handing it to ``nbformat.from_dict()``,
+because nbclient itself requires ``cell.source`` to support ``.strip()``.
+This never touches the original ``document.raw``/the harvested result's
+``source`` field, which stays exactly as read, per the fidelity guarantee
+above.
+
 Cancellation determinism (``execute_async`` only -- there is no equivalent
 concept for the synchronous ``execute()``, which has no enclosing
 ``asyncio.Task`` a caller could cancel): the installed ``nbclient==0.11.0``
@@ -159,9 +167,22 @@ class LocalJupyterExecutor:
         nbclient_mod, nbformat_mod, nbclient_exc = _import_backend()
         client, nb_node, tracker = _build_client(document, resolved, nbclient_mod, nbformat_mod)
         start_kwargs = client._libipynb_extra_start_kwargs
+        # LIBIPYNB-Q2: this used to catch `BaseException`, silently
+        # swallowing KeyboardInterrupt/SystemExit -- confirmed live: a
+        # caller's own Ctrl+C could not interrupt a hung synchronous
+        # execute() call, because the interrupt was routed into _finish()
+        # and returned as a structured (completed=False) result instead of
+        # propagating. _finish()'s own classification below already has a
+        # catch-all "unrecognized failure mode" branch for any Exception
+        # subtype it doesn't specifically name, so narrowing to `except
+        # Exception` loses no other behavior. Contrast with
+        # execute_async() above, whose `except BaseException` IS
+        # deliberate and must not be narrowed the same way: it specifically
+        # needs to observe `asyncio.CancelledError` (a BaseException
+        # subclass) to run its own documented cancellation-cleanup path.
         try:
             client.execute(**start_kwargs)
-        except BaseException as exc:  # noqa: BLE001 -- classified below, never re-raised bare
+        except Exception as exc:  # noqa: BLE001 -- classified below, never re-raised bare
             return _finish(document, resolved, nb_node, tracker, client, nbclient_exc, exc)
         return _finish(document, resolved, nb_node, tracker, client, nbclient_exc, None)
 
@@ -226,6 +247,26 @@ class LocalJupyterExecutor:
                         await client._async_cleanup_kernel()
                     except Exception:  # noqa: BLE001, S110 -- best-effort; must never mask CancelledError
                         pass
+                    finally:
+                        # LIBIPYNB-Q2: nbclient's own async_setup_kernel
+                        # registers atexit.register(self._cleanup_kernel)
+                        # (see module docstring above) and only unregisters
+                        # it in its own successful-teardown finally/signal
+                        # paths -- neither of which we go through here.
+                        # Left unregistered, this hook (and the strong
+                        # reference it holds to the kernel manager) stays
+                        # alive for the rest of the process, producing a
+                        # noisy, uncatchable "Exception ignored in atexit
+                        # callback ... AssertionError" traceback at
+                        # interpreter exit and accumulating on a
+                        # long-running host that performs many cancelled
+                        # executions. Per CPython's own atexit docs,
+                        # unregister() silently no-ops if the callable was
+                        # never registered or already removed, so this is
+                        # always safe to call unconditionally here.
+                        import atexit
+
+                        atexit.unregister(client._cleanup_kernel)
                 if isinstance(exc, asyncio.CancelledError):
                     raise
                 # nbclient swallowed the real CancelledError (see above) --
@@ -320,6 +361,21 @@ class _Tracker:
         )
 
 
+def _normalize_source_for_execution(cell: dict[str, Any]) -> None:
+    """nbclient calls ``cell.source.strip()`` unconditionally; unlike a real
+    ``nbformat.writes()``/``reads()`` round trip, ``nbformat.from_dict()``
+    does NOT coerce list-of-lines source to a string, so a list-source cell
+    (the standard on-disk Jupyter form) crashes the whole run with
+    AttributeError before any cell executes (LIBIPYNB-Q1). Mirrors
+    ``adapters/execute.py``'s own ``_cell_source()`` helper exactly. Mutates
+    only the already-deep-copied execution dict -- never ``document.raw``
+    (see ``_build_client``'s ``deepcopy`` above and this module's own
+    "execution copy" fidelity strategy in the module docstring)."""
+    value = cell.get("source", "")
+    if not isinstance(value, str):
+        cell["source"] = "".join(value) if isinstance(value, list) else str(value)
+
+
 def _build_client(
     document: NotebookDocument,
     options: ExecutionOptions,
@@ -327,6 +383,9 @@ def _build_client(
     nbformat_mod: Any,
 ) -> tuple[Any, Any, _Tracker]:
     nb_dict = copy.deepcopy(document.raw)
+    for cell in nb_dict.get("cells", []) or []:
+        if isinstance(cell, dict):
+            _normalize_source_for_execution(cell)
     nb_node = nbformat_mod.from_dict(nb_dict)
 
     tracker = _Tracker(options.on_event)
@@ -363,6 +422,50 @@ def _build_client(
     # NotebookClient trait (there isn't one for extra Popen env).
     client._libipynb_extra_start_kwargs = kwargs
     return client, nb_node, tracker
+
+
+def _truncate_text(text: str, max_bytes: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    marker = f"\n... [output truncated: exceeded {max_bytes} bytes]"
+    keep = max(0, max_bytes - len(marker.encode("utf-8")))
+    # errors="ignore" -- keep may land mid-codepoint at the byte boundary;
+    # dropping a partial trailing codepoint is preferable to raising here.
+    return encoded[:keep].decode("utf-8", errors="ignore") + marker
+
+
+def _truncate_one_output(output: dict[str, Any], max_bytes: int) -> bool:
+    changed = False
+    text = output.get("text")
+    if isinstance(text, str):
+        if len(text.encode("utf-8")) > max_bytes:
+            output["text"] = _truncate_text(text, max_bytes)
+            changed = True
+    elif isinstance(text, list) and all(isinstance(item, str) for item in text):
+        joined = "".join(text)
+        if len(joined.encode("utf-8")) > max_bytes:
+            output["text"] = [_truncate_text(joined, max_bytes)]
+            changed = True
+    data = output.get("data")
+    if isinstance(data, dict):
+        for mime_type, payload in list(data.items()):
+            if isinstance(payload, str) and len(payload.encode("utf-8")) > max_bytes:
+                data[mime_type] = _truncate_text(payload, max_bytes)
+                changed = True
+    return changed
+
+
+def _truncate_outputs_if_needed(outputs: list[dict[str, Any]], max_bytes: int | None) -> bool:
+    """LIBIPYNB-Q2: truncate each output's own payload INDEPENDENTLY --
+    never by slicing a combined byte stream across outputs/cells, which is
+    the older subprocess engine's own confirmed bug (silently dropping
+    every downstream cell's results once one cell's output pushed the
+    shared stream past the byte cutoff). Truncating per-output here can
+    only ever affect the one oversized output it is applied to."""
+    if max_bytes is None:
+        return False
+    return any(_truncate_one_output(output, max_bytes) for output in outputs)
 
 
 def _finish(
@@ -444,7 +547,15 @@ def _finish(
                     executed=False,
                     skipped=is_skip_tagged,
                     execution_count=orig_cell.get("execution_count"),
-                    outputs=tuple(orig_cell.get("outputs", []) or []),
+                    # LIBIPYNB-Q2: deep-copied -- orig_cell["outputs"]
+                    # lives inside new_raw, which becomes result.notebook
+                    # directly; without this, mutating a "frozen"
+                    # CellExecutionRecord.outputs entry would silently
+                    # corrupt result.notebook too (see the executed-cell
+                    # branch's identical fix below for the full rationale).
+                    outputs=tuple(
+                        copy.deepcopy(output) for output in (orig_cell.get("outputs", []) or [])
+                    ),
                     error=None,
                     started_at=timing[0],
                     finished_at=timing[1],
@@ -454,6 +565,12 @@ def _finish(
 
         exec_cell = executed_cells[index]
         new_outputs = [dict(output) for output in exec_cell.get("outputs", []) or []]
+        # LIBIPYNB-Q2: applied before orig_cell["outputs"] is assigned, so
+        # both the notebook written back onto result.notebook AND this
+        # cell's CellExecutionRecord (deep-copied from the same,
+        # already-truncated new_outputs below) reflect the truncation
+        # consistently.
+        output_truncated = _truncate_outputs_if_needed(new_outputs, options.max_output_bytes)
         new_execution_count = exec_cell.get("execution_count")
         orig_cell["outputs"] = new_outputs
         orig_cell["execution_count"] = new_execution_count
@@ -470,10 +587,23 @@ def _finish(
                 executed=True,
                 skipped=False,
                 execution_count=new_execution_count,
-                outputs=tuple(new_outputs),
+                # LIBIPYNB-Q2: deep-copied, independently from
+                # orig_cell["outputs"] = new_outputs above. `new_outputs`'s
+                # own [dict(output) for ...] is only a SHALLOW per-item
+                # copy -- nested values (a MIME `data` bundle, `metadata`)
+                # were still shared objects between orig_cell["outputs"]
+                # (which becomes part of result.notebook) and this
+                # CellExecutionRecord.outputs tuple, so mutating one
+                # silently corrupted the other despite CellExecutionRecord
+                # being declared frozen=True. Confirmed live:
+                # `result.cell_records[0].outputs[0] is
+                # result.notebook.cells[0]['outputs'][0]` was True before
+                # this fix.
+                outputs=tuple(copy.deepcopy(output) for output in new_outputs),
                 error=tracker.errors.get(index),
                 started_at=timing[0],
                 finished_at=timing[1],
+                output_truncated=output_truncated,
             )
         )
 

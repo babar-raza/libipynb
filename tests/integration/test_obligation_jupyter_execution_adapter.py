@@ -324,13 +324,49 @@ def test_notebook_level_unknown_metadata_is_preserved(executor: LocalJupyterExec
     assert result.notebook.metadata["custom_project_field"] == {"team": "libipynb"}
 
 
-def test_list_of_lines_source_form_is_preserved_unchanged(executor: LocalJupyterExecutor) -> None:
+def test_list_of_lines_source_form_is_preserved_unchanged_and_actually_executes(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """LIBIPYNB-Q1 regression: the standard on-disk Jupyter source form
+    (list-of-lines, ~40% of this project's own fixtures per the forensic
+    audit) must both round-trip unchanged in the result AND actually
+    execute -- the prior version of this test only checked the former,
+    which is exactly the blind spot that let the execution engine ship
+    completely unable to run this input (AttributeError: 'list' object has
+    no attribute 'strip', deep inside nbclient, misreported as a generic
+    kernel_death_error)."""
     cell = _code(["print(1)\n", "print(2)"], "c")
     document = _document([cell])
 
     result = executor.execute(document, options=_opts())
 
+    # Preservation (the only thing the old, weak test checked):
     assert result.notebook.cells[0]["source"] == ["print(1)\n", "print(2)"]
+    # Execution actually happened -- absent before this fix:
+    assert result.completed is True
+    assert result.kernel_death_error is None
+    assert result.kernel_launch_error is None
+    record = result.cell_records[0]
+    assert record.executed is True
+    assert record.error is None
+    assert record.outputs[0]["text"] == "1\n2\n"
+
+
+def test_list_of_lines_source_form_actually_executes_via_execute_async(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """Same regression as above, via the async entry point -- both call the
+    same _build_client(), but this proves the fix isn't sync-path-only."""
+    cell = _code(["print(3)\n", "print(4)"], "c")
+    document = _document([cell])
+
+    result = asyncio.run(executor.execute_async(document, options=_opts()))
+
+    assert result.completed is True
+    assert result.kernel_death_error is None
+    record = result.cell_records[0]
+    assert record.executed is True
+    assert record.outputs[0]["text"] == "3\n4\n"
 
 
 # ── Non-mutating default vs. in_place ───────────────────────────────────────
@@ -688,3 +724,137 @@ def test_executed_document_round_trips_through_dump_and_load(
     dump(result.notebook, out_path, profile="declared")
     reloaded = load(out_path, mode="preservation")
     assert reloaded.cells[1]["outputs"][0]["text"] == "hi\n"
+
+
+# ── LIBIPYNB-Q2: safety/fidelity hardening ──────────────────────────────────
+
+
+def test_synchronous_execute_propagates_keyboard_interrupt(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """Previously `execute()` caught `BaseException`, silently swallowing
+    KeyboardInterrupt/SystemExit -- a caller's own Ctrl+C could not
+    interrupt a hung synchronous execute() call. Confirmed by monkeypatching
+    the real nbclient.NotebookClient.execute to raise KeyboardInterrupt,
+    exactly as the forensic audit's own reproduction did."""
+    from unittest.mock import patch
+
+    document = _document([_code("1 + 1")])
+
+    with (
+        patch("nbclient.NotebookClient.execute", side_effect=KeyboardInterrupt("simulated ctrl-c")),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        executor.execute(document, options=_opts())
+
+
+def test_cell_execution_record_outputs_are_independently_mutable_from_the_notebook(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """Previously CellExecutionRecord.outputs shared mutable nested dict
+    objects with result.notebook's own cell outputs -- mutating one
+    silently corrupted the other despite CellExecutionRecord being
+    declared frozen=True."""
+    document = _document([_code("print('hello')")])
+
+    result = executor.execute(document, options=_opts())
+
+    record_output = result.cell_records[0].outputs[0]
+    notebook_output = result.notebook.cells[0]["outputs"][0]
+    assert record_output is not notebook_output, "must not be the same object"
+    record_output["text"] = "MUTATED"
+    assert notebook_output["text"] != "MUTATED", (
+        "mutating CellExecutionRecord.outputs must not corrupt result.notebook"
+    )
+
+
+def test_cancellation_unregisters_nbclients_own_atexit_cleanup_hook(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """Previously the cancellation-cleanup path never called
+    atexit.unregister(client._cleanup_kernel), leaving nbclient's own
+    atexit-registered hook (and the strong reference it holds) alive for
+    the rest of the process -- producing a noisy, uncatchable
+    "AssertionError" traceback at interpreter exit."""
+    import atexit
+    from unittest.mock import patch
+
+    from nbclient import NotebookClient
+
+    def _is_cleanup_kernel_hook(fn: object) -> bool:
+        # nbclient assigns `_cleanup_kernel = run_sync(_async_cleanup_kernel)`
+        # as a class attribute; jupyter_core's `run_sync()` returns a bare
+        # closure literally named `wrapped` (no `functools.wraps`), so
+        # identifying it by name alone would also match unrelated
+        # `run_sync`-wrapped callables -- narrow to ones bound to a
+        # `NotebookClient` instance specifically.
+        return getattr(fn, "__name__", None) == "wrapped" and isinstance(
+            getattr(fn, "__self__", None), NotebookClient
+        )
+
+    async def run() -> None:
+        document = _document([_code("import time; time.sleep(30)")])
+        task = asyncio.ensure_future(
+            executor.execute_async(document, options=_opts(cell_timeout=60))
+        )
+        await asyncio.sleep(2)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    with (
+        patch.object(atexit, "register", wraps=atexit.register) as register_spy,
+        patch.object(atexit, "unregister", wraps=atexit.unregister) as unregister_spy,
+    ):
+        asyncio.run(run())
+
+    registered = [
+        call.args[0]
+        for call in register_spy.call_args_list
+        if call.args and _is_cleanup_kernel_hook(call.args[0])
+    ]
+    unregistered = [
+        call.args[0]
+        for call in unregister_spy.call_args_list
+        if call.args and _is_cleanup_kernel_hook(call.args[0])
+    ]
+
+    assert registered, (
+        "expected nbclient to register its own _cleanup_kernel atexit hook during execution"
+    )
+    assert any(r == u for r in registered for u in unregistered), (
+        "cancellation cleanup must call atexit.unregister(client._cleanup_kernel) "
+        "to release nbclient's own hook after a cancelled execute_async() call"
+    )
+
+
+def test_max_output_bytes_truncates_only_the_oversized_output_not_downstream_cells(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """A small cell AFTER an oversized one must still get its own correct,
+    untruncated output -- the specific regression class already confirmed
+    in the older subprocess engine (adapters/execute.py), which must not
+    be reproduced here since truncation is applied per-output, never by
+    slicing a combined byte stream."""
+    document = _document(
+        [
+            _code("print('before', end='')", "before"),
+            _code("print('x' * 1_000_000, end='')", "big"),
+            _code("print('after', end='')", "after"),
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(stop_on_error=False, max_output_bytes=1024))
+
+    before_record, big_record, after_record = result.cell_records
+    assert before_record.outputs[0]["text"] == "before"
+    assert before_record.output_truncated is False
+    assert big_record.output_truncated is True
+    assert len(big_record.outputs[0]["text"].encode("utf-8")) <= 1024
+    # The cell AFTER the oversized one must still have run and produced its
+    # own, complete, untruncated output -- not silently dropped.
+    assert after_record.executed is True
+    assert after_record.outputs[0]["text"] == "after"
+    assert after_record.output_truncated is False

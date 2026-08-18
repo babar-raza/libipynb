@@ -109,6 +109,25 @@ class ExecutionOptions:
     #: only -- exceptions raised inside it propagate and abort the run.
     on_event: Callable[[ExecutionEvent], None] | None = None
 
+    #: LIBIPYNB-Q2: maximum UTF-8 byte size of a single output's own
+    #: text/data payload before it is truncated and the corresponding
+    #: :attr:`~.results.CellExecutionRecord.output_truncated` is set to
+    #: ``True``. ``None`` (default) disables the cap entirely -- confirmed
+    #: live before this field existed: a single cell producing 50MB of
+    #: stdout was captured in full with no limit of any kind, a real
+    #: regression in safety-knob coverage versus the older subprocess
+    #: engine's own tested ``max_output_bytes``. Unlike that engine's
+    #: confirmed bug (truncating a shared combined byte stream and
+    #: silently losing every downstream cell's results), truncation here
+    #: is applied independently to each output's own payload, so it can
+    #: only ever affect the one oversized output it is applied to. This
+    #: bounds what is *retained* in the returned
+    #: :class:`~.results.ExecutionResult`/notebook, not peak transient
+    #: memory the kernel or ``nbclient`` may hold while a single output is
+    #: still streaming in -- a true streaming cap would need ``nbclient``'s
+    #: semi-internal output-hook API, out of scope here.
+    max_output_bytes: int | None = None
+
     def __post_init__(self) -> None:
         if self.cell_timeout is not None and self.cell_timeout <= 0:
             raise ValueError("cell_timeout must be positive or None")
@@ -116,3 +135,5 @@ class ExecutionOptions:
             raise ValueError("kernel_startup_timeout must be positive")
         if not self.skip_tag:
             raise ValueError("skip_tag must be a non-empty string")
+        if self.max_output_bytes is not None and self.max_output_bytes <= 0:
+            raise ValueError("max_output_bytes must be positive or None")
