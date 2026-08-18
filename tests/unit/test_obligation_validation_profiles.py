@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from libipynb import validate
 from libipynb.diagnostics import DiagnosticSeverity as Severity
+from libipynb.errors import NotebookValidationError
+from libipynb.validation import validate_notebook, validate_notebook_schema
 
 
 def _codes(report: object, severity: Severity | None = None) -> set[str]:
@@ -148,3 +152,68 @@ def test_malformed_cells_outputs_tags_and_mime_bundles_have_exact_diagnostics() 
         "IPYNB_OUTPUT_METADATA",
         "IPYNB_ERROR_TRACEBACK",
     } <= _codes(report, Severity.ERROR)
+
+
+# ── LIBIPYNB-Q13a: validate_notebook()/validate_notebook_schema() ───────────
+# Zero test references existed anywhere for these two convenience wrappers
+# before this -- they were exported public API with no direct, non-incidental
+# coverage.
+
+_VALID_NOTEBOOK = {
+    "nbformat": 4,
+    "nbformat_minor": 5,
+    "metadata": {},
+    "cells": [
+        {
+            "cell_type": "code",
+            "id": "cell-0",
+            "metadata": {},
+            "source": "1 + 1",
+            "execution_count": None,
+            "outputs": [],
+        }
+    ],
+}
+
+_INVALID_NOTEBOOK = {
+    "nbformat": 4,
+    "nbformat_minor": 5,
+    "metadata": {},
+    "cells": [
+        {
+            "cell_type": "code",
+            "id": "cell-0",
+            "metadata": {"tags": ["dup", "dup"]},
+            "source": "1 + 1",
+            "execution_count": None,
+            "outputs": [],
+        }
+    ],
+}
+
+
+def test_validate_notebook_schema_is_empty_for_a_valid_notebook() -> None:
+    assert validate_notebook_schema(_VALID_NOTEBOOK) == []
+
+
+def test_validate_notebook_schema_returns_exactly_the_underlying_reports_error_messages() -> None:
+    # Compared directly against validate()'s own error messages, not a
+    # hand-duplicated expected list -- the exact contract this wrapper
+    # documents (`[item.message for item in validate(model).errors]`).
+    report = validate(_INVALID_NOTEBOOK)
+    assert not report.is_valid
+    assert validate_notebook_schema(_INVALID_NOTEBOOK) == [item.message for item in report.errors]
+
+
+def test_validate_notebook_is_a_no_op_on_a_valid_notebook() -> None:
+    validate_notebook(_VALID_NOTEBOOK)  # must not raise
+
+
+def test_validate_notebook_raises_with_the_joined_error_messages_on_an_invalid_notebook() -> None:
+    expected_messages = validate_notebook_schema(_INVALID_NOTEBOOK)
+    assert expected_messages, "fixture must actually be invalid for this test to be meaningful"
+
+    with pytest.raises(NotebookValidationError) as excinfo:
+        validate_notebook(_INVALID_NOTEBOOK)
+
+    assert str(excinfo.value) == "; ".join(expected_messages)

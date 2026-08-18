@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from ..errors import NotebookValidationError
 
 if TYPE_CHECKING:
+    from ..security.limits import NotebookResourceLimits
     from .document import NotebookDocument
 
 
@@ -139,14 +140,32 @@ def _target_version(target: str) -> tuple[int, int]:
 
 def _copy_source(
     value: NotebookDocument | Mapping[str, Any],
+    *,
+    limits: NotebookResourceLimits | None = None,
 ) -> dict[str, Any]:
+    """LIBIPYNB-Q5: ``enforce_structure`` (the library's own bounded,
+    iterative traversal -- already used correctly by ``validate()``/
+    ``load()``) runs BEFORE the recursive ``deepcopy()`` below, not after.
+    Previously this called ``deepcopy()`` unconditionally first, so a
+    caller-supplied dict/NotebookDocument with ~495+ levels of nested
+    metadata raised an uncaught ``RecursionError`` instead of the graceful
+    ``NotebookResourceLimitError`` ``validate()`` already produces for
+    identical adversarial input -- a trivially-triggered DoS against a
+    documented safety guarantee that ``upgrade()``/``plan_downgrade()``/
+    ``downgrade()`` had zero protection against below that crash threshold."""
     from .document import NotebookDocument
 
     if isinstance(value, NotebookDocument):
-        return deepcopy(value.raw)
-    if isinstance(value, Mapping):
-        return deepcopy(dict(value))
-    raise TypeError("value must be an NotebookDocument or mapping")
+        raw = value.raw
+    elif isinstance(value, Mapping):
+        raw = dict(value)
+    else:
+        raise TypeError("value must be an NotebookDocument or mapping")
+
+    from ..security.limits import effective_limits, enforce_structure
+
+    enforce_structure(raw, effective_limits(limits))
+    return deepcopy(raw)
 
 
 def _declared_version(data: Mapping[str, Any]) -> tuple[int, int]:
@@ -211,10 +230,11 @@ def plan_downgrade(
     value: NotebookDocument | Mapping[str, Any],
     *,
     target: str,
+    limits: NotebookResourceLimits | None = None,
 ) -> DowngradePlan:
     """Report every known downgrade effect without modifying the notebook."""
 
-    data = _copy_source(value)
+    data = _copy_source(value, limits=limits)
     source_major, source_minor = _declared_version(data)
     target_major, target_minor = _target_version(target)
     if (target_major, target_minor) >= (source_major, source_minor):
@@ -318,12 +338,13 @@ def downgrade(
     *,
     plan: DowngradePlan,
     accept_loss: bool = False,
+    limits: NotebookResourceLimits | None = None,
 ) -> ConversionResult:
     """Apply an exact downgrade plan, requiring explicit loss acceptance."""
 
     if not isinstance(plan, DowngradePlan):
         raise TypeError("plan must be a DowngradePlan")
-    data = _copy_source(value)
+    data = _copy_source(value, limits=limits)
     source_major, source_minor = _declared_version(data)
     if plan.source_version.as_tuple() != (
         source_major,
@@ -348,6 +369,7 @@ def downgrade(
     expected_plan = plan_downgrade(
         data,
         target=f"{target_major}.{target_minor}",
+        limits=limits,
     )
     if plan != expected_plan:
         raise NotebookValidationError(
@@ -432,6 +454,7 @@ def upgrade(
     value: NotebookDocument | Mapping[str, Any],
     *,
     target: str = "4.5",
+    limits: NotebookResourceLimits | None = None,
 ) -> ConversionResult:
     """Explicitly upgrade a notebook and return a conversion ledger.
 
@@ -442,7 +465,7 @@ def upgrade(
     from ..codec.reader import CELL_ID_PATTERN, ensure_cell_id
     from .document import NotebookDocument
 
-    data = _copy_source(value)
+    data = _copy_source(value, limits=limits)
     target_major, target_minor = _target_version(target)
     source_major = data.get("nbformat")
     source_minor = data.get("nbformat_minor")
@@ -483,6 +506,16 @@ def upgrade(
     if (source_major, source_minor) != (target_major, target_minor):
         data["nbformat"] = target_major
         data["nbformat_minor"] = target_minor
+        # LIBIPYNB-Q14: matches nbformat.v4.convert.upgrade()'s own
+        # unconditional `nb.metadata.orig_nbformat_minor = from_minor` --
+        # the provenance field the reference implementation always records
+        # on a real version bump, so consumers can tell a notebook was
+        # converted (and from what) without diffing nbformat_minor history.
+        metadata = data.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            data["metadata"] = metadata
+        metadata["orig_nbformat_minor"] = source_minor
         actions.append(
             ConversionAction(
                 "IPYNB_UPGRADE_VERSION",

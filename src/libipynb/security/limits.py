@@ -16,8 +16,35 @@ class NotebookResourceLimits:
     max_input_bytes: int = 64 * 1024 * 1024
     max_output_bytes: int = 512 * 1024 * 1024
     max_decompressed_bytes: int = 2 * 1024 * 1024 * 1024
-    max_entries: int = 100_000
+    #: LIBIPYNB-Q7: raised from 100_000 -- the old default rejected a
+    #: legitimate, nbformat-valid ~4 MiB/150,000-line single-cell notebook
+    #: that the official nbformat.validate() accepts without complaint
+    #: (enforce_structure counts every JSON array element cumulatively
+    #: across the whole document, so one large source line-array consumed
+    #: the entire old budget). 2,000,000 gives ~13x headroom over that
+    #: confirmed repro while staying two-plus orders of magnitude below
+    #: where enforce_structure's own traversal cost becomes noticeable. A
+    #: byte-proportional formula was considered and rejected: enforce_
+    #: structure's DFS-stack traversal counts a container's entries BEFORE
+    #: its child strings are popped and contribute to decoded_bytes, so an
+    #: "entries-per-decoded-byte-so-far" check would spuriously reject the
+    #: exact large-single-cell case this change exists to stop rejecting.
+    #: See SECURITY.md's resource-limits section for the accepted,
+    #: documented shape-dependent-protection caveat this doesn't close.
+    max_entries: int = 2_000_000
     max_nesting_depth: int = 64
+    #: LIBIPYNB-Q7: sanitize()'s markup scanner previously budgeted only
+    #: *hazard* observations (active elements/attributes/references)
+    #: against max_entries, not total tokens parsed -- a payload dense with
+    #: harmless markup was fully tokenized by the pure-Python HTMLParser at
+    #: proportional CPU cost with zero resource-limit engagement (measured:
+    #: ~4.4s CPU for 300,000 harmless tags; linear extrapolation to the
+    #: 2 GiB max_decompressed_bytes ceiling implied over 10 minutes of
+    #: blocking CPU for one in-budget sanitize() call). 200_000 bounds a
+    #: single scan's markup-tokenization phase to roughly single-digit
+    #: seconds by default while leaving generous room for legitimate large
+    #: HTML/markdown cells.
+    max_scan_tokens: int = 200_000
 
     def __post_init__(self) -> None:
         for descriptor in fields(self):

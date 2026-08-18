@@ -21,10 +21,54 @@ Source = str | bytes | PathLike[str] | TextIO
 
 
 def _enforce_text_size(text: str, limits: ResourceLimits) -> str:
-    encoded_size = len(text.encode("utf-8"))
+    try:
+        encoded_size = len(text.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        # LIBIPYNB-Q6: a genuine on-disk UTF-8 file can never contain a raw
+        # unpaired surrogate character (UTF-8 cannot encode one), so this
+        # specific site is reachable only when a caller passes an in-memory
+        # str already containing one directly to loads()/load() -- a
+        # narrower, API-misuse-shaped gap than the escape-sequence case
+        # enforce_structure/_utf8_size guards against below, but loads()'s
+        # public contract accepts arbitrary str input, so it is still a
+        # real, defensively-worth-closing crash surface.
+        raise NotebookParseError(
+            f"notebook text is not valid UTF-8 (unpaired UTF-16 surrogate): {exc}",
+            code="IPYNB_INVALID_SURROGATE",
+        ) from exc
     limits.enforce("max_input_bytes", encoded_size)
     limits.enforce("max_decompressed_bytes", encoded_size)
     return text
+
+
+_STREAM_CHUNK_CHARS = 1 << 16  # 64K chars/read() call
+
+
+def _read_stream_bounded(source: Any, limits: ResourceLimits) -> str:
+    """LIBIPYNB-Q7: read a text stream in bounded chunks, checking
+    max_input_bytes/max_decompressed_bytes after every chunk, so an
+    oversized stream is aborted mid-read instead of fully materialized
+    first -- unlike bytes/Path sources (which know their size up front),
+    a stream has no pre-known size to check before reading."""
+    chunks: list[str] = []
+    total_bytes = 0
+    while True:
+        chunk = source.read(_STREAM_CHUNK_CHARS)
+        if not isinstance(chunk, str):
+            raise TypeError("notebook text stream read() must return str")
+        if chunk == "":
+            break
+        try:
+            total_bytes += len(chunk.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise NotebookParseError(
+                f"notebook text is not valid UTF-8 (unpaired UTF-16 surrogate): {exc}",
+                code="IPYNB_INVALID_SURROGATE",
+            ) from exc
+        limits.enforce("max_input_bytes", total_bytes)
+        limits.enforce("max_decompressed_bytes", total_bytes)
+        chunks.append(chunk)
+    return "".join(chunks)
 
 
 def _read_source(source: Source, limits: ResourceLimits) -> str:
@@ -35,10 +79,7 @@ def _read_source(source: Source, limits: ResourceLimits) -> str:
         except UnicodeDecodeError as exc:
             raise NotebookParseError(f"notebook is not valid UTF-8: {exc}") from exc
     if hasattr(source, "read"):
-        text = source.read()
-        if not isinstance(text, str):
-            raise TypeError("notebook text stream read() must return str")
-        return _enforce_text_size(text, limits)
+        return _read_stream_bounded(source, limits)
     if isinstance(source, str) and source.lstrip().startswith(("{", "[")):
         return _enforce_text_size(source, limits)
     path = Path(source)
@@ -135,7 +176,23 @@ def _parse(text: str, *, mode: str, limits: ResourceLimits) -> NotebookDocument:
         ) from exc
     if not isinstance(data, dict):
         _raise_parse("IPYNB_ROOT", "notebook root must be a JSON object")
-    enforce_structure(data, limits)
+    try:
+        enforce_structure(data, limits)
+    except UnicodeEncodeError as exc:
+        # LIBIPYNB-Q6: a syntactically-valid JSON string containing an
+        # unpaired UTF-16 surrogate escape (e.g. "\ud800") is legal per RFC
+        # 8259 and decoded fine by json.loads(), but enforce_structure's
+        # UTF-8 byte-size accounting (security/limits.py::_utf8_size)
+        # crashes trying to .encode("utf-8") it -- in EVERY mode including
+        # "recovery", whose entire purpose is graceful degradation on
+        # malformed input. Reclassified into the same typed error contract
+        # every other malformed-input path in this function already uses,
+        # matching the sibling RecursionError/MemoryError handler above.
+        raise NotebookParseError(
+            f"notebook contains invalid unicode (unpaired UTF-16 surrogate): {exc}",
+            code="IPYNB_INVALID_SURROGATE",
+            context={"path": ()},
+        ) from exc
     if "nbformat" not in data:
         _raise_parse(
             "IPYNB_VERSION",

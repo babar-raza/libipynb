@@ -294,3 +294,117 @@ def test_default_ruleset_is_a_stable_public_tuple() -> None:
 def test_rejects_non_notebook_document() -> None:
     with pytest.raises(TypeError):
         scan_for_secrets({"nbformat": 4})  # type: ignore[arg-type]
+
+
+# ── LIBIPYNB-Q13c: false-positive coverage ───────────────────────────────────
+# The suite above has strong true-positive coverage but had almost no tests
+# documenting what does NOT (or, in one honestly-disclosed case, DOES)
+# trigger a finding. This module's own docstring is explicit that pattern
+# matching is shape-only, not semantic -- these tests record the actual,
+# current behavior for common non-secret shapes rather than leaving it
+# assumed.
+
+
+def test_a_well_known_public_example_aws_key_still_matches_by_shape() -> None:
+    """Honest disclosure, not a bug: AWS's own documentation-example access
+    key ID (AKIAIOSFODNN7EXAMPLE, used throughout AWS's own public docs)
+    matches aws_access_key_id purely by shape -- the scanner has no
+    allowlist for well-known placeholders. A caller triaging findings needs
+    to know this rule will also fire on documentation/tutorial content, not
+    just on real leaked keys."""
+    document = _document([_code_cell("key = 'AKIAIOSFODNN7EXAMPLE'")])
+
+    report = scan_for_secrets(document)
+
+    assert any(f.rule_id == "aws_access_key_id" for f in report.findings)
+
+
+def test_a_bare_uuid_is_not_flagged() -> None:
+    document = _document([_code_cell("record_id = '550e8400-e29b-41d4-a716-446655440000'")])
+
+    report = scan_for_secrets(document)
+
+    assert report.is_clean
+
+
+def test_a_bare_git_commit_sha_is_not_flagged() -> None:
+    document = _document([_code_cell("commit = 'a94a8fe5ccb19ba61c4c0873d391e987982fbbd'")])
+
+    report = scan_for_secrets(document)
+
+    assert report.is_clean
+
+
+def test_a_base64_image_payload_in_a_non_text_mime_output_is_never_scanned() -> None:
+    """Design decision, not an accident: scan_for_secrets only scans
+    `text/*` output MIME payloads (security/secrets.py's own explicit
+    `mime_type.startswith("text/")` gate) -- image/audio/video output data
+    is structurally excluded, regardless of what its base64 content happens
+    to look like."""
+    document = _document(
+        [
+            _code_cell(
+                "plot()",
+                outputs=[
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "image/png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII="
+                        },
+                        "metadata": {},
+                    }
+                ],
+            )
+        ]
+    )
+
+    report = scan_for_secrets(document)
+
+    assert report.is_clean
+
+
+def test_a_base64_blob_assigned_to_a_non_credential_variable_is_not_flagged() -> None:
+    document = _document(
+        [
+            _code_cell(
+                "img_b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII='"
+            )
+        ]
+    )
+
+    report = scan_for_secrets(document)
+
+    assert report.is_clean
+
+
+def test_an_empty_password_metadata_value_is_not_flagged() -> None:
+    """The sensitive_metadata_key rule requires len(value) >= 6 (see
+    security/secrets.py) specifically so an empty or placeholder value
+    stored under a credential-shaped key doesn't manufacture a finding
+    with nothing actually in it."""
+    document = _document([_code_cell("pass")], metadata={"password": ""})
+
+    report = scan_for_secrets(document)
+
+    assert report.is_clean
+
+
+def test_a_short_placeholder_token_metadata_value_is_not_flagged() -> None:
+    document = _document([_code_cell("pass")], metadata={"token": "TODO"})
+
+    report = scan_for_secrets(document)
+
+    assert report.is_clean
+
+
+def test_a_six_character_token_metadata_value_is_the_documented_threshold_and_does_flag() -> None:
+    """The other side of the same boundary: security/secrets.py's own
+    `len(text) >= 6` cutoff means a 6-character value under a
+    credential-shaped key IS reported, even though it may just as easily be
+    another short placeholder -- documenting the exact threshold rather
+    than assuming callers know it."""
+    document = _document([_code_cell("pass")], metadata={"token": "abcdef"})
+
+    report = scan_for_secrets(document)
+
+    assert any(f.rule_id == "sensitive_metadata_key" for f in report.findings)

@@ -162,6 +162,7 @@ class _MarkupScanner(HTMLParser):
         self.inspect_external_references = inspect_external_references
         self.limits = limits
         self.observations = 0
+        self.tokens = 0
         self.hazards: set[str] = set()
         self.references: set[str] = set()
 
@@ -169,11 +170,20 @@ class _MarkupScanner(HTMLParser):
         self.observations += 1
         self.limits.enforce("max_entries", self.observations)
 
+    def _count_token(self) -> None:
+        """LIBIPYNB-Q7: every start-tag encountered, hazardous or not --
+        bounds total HTMLParser tokenization work (wall-clock CPU),
+        unlike _observe() above, which only counts hazard *observations*
+        and is silent for a payload dense with harmless tags."""
+        self.tokens += 1
+        self.limits.enforce("max_scan_tokens", self.tokens)
+
     def _handle_element(
         self,
         tag: str,
         attrs: list[tuple[str, str | None]],
     ) -> None:
+        self._count_token()
         normalized_tag = tag.casefold()
         if normalized_tag in _ACTIVE_ELEMENTS:
             self._observe()
@@ -216,6 +226,26 @@ class _MarkupScanner(HTMLParser):
         attrs: list[tuple[str, str | None]],
     ) -> None:
         self._handle_element(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        # LIBIPYNB-Q7 follow-up: _count_token() previously ran only from
+        # _handle_element() (start-tags), so a payload dominated by closing
+        # tags, comments, or declarations -- e.g. `'</p>' * 16_000_000` --
+        # was fully tokenized by HTMLParser (real CPU cost, empirically
+        # confirmed 20+ seconds for that shape) while self.tokens stayed at
+        # 0 and max_scan_tokens never fired. Every construct HTMLParser's
+        # own tokenizer does real work identifying must be counted here,
+        # not just the ones this module happens to inspect for hazards.
+        self._count_token()
+
+    def handle_comment(self, data: str) -> None:
+        self._count_token()
+
+    def handle_decl(self, decl: str) -> None:
+        self._count_token()
+
+    def handle_pi(self, data: str) -> None:
+        self._count_token()
 
 
 @dataclass(slots=True)
@@ -314,6 +344,15 @@ def _action(mode: SanitizationMode) -> str:
     }[mode]
 
 
+def _media_type_base(media_type: str) -> str:
+    """Strip RFC 2046 parameters (e.g. ``; charset=utf-8``) before comparing a
+    MIME type against a fixed type string or the active-MIME set. Without
+    this, a legal, real-world parameterized media type such as
+    ``text/markdown; charset=utf-8`` fails every exact-string comparison in
+    this module and bypasses scanning entirely (LIBIPYNB-Q8 follow-up)."""
+    return media_type.split(";", 1)[0].strip()
+
+
 def _add_candidate(
     candidates: list[_Candidate],
     budget: _ScanBudget,
@@ -327,7 +366,9 @@ def _add_candidate(
     policy: SanitizationPolicy,
     markdown: bool = False,
 ) -> None:
-    active_mime = media_type.casefold() in {item.casefold() for item in policy.active_mime_types}
+    active_mime = _media_type_base(media_type).casefold() in {
+        item.casefold() for item in policy.active_mime_types
+    }
     text = _payload_text(payload)
     hazards: set[str] = set()
     references: set[str] = set()
@@ -421,6 +462,17 @@ def _collect_candidates(
                         key=media_type,
                         delete_key=True,
                         policy=policy,
+                        # LIBIPYNB-Q8: an identical hazardous payload
+                        # delivered as text/markdown attachment data was
+                        # previously invisible to sanitize() -- mirrors the
+                        # cell-source markdown path above exactly, so
+                        # markdown-syntax-specific hazards (e.g.
+                        # ![x](javascript:...)) are caught here too, not
+                        # just plain-HTML ones.
+                        markdown=(
+                            policy.inspect_markdown
+                            and _media_type_base(media_type).casefold() == "text/markdown"
+                        ),
                     )
 
         outputs = cell.get("outputs")
@@ -453,6 +505,13 @@ def _collect_candidates(
                     key=media_type,
                     delete_key=True,
                     policy=policy,
+                    # LIBIPYNB-Q8: see the identical comment on the
+                    # attachments loop above -- text/markdown output data
+                    # was previously invisible to sanitize() in every mode.
+                    markdown=(
+                        policy.inspect_markdown
+                        and _media_type_base(media_type).casefold() == "text/markdown"
+                    ),
                 )
     return candidates
 

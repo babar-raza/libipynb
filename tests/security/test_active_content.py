@@ -6,6 +6,8 @@ MIME types, SVG-embedded scripts, and file-protocol references.
 
 from __future__ import annotations
 
+import pytest
+
 from libipynb import NotebookDocument, sanitize
 from libipynb.security import SanitizationMode, SanitizationPolicy
 
@@ -175,3 +177,193 @@ def test_lossless_mode_does_not_mutate_document() -> None:
 
     assert doc.raw == snapshot, "LOSSLESS mode must not mutate the document"
     assert not report.applied, "LOSSLESS mode should not apply changes"
+
+
+# ---------------------------------------------------------------------------
+# LIBIPYNB-Q8: regression coverage for the previously-untested detector
+# surface -- 13 of 14 _ACTIVE_ELEMENTS categories, the event-handler
+# heuristic, and the javascript:/CSS url() detectors were confirmed
+# implemented and functionally correct by the forensic audit's own
+# differential probe, but had zero dedicated tests (only <script> was
+# tested above). Closes that gap.
+# ---------------------------------------------------------------------------
+
+_ACTIVE_ELEMENT_PAYLOADS: dict[str, str] = {
+    "applet": '<applet code="x.class"></applet>',
+    "audio": '<audio src="x.mp3"></audio>',
+    "embed": '<embed src="x.swf">',
+    "form": '<form action="/submit"></form>',
+    "frame": '<frame src="x.html">',
+    "frameset": "<frameset></frameset>",
+    "iframe": '<iframe src="x.html"></iframe>',
+    "link": '<link rel="stylesheet" href="x.css">',
+    "meta": '<meta http-equiv="refresh" content="0;url=x">',
+    "object": '<object data="x.swf"></object>',
+    "script": "<script>alert(1)</script>",
+    "source": '<source src="x.mp4">',
+    "style": "<style>body{background:url(x.png)}</style>",
+    "video": '<video src="x.mp4"></video>',
+}
+
+
+def _assert_hazard_detected(report, expected_substring: str) -> None:
+    """Shared assertion helper: at least one finding's hazards must mention
+    the expected substring -- used by every parametrized case below so a
+    detector regression fails loudly and specifically, not just count==0."""
+    assert report.count > 0, f"expected at least one finding for {expected_substring!r}"
+    hazard_texts = [h for f in report.findings for h in f.hazards]
+    assert any(expected_substring in h.lower() for h in hazard_texts), (
+        f"expected a hazard containing {expected_substring!r}, got: {hazard_texts}"
+    )
+
+
+@pytest.mark.parametrize("tag", sorted(_ACTIVE_ELEMENT_PAYLOADS))
+def test_every_active_element_category_is_detected(tag: str) -> None:
+    doc = _notebook_with_output("display_data", {"text/html": _ACTIVE_ELEMENT_PAYLOADS[tag]})
+
+    report = sanitize(doc, dry_run=True)
+
+    _assert_hazard_detected(report, f"active_element:{tag}")
+
+
+@pytest.mark.parametrize("attr", ["onerror", "onclick", "onload", "onmouseover", "onfocus"])
+def test_event_handler_attributes_are_detected(attr: str) -> None:
+    doc = _notebook_with_output(
+        "display_data", {"text/html": f'<img src="x.png" {attr}="alert(1)">'}
+    )
+
+    report = sanitize(doc, dry_run=True)
+
+    _assert_hazard_detected(report, f"event_handler:{attr}")
+
+
+def test_javascript_uri_in_href_is_detected() -> None:
+    doc = _notebook_with_output(
+        "display_data", {"text/html": '<a href="javascript:alert(1)">click</a>'}
+    )
+
+    report = sanitize(doc, dry_run=True)
+
+    all_refs = [r for f in report.findings for r in f.references]
+    assert any(r.startswith("javascript:") for r in all_refs), all_refs
+
+
+def test_css_url_javascript_scheme_is_detected() -> None:
+    doc = _notebook_with_output(
+        "display_data",
+        {"text/html": '<div style="background:url(javascript:alert(1))"></div>'},
+    )
+
+    report = sanitize(doc, dry_run=True)
+
+    all_refs = [r for f in report.findings for r in f.references]
+    assert any(r.startswith("javascript:") for r in all_refs), all_refs
+
+
+# ---------------------------------------------------------------------------
+# LIBIPYNB-Q8: the closed text/markdown output-MIME blind spot -- an
+# identical hazardous payload delivered as text/markdown output/attachment
+# data was previously invisible to sanitize() in every mode, while the same
+# payload as text/html output data or markdown cell SOURCE was correctly
+# caught.
+# ---------------------------------------------------------------------------
+
+
+def test_markdown_mime_output_hazard_is_now_detected() -> None:
+    doc = _notebook_with_output("display_data", {"text/markdown": "[click](javascript:alert(1))"})
+
+    report = sanitize(doc, dry_run=True)
+
+    assert report.count > 0
+    all_refs = [r for f in report.findings for r in f.references]
+    assert any(r.startswith("javascript:") for r in all_refs), all_refs
+
+
+def test_markdown_mime_output_hazard_is_suppressed_when_inspect_markdown_is_false() -> None:
+    doc = _notebook_with_output("display_data", {"text/markdown": "[click](javascript:alert(1))"})
+
+    report = sanitize(doc, policy=SanitizationPolicy(inspect_markdown=False), dry_run=True)
+
+    assert report.count == 0
+
+
+def test_markdown_mime_attachment_hazard_is_detected() -> None:
+    raw = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "id": "c1",
+                "metadata": {},
+                "source": "see ![x](attachment:img)",
+                "attachments": {"img": {"text/markdown": "[x](javascript:alert(1))"}},
+            }
+        ],
+    }
+
+    report = sanitize(NotebookDocument(raw), dry_run=True)
+
+    all_refs = [r for f in report.findings for r in f.references]
+    assert any(r.startswith("javascript:") for r in all_refs), all_refs
+
+
+def test_markdown_mime_output_with_charset_parameter_is_still_detected() -> None:
+    """A parameterized MIME type (RFC 2046, e.g. `; charset=utf-8`) is legal
+    in a Jupyter output's data bundle. Before this fix, `text/markdown;
+    charset=utf-8` failed every exact-string comparison in the sanitizer
+    (it never equalled the bare `"text/markdown"` string), so the payload
+    bypassed scanning entirely -- a real gap a fresh independent review
+    found in the original text/markdown fix. This must be caught the same
+    way the bare `text/markdown` key already is."""
+    doc = _notebook_with_output(
+        "display_data", {"text/markdown; charset=utf-8": "[click](javascript:alert(1))"}
+    )
+
+    report = sanitize(doc, dry_run=True)
+
+    assert report.count > 0
+    all_refs = [r for f in report.findings for r in f.references]
+    assert any(r.startswith("javascript:") for r in all_refs), all_refs
+
+
+def test_html_mime_output_with_charset_parameter_is_still_detected() -> None:
+    """Same parameterized-MIME-type gap, but for the pre-existing
+    active_mime_types set membership check (not just the markdown gate) --
+    `text/html; charset=utf-8` must still be recognized as an active MIME
+    type and scanned, not silently skipped because it doesn't exactly equal
+    a bare `"text/html"` string."""
+    doc = _notebook_with_output(
+        "display_data", {"text/html; charset=utf-8": "<script>alert(1)</script>"}
+    )
+
+    report = sanitize(doc, dry_run=True)
+
+    assert report.count > 0
+    all_hazards = [h for f in report.findings for h in f.hazards]
+    assert any("script" in h for h in all_hazards), all_hazards
+
+
+def test_markdown_mime_attachment_with_charset_parameter_is_still_detected() -> None:
+    raw = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "id": "c1",
+                "metadata": {},
+                "source": "see ![x](attachment:img)",
+                "attachments": {
+                    "img": {"text/markdown; charset=utf-8": "[x](javascript:alert(1))"}
+                },
+            }
+        ],
+    }
+
+    report = sanitize(NotebookDocument(raw), dry_run=True)
+
+    all_refs = [r for f in report.findings for r in f.references]
+    assert any(r.startswith("javascript:") for r in all_refs), all_refs

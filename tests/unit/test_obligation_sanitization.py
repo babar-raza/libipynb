@@ -253,3 +253,76 @@ def test_scanning_is_bounded_and_reserved_metadata_is_never_overwritten() -> Non
             policy=SanitizationPolicy(mode=SanitizationMode.MARK_UNTRUSTED),
         )
     assert document.raw["metadata"]["notebook_security"] == "owned-by-caller"
+
+
+def _document_with_output_html(html: str) -> NotebookDocument:
+    return NotebookDocument(
+        {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "code",
+                    "metadata": {},
+                    "execution_count": None,
+                    "outputs": [
+                        {
+                            "output_type": "display_data",
+                            "data": {"text/html": html},
+                            "metadata": {},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+
+def test_dense_harmless_markup_is_rejected_by_max_scan_tokens() -> None:
+    """LIBIPYNB-Q7: a payload with zero hazards but a huge tag count must
+    still hit a resource limit, not tokenize unboundedly -- previously,
+    max_entries only counted hazard *observations*, so a harmless-tag-dense
+    payload sailed through with zero resource-limit engagement regardless
+    of size."""
+    document = _document_with_output_html("<p></p>" * 300_000)
+    tiny_scan_limits = ResourceLimits(max_scan_tokens=1_000)
+
+    with pytest.raises(ResourceLimitError, match="max_scan_tokens exceeded"):
+        sanitize(document, limits=tiny_scan_limits, dry_run=True)
+
+
+def test_max_scan_tokens_does_not_affect_hazard_finding_counts() -> None:
+    """Non-regression: the existing hazard-observation counting (max_entries,
+    via _observe()) must be completely unaffected by the new token counter."""
+    document = _document_with_output_html("<script>x</script>")
+
+    report = sanitize(document, dry_run=True)
+
+    assert report.count == 1
+
+
+def test_dense_closing_tags_are_rejected_by_max_scan_tokens() -> None:
+    """LIBIPYNB-Q7 follow-up (independent review finding): _count_token()
+    originally ran only from _handle_element(), reached from
+    handle_starttag/handle_startendtag -- so a payload dominated by closing
+    tags was fully tokenized by HTMLParser (real, measured CPU cost) while
+    self.tokens stayed at 0 and max_scan_tokens never engaged. This is the
+    same CPU-DoS shape max_scan_tokens exists to close, just via a
+    different tag form -- must be caught identically to the open-tag case
+    above."""
+    document = _document_with_output_html("</p>" * 300_000)
+    tiny_scan_limits = ResourceLimits(max_scan_tokens=1_000)
+
+    with pytest.raises(ResourceLimitError, match="max_scan_tokens exceeded"):
+        sanitize(document, limits=tiny_scan_limits, dry_run=True)
+
+
+def test_dense_comments_are_rejected_by_max_scan_tokens() -> None:
+    """Same finding as above, for HTML comments (handle_comment)."""
+    document = _document_with_output_html("<!---->" * 300_000)
+    tiny_scan_limits = ResourceLimits(max_scan_tokens=1_000)
+
+    with pytest.raises(ResourceLimitError, match="max_scan_tokens exceeded"):
+        sanitize(document, limits=tiny_scan_limits, dry_run=True)

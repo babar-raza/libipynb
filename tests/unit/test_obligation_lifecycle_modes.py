@@ -15,6 +15,9 @@ from libipynb import (
     loads,
     upgrade,
 )
+from libipynb.errors import NotebookResourceLimitError
+from libipynb.model import downgrade, plan_downgrade
+from libipynb.security import IPYNB_DEFAULT_LIMITS
 
 
 def _notebook(*, minor: int = 4, cell: dict[str, object] | None = None) -> str:
@@ -159,3 +162,95 @@ def test_upgrade_assigns_cell_ids_for_4_5_notebooks() -> None:
     upgraded = upgrade(doc, target="4.5")
 
     assert upgraded.document.raw["cells"][0]["id"]
+
+
+def test_upgrade_records_orig_nbformat_minor_matching_nbformats_own_reference_behavior() -> None:
+    """LIBIPYNB-Q14: nbformat.v4.convert.upgrade() unconditionally sets
+    `nb.metadata.orig_nbformat_minor = from_minor` on every real version
+    bump -- this provenance field was previously omitted entirely."""
+    source_minor = 3
+    document = loads(
+        _notebook(
+            minor=source_minor,
+            cell={"cell_type": "markdown", "source": "hello", "metadata": {}},
+        ),
+        mode="strict",
+    )
+
+    upgraded = upgrade(document, target="4.5").document
+
+    assert upgraded.raw["metadata"]["orig_nbformat_minor"] == source_minor
+    nbformat.validate(nbformat.from_dict(upgraded.raw))
+
+
+def test_upgrade_omits_orig_nbformat_minor_when_the_version_does_not_actually_change() -> None:
+    document = loads(
+        _notebook(
+            minor=5,
+            cell={"cell_type": "markdown", "source": "hello", "metadata": {}, "id": "cell-0"},
+        ),
+        mode="strict",
+    )
+
+    upgraded = upgrade(document, target="4.5").document
+
+    assert "orig_nbformat_minor" not in upgraded.raw["metadata"]
+
+
+def _deeply_nested_metadata(depth: int) -> dict[str, object]:
+    node: dict[str, object] = {}
+    cursor = node
+    for _ in range(depth):
+        cursor["x"] = {}
+        cursor = cursor["x"]  # type: ignore[assignment]
+    return {"nbformat": 4, "nbformat_minor": 4, "metadata": node, "cells": []}
+
+
+class TestUpgradeDowngradeResourceLimits:
+    """LIBIPYNB-Q5: upgrade()/plan_downgrade()/downgrade() previously called
+    Python's recursive copy.deepcopy() on caller-supplied input BEFORE any
+    bounded traversal ran -- an uncaught RecursionError at ~495+ levels of
+    nested metadata, a trivially-triggered DoS against the same resource-
+    limit guarantee validate()/load() already correctly enforce for
+    identical adversarial input. upgrade() specifically enforced NO
+    structural limit at all below that crash threshold."""
+
+    def test_upgrade_rejects_deeply_nested_metadata_instead_of_recursion_error(self) -> None:
+        payload = _deeply_nested_metadata(5000)
+
+        with pytest.raises(NotebookResourceLimitError):
+            upgrade(payload, target="4.5")
+
+    def test_upgrade_is_now_bounded_well_below_the_old_crash_threshold_too(self) -> None:
+        """The gap upgrade() had was worse than "crashes past ~495 levels" --
+        it enforced no limit whatsoever below that. A tight custom limit
+        must now reject a payload that would previously have silently
+        succeeded."""
+        payload = _deeply_nested_metadata(200)
+        tight_limits = IPYNB_DEFAULT_LIMITS.with_overrides(max_nesting_depth=64)
+
+        with pytest.raises(NotebookResourceLimitError, match="max_nesting_depth"):
+            upgrade(payload, target="4.5", limits=tight_limits)
+
+    def test_upgrade_honors_a_caller_supplied_looser_limit(self) -> None:
+        payload = _deeply_nested_metadata(200)
+        looser_limits = IPYNB_DEFAULT_LIMITS.with_overrides(max_nesting_depth=300)
+
+        upgrade(payload, target="4.5", limits=looser_limits)  # must not raise
+
+    def test_plan_downgrade_rejects_deeply_nested_metadata_instead_of_recursion_error(self) -> None:
+        payload = _deeply_nested_metadata(5000)
+        payload["nbformat_minor"] = 5
+
+        with pytest.raises(NotebookResourceLimitError):
+            plan_downgrade(payload, target="4.4")
+
+    def test_downgrade_rejects_deeply_nested_metadata_instead_of_recursion_error(self) -> None:
+        base = {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}
+        plan = plan_downgrade(base, target="4.4")
+
+        payload = _deeply_nested_metadata(5000)
+        payload["nbformat_minor"] = 5
+
+        with pytest.raises(NotebookResourceLimitError):
+            downgrade(payload, plan=plan, accept_loss=True)

@@ -98,6 +98,21 @@ def dumps(
     profile: str | None = None,
     indent: int | None = 1,
 ) -> str:
+    """Serialize *document* to a JSON string.
+
+    LIBIPYNB-Q4: the default ``profile=None`` resolves to the schema-
+    validating ``"4.5"`` profile (via ``_profile_version``), which
+    re-validates the ENTIRE document against the nbformat 4.5 schema on
+    every call and requires the document already be declared 4.5 -- not a
+    cheap no-op. Pass ``profile="declared"`` for a passthrough that
+    preserves the document's own declared version and skips
+    re-validation. This is deliberate, not an oversight: it is the
+    mechanism that enforces IPYNB-ID-001 ("cell IDs are synthesized only
+    via an explicit ``upgrade()`` call, never silently by a write-time
+    version bump") -- changing the default would silently defeat that
+    guarantee, so it is not configurable here; choose ``profile``
+    explicitly at each call site instead.
+    """
     try:
         result = json.dumps(
             _normalized(document, profile=profile),
@@ -110,7 +125,22 @@ def dumps(
         if isinstance(exc, ValueError) and str(exc).startswith("profile must"):
             raise
         raise NotebookWriteError(f"cannot serialize notebook: {exc}") from exc
-    IPYNB_DEFAULT_LIMITS.enforce("max_output_bytes", len(result.encode("utf-8")))
+    try:
+        encoded_length = len(result.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        # LIBIPYNB-Q6: a lone/unpaired UTF-16 surrogate in the notebook's
+        # content is legal Python str content (json.dumps above happily
+        # produced it) but cannot be UTF-8 encoded -- crashes here
+        # unconditionally, and profile="declared" (the profile every
+        # shipped CLI write path uses) skips _normalized()'s validate()
+        # call above, so this was previously the ONE genuinely unguarded
+        # path to this exact crash (non-declared profiles incidentally
+        # survive via validate()'s own broad exception handling).
+        raise NotebookWriteError(
+            f"notebook contains invalid unicode (unpaired UTF-16 surrogate): {exc}",
+            code="IPYNB_INVALID_SURROGATE",
+        ) from exc
+    IPYNB_DEFAULT_LIMITS.enforce("max_output_bytes", encoded_length)
     return result
 
 

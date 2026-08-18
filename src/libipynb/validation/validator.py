@@ -23,12 +23,6 @@ from .schema import schema_diagnostics
 
 VALID_CELL_TYPES = KNOWN_CELL_TYPES
 VALID_OUTPUT_TYPES = KNOWN_OUTPUT_TYPES
-REQUIRED_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
-    "stream": ("name", "text"),
-    "display_data": ("data", "metadata"),
-    "execute_result": ("data", "metadata", "execution_count"),
-    "error": ("ename", "evalue", "traceback"),
-}
 
 
 def _mapping(
@@ -62,6 +56,16 @@ def validate(
         enforce_structure(model, selected_limits)
     except ResourceLimitError as exc:
         return ValidationReport([diagnostic("IPYNB_RESOURCE_LIMIT", str(exc), ())])
+    except UnicodeEncodeError as exc:
+        # LIBIPYNB-Q6: UnicodeEncodeError (raised by enforce_structure's
+        # UTF-8 byte-size accounting on a lone/unpaired UTF-16 surrogate)
+        # IS a ValueError subclass, so this was already being caught by the
+        # broad except below -- but only by accident, surfacing as the
+        # generic IPYNB_PARSE code. Given its own explicit clause here
+        # (checked before the broad ValueError catch, since Python tries
+        # except clauses in source order) for a correctly-labeled
+        # diagnostic instead.
+        return ValidationReport([diagnostic("IPYNB_INVALID_SURROGATE", str(exc), ())])
     except (NotebookError, OSError, TypeError, ValueError) as exc:
         return ValidationReport([diagnostic("IPYNB_PARSE", str(exc), ())])
 

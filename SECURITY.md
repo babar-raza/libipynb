@@ -31,8 +31,9 @@ denial-of-service through crafted notebooks:
 | `max_input_bytes` | 64 MB | Maximum size of raw notebook input |
 | `max_output_bytes` | 512 MB | Maximum size of serialized output |
 | `max_decompressed_bytes` | 2 GB | Maximum decoded/decompressed content size |
-| `max_entries` | 100,000 | Maximum total JSON object keys and array elements |
+| `max_entries` | 2,000,000 | Maximum total JSON object keys and array elements |
 | `max_nesting_depth` | 64 | Maximum nesting depth of JSON structures |
+| `max_scan_tokens` | 200,000 | Maximum markup tokens `sanitize()` parses per scan |
 
 Limits are enforced during parsing via `NotebookResourceLimits`. To customize:
 
@@ -48,6 +49,19 @@ doc = load("notebook.ipynb", limits=custom_limits)
 ```
 
 Exceeding any limit raises `NotebookResourceLimitError`.
+
+**Shape-dependent protection, explicitly:** `max_entries` is enforced incrementally
+during JSON *object* construction (via `object_pairs_hook`), but Python's `json`
+module has no equivalent hook for *array* construction -- a large flat array of
+scalars or a single large flat object is fully decoded before the post-parse
+`enforce_structure()` walk gets a chance to reject it. This is a confirmed
+limitation of the standard library, not an oversight; the worst case remains
+bounded by `max_input_bytes` (checked before parsing begins) and
+`max_decompressed_bytes`, which together limit a flat-scalar-array payload to on
+the order of `max_input_bytes / 2` elements (a minimal legal array element is at
+least 2 bytes) before `json.loads()` is even invoked. A notebook's own `cells`
+array (an array of objects, not scalars) does not have this gap -- it is
+protected incrementally like any other nested-object structure.
 
 ### Duplicate Key Detection
 
@@ -114,4 +128,17 @@ patterns are rejected.
 - **Fail-closed**: Unknown cell types and output types are preserved for round-trip
   fidelity but flagged as `preservation_only` in the typed model.
 - **Minimal dependencies**: The only runtime dependency is `jsonschema` (for schema
-  validation). No network access, no subprocess execution, no dynamic code loading.
+  validation). The core load/validate/dump/sanitize path performs no network access,
+  no subprocess execution, and no dynamic code loading. Four opt-in features spawn a
+  subprocess or a full kernel process, never imported by the core path
+  (`tests/unit/test_import_boundary.py` enforces this): the dependency-free
+  subprocess-based execution adapter (`adapters/execute.py::execute_notebook` --
+  stdlib only, no extra required), the real Jupyter-kernel-protocol execution engine
+  (`adapters/jupyter_execute.py::LocalJupyterExecutor`, `libipynb[exec]` --
+  launches and communicates with an actual `ipykernel` process, the most
+  security-relevant of the four since it runs arbitrary cell code against a live
+  kernel rather than a one-shot subprocess), `HtmlExporter` (`adapters/export.py`,
+  shells out to `python -m nbconvert`, `libipynb[export]`), and the CLI's git
+  integration (`cli/main.py`, shells out to the `git` executable to read and write
+  repository/global `git config` and `.gitattributes` when installing or
+  uninstalling the diff/merge driver).

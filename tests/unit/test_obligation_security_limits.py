@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import io
 import json
 
 import pytest
 
-from libipynb import NotebookParseError, loads
+from libipynb import NotebookParseError, load, loads
 from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security import IPYNB_DEFAULT_LIMITS
+from libipynb.security.limits import NotebookResourceLimits
 
 
 def _notebook(*, metadata: object = None, cells: list[object] | None = None) -> str:
@@ -135,3 +137,72 @@ def test_duplicate_keys_last_value_wins_in_preservation_mode() -> None:
     assert document.metadata["x"] == 2
     dup_actions = [a for a in document.recovery_actions if a.code == "IPYNB_DUPLICATE_KEY"]
     assert len(dup_actions) >= 1
+
+
+class TestQ7ResourceLimitDefaults:
+    """LIBIPYNB-Q7: default max_entries was raised 100_000 -> 2_000_000
+    (the old default rejected a legitimate, nbformat-valid large notebook);
+    max_scan_tokens is a new field bounding sanitizer wall-clock cost."""
+
+    def test_default_max_entries_value_is_pinned(self) -> None:
+        assert NotebookResourceLimits().max_entries == 2_000_000
+
+    def test_default_max_scan_tokens_value_is_pinned(self) -> None:
+        assert NotebookResourceLimits().max_scan_tokens == 200_000
+
+    def test_default_max_entries_allows_a_realistic_large_single_cell_notebook(self) -> None:
+        """The exact repro class from the forensic audit: a real,
+        nbformat-valid ~150,000-line single-cell notebook must load under
+        default limits -- confirmed to be REJECTED by the old default."""
+        source = "".join(f"x_{i} = {i}\n" for i in range(150_000))
+        notebook = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "big-cell",
+                    "metadata": {},
+                    "execution_count": None,
+                    "outputs": [],
+                    "source": source.splitlines(keepends=True),
+                }
+            ],
+        }
+
+        document = loads(json.dumps(notebook), mode="preservation")
+
+        assert document.cell_count == 1
+
+
+class TestQ7BoundedStreamRead:
+    """LIBIPYNB-Q7: a TextIO/stream source used to be read to complete EOF
+    before max_input_bytes was ever checked -- unlike the bytes/Path
+    branches, which check size first."""
+
+    class _CountingStream:
+        def __init__(self, total_chars: int) -> None:
+            self.remaining = total_chars
+
+        def read(self, size: int = -1) -> str:
+            n = self.remaining if size < 0 else min(size, self.remaining)
+            self.remaining -= n
+            return "x" * n
+
+    def test_oversized_stream_is_aborted_before_being_fully_read(self) -> None:
+        stream = self._CountingStream(30 * 1024 * 1024)  # 30MB
+        tiny_limits = IPYNB_DEFAULT_LIMITS.with_overrides(max_input_bytes=1024)
+
+        with pytest.raises(ResourceLimitError, match="max_input_bytes exceeded"):
+            load(stream, mode="preservation", limits=tiny_limits)  # type: ignore[arg-type]
+
+        # Must not have pulled anywhere near the full 30MB through read().
+        assert stream.remaining > 20 * 1024 * 1024
+
+    def test_well_behaved_stream_content_is_unchanged(self) -> None:
+        payload = json.dumps({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
+
+        document = load(io.StringIO(payload), mode="preservation")
+
+        assert document.cell_count == 0
