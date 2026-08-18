@@ -16,6 +16,7 @@ from .export import (
     HtmlExporter,
     JupytextExporter,
     MarkdownExporter,
+    NbconvertExporter,
     PythonScriptExporter,
 )
 from .jupyter_execute import LocalJupyterExecutor
@@ -31,6 +32,7 @@ __all__ = [
     "JupytextExporter",
     "LocalJupyterExecutor",
     "MarkdownExporter",
+    "NbconvertExporter",
     "PythonScriptExporter",
     "execute_notebook",
 ]

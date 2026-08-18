@@ -14,6 +14,8 @@ import base64
 import json
 from typing import Any
 
+import pytest
+
 from libipynb import loads
 from libipynb.adapters import (
     AncillaryResource,
@@ -25,6 +27,8 @@ from libipynb.adapters import (
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xde\xad\xbe\xef"
 PNG_B64 = base64.b64encode(PNG_BYTES).decode("ascii")
+SVG_BYTES = b"<svg></svg>"
+SVG_B64 = base64.b64encode(SVG_BYTES).decode("ascii")
 
 
 def _notebook(cells: list[dict[str, Any]]) -> dict[str, Any]:
@@ -217,3 +221,158 @@ def test_custom_adapter_conforming_to_protocol_works() -> None:
     doc = _load([_code("pass"), _markdown("hi")])
     result = adapter.export(doc)
     assert "2 cells" in result.content
+
+
+# ── LIBIPYNB-Q11a: resource-collection safety hardening ─────────────────────
+
+
+def _attachment_cell_with_key(key: str, data_b64: str = PNG_B64) -> dict[str, Any]:
+    return {
+        "cell_type": "markdown",
+        "source": f"![img](attachment:{key})",
+        "attachments": {key: {"image/png": data_b64}},
+    }
+
+
+def _multi_mime_attachment_cell(key: str = "figure") -> dict[str, Any]:
+    return {
+        "cell_type": "markdown",
+        "source": "figure",
+        "attachments": {key: {"image/png": PNG_B64, "image/svg+xml": SVG_B64}},
+    }
+
+
+def _invalid_base64_attachment_cell(key: str = "broken.png") -> dict[str, Any]:
+    return {
+        "cell_type": "markdown",
+        "source": "broken",
+        "attachments": {key: {"image/png": "not-valid-base64!!!"}},
+    }
+
+
+def test_cross_cell_attachment_filename_collision_is_disambiguated_by_cell_index() -> None:
+    doc = _load(
+        [
+            _attachment_cell_with_key("logo.png", PNG_B64),
+            _attachment_cell_with_key("logo.png", SVG_B64),
+        ]
+    )
+    result = MarkdownExporter().export(doc)
+    filenames = [r.filename for r in result.resources]
+    assert len(filenames) == len(set(filenames)), f"filenames must be unique: {filenames}"
+    assert "logo.png" in filenames
+    assert any(name != "logo.png" and name.endswith("logo.png") for name in filenames)
+
+
+def test_same_cell_multi_mime_attachment_collision_is_disambiguated_by_extension() -> None:
+    doc = _load([_multi_mime_attachment_cell()])
+    result = MarkdownExporter().export(doc)
+    filenames = sorted(r.filename for r in result.resources)
+    assert len(filenames) == 2
+    assert len(set(filenames)) == 2, f"filenames must be unique: {filenames}"
+    assert filenames == ["figure.png", "figure.svg"]
+
+
+def test_corrupt_base64_attachment_payload_is_skipped_and_counted_not_silently_dropped() -> None:
+    doc = _load([_invalid_base64_attachment_cell(), _attachment_cell_with_key("ok.png")])
+    result = MarkdownExporter().export(doc)
+    assert len(result.resources) == 1
+    assert result.resources[0].filename == "ok.png"
+    assert result.metadata["skipped_resources"] == 1
+    assert len(result.metadata["skipped_paths"]) == 1
+    assert result.metadata["skipped_paths"][0][:2] == ("cells", 0)
+
+
+def test_no_corrupt_payloads_means_zero_skipped_resources() -> None:
+    doc = _load([_attachment_cell()])
+    result = MarkdownExporter().export(doc)
+    assert result.metadata["skipped_resources"] == 0
+    assert result.metadata["skipped_paths"] == ()
+
+
+def test_ancillary_resource_direct_construction_rejects_a_path_traversal_filename() -> None:
+    with pytest.raises(ValueError, match="unsafe resource filename"):
+        AncillaryResource(
+            filename="../../../etc/passwd",
+            mime_type="image/png",
+            data=PNG_BYTES,
+            source_path=("cells", 0, "attachments", "x"),
+        )
+
+
+def test_ancillary_resource_direct_construction_accepts_a_safe_filename() -> None:
+    resource = AncillaryResource(
+        filename="safe.png",
+        mime_type="image/png",
+        data=PNG_BYTES,
+        source_path=("cells", 0, "attachments", "safe.png"),
+    )
+    assert resource.filename == "safe.png"
+
+
+def test_single_attachment_common_case_is_unaffected_by_collision_handling() -> None:
+    """Non-regression: the ordinary, non-colliding single-attachment case
+    (already covered by test_attachment_resources_are_collected above) must
+    keep its bare filename, not grow a spurious cell-index or extension
+    suffix just because the collision-handling machinery now exists."""
+    doc = _load([_attachment_cell()])
+    result = MarkdownExporter().export(doc)
+    assert [r.filename for r in result.resources] == ["logo.png"]
+
+
+# ── LIBIPYNB-Q11b: export content-fidelity fixes ─────────────────────────────
+
+
+def _notebook_with_language(cells: list[dict[str, Any]], language: str) -> dict[str, Any]:
+    doc = _notebook(cells)
+    doc["metadata"]["language_info"] = {"name": language}
+    return doc
+
+
+def test_markdown_fence_uses_the_notebooks_declared_kernel_language() -> None:
+    document = loads(
+        json.dumps(_notebook_with_language([_code("println(1)")], "julia")), mode="strict"
+    )
+    result = MarkdownExporter().export(document)
+    assert "```julia\nprintln(1)\n```" in result.content
+
+
+def test_markdown_fence_falls_back_to_python_when_no_language_is_declared() -> None:
+    doc = _load([_code("x = 1")])
+    result = MarkdownExporter().export(doc)
+    assert "```python\nx = 1\n```" in result.content
+
+
+def test_markdown_fence_rejects_an_injection_attempt_in_the_declared_language() -> None:
+    """A declared language containing a backtick/newline must not be
+    spliced verbatim into the fence marker -- that would let notebook
+    content break out of the code fence in the rendered Markdown."""
+    malicious_language = "python\n```\n<script>alert(1)</script>\n```python"
+    document = loads(
+        json.dumps(_notebook_with_language([_code("x = 1")], malicious_language)), mode="strict"
+    )
+    result = MarkdownExporter().export(document)
+    assert "```python\nx = 1\n```" in result.content
+    assert "<script>" not in result.content
+
+
+def test_markdown_fence_rejects_a_language_with_a_bare_trailing_newline() -> None:
+    """Gate G2 nitpick: `.match()` (not `.fullmatch()`) would let a
+    language value consisting of otherwise-safe characters plus exactly
+    one trailing newline through, since `$` matches just before a final
+    newline -- not exploitable as an injection (no backtick can follow),
+    but the fence must still fall back to "python" rather than splicing
+    in extra whitespace from an invalid value."""
+    document = loads(
+        json.dumps(_notebook_with_language([_code("x = 1")], "python\n")), mode="strict"
+    )
+    result = MarkdownExporter().export(document)
+    assert "```python\nx = 1\n```" in result.content
+
+
+def test_python_exporter_represents_raw_cells_as_a_comment_block_instead_of_dropping_them() -> None:
+    doc = _load([_raw("some raw content"), _code("x = 1")])
+    result = PythonScriptExporter().export(doc)
+    assert "# [raw cell]" in result.content
+    assert "# some raw content" in result.content
+    assert "x = 1" in result.content

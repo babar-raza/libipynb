@@ -196,6 +196,48 @@ class TestMerge:
         assert out["output"] == str(dest)
         assert out["has_conflicts"] is False
 
+    def test_notebook_metadata_conflict_is_reported_in_cli_json(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """LIBIPYNB-Q10: the new NOTEBOOK_METADATA conflict kind serializes
+        correctly (including cell_id: null) and flips the CLI's exit code,
+        with zero cli/main.py code changes needed -- _cmd_merge already
+        iterates result.report.conflicts generically."""
+        base = tmp_path / "base.ipynb"
+        ours = tmp_path / "ours.ipynb"
+        theirs = tmp_path / "theirs.ipynb"
+        base_notebook = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"kernelspec": {"name": "python3"}},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "c",
+                    "metadata": {},
+                    "execution_count": None,
+                    "outputs": [],
+                    "source": "x = 1",
+                }
+            ],
+        }
+        base.write_text(json.dumps(base_notebook), encoding="utf-8")
+        ours_notebook = json.loads(json.dumps(base_notebook))
+        ours_notebook["metadata"]["kernelspec"]["name"] = "ours-kernel"
+        ours.write_text(json.dumps(ours_notebook), encoding="utf-8")
+        theirs_notebook = json.loads(json.dumps(base_notebook))
+        theirs_notebook["metadata"]["kernelspec"]["name"] = "theirs-kernel"
+        theirs.write_text(json.dumps(theirs_notebook), encoding="utf-8")
+
+        assert main(["merge", str(base), str(ours), str(theirs)]) == 1
+        ledger = json.loads(capsys.readouterr().err)
+        assert ledger["has_conflicts"] is True
+        kinds = {c["kind"] for c in ledger["conflicts"]}
+        assert "notebook_metadata" in kinds
+        nb_conflict = next(c for c in ledger["conflicts"] if c["kind"] == "notebook_metadata")
+        assert nb_conflict["cell_id"] is None
+        assert nb_conflict["field_name"] == "metadata.kernelspec.name"
+
 
 class TestAnalytics:
     def test_reports_all_four_metrics(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -423,6 +465,30 @@ class TestExecute:
         original = json.loads(notebook.read_text(encoding="utf-8"))
         assert original["cells"][0]["outputs"] == []
 
+    def test_execute_succeeds_on_list_of_lines_source(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """LIBIPYNB-Q1 regression at the CLI layer: list-of-lines source is
+        the standard on-disk Jupyter form (confirmed present in a large
+        fraction of this project's own fixtures), yet `libipynb execute`
+        used to crash the kernel with AttributeError on any such cell,
+        reported as an opaque kernel_death_error. _write_notebook writes
+        each `sources` element verbatim, so passing a list here writes a
+        genuine JSON array source field, not a string."""
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "executed.ipynb"
+        _write_notebook(notebook, sources=[["print(1)\n", "print(2)"]])  # type: ignore[list-item]
+
+        assert main(["execute", str(notebook), "-o", str(dest), "--acknowledge-unsandboxed"]) == 0
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["succeeded"] is True
+        assert ledger["executed_count"] == 1
+
+        executed = json.loads(dest.read_text(encoding="utf-8"))
+        assert executed["cells"][0]["outputs"][0]["text"] == "1\n2\n"
+        # Source form itself is untouched by the fix -- still a list.
+        assert executed["cells"][0]["source"] == ["print(1)\n", "print(2)"]
+
     def test_execute_to_stdout(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         notebook = tmp_path / "nb.ipynb"
         _write_notebook(notebook, sources=["21 * 2"])
@@ -529,3 +595,103 @@ class TestExecute:
             finally:
                 for name in ("libipynb.execution", "libipynb.adapters.jupyter_execute"):
                     sys.modules.pop(name, None)
+
+
+class TestTopLevelExceptionHandling:
+    """LIBIPYNB-Q4: every plain-CLI subcommand's ordinary bad-input path
+    (missing file, malformed --target, etc.) must report a clean
+    {"error": ...} JSON on stderr with exit code 2 -- not a raw, multi-frame
+    Python traceback. Closes publication blocker #3 from the forensic
+    audit."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["inspect", "does-not-exist.ipynb"],
+            ["sanitize", "does-not-exist.ipynb"],
+            ["upgrade", "does-not-exist.ipynb"],
+            ["normalize", "does-not-exist.ipynb"],
+            ["convert", "does-not-exist.ipynb", "--target", "4.5"],
+            ["analytics", "does-not-exist.ipynb"],
+        ],
+    )
+    def test_missing_file_reports_clean_json_error_not_a_traceback(
+        self, argv: list[str], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(argv)
+        assert code == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "error" in err
+
+    def test_validate_on_missing_file_already_reported_a_structured_diagnostic(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Not a Q4 regression case: validate() never raises for a missing/
+        unreadable source -- it returns a structured IPYNB_PARSE diagnostic
+        as part of its normal report (exit 1 = "invalid"), which was
+        already correct before this fix. Documented here so a future
+        change to validate()'s contract doesn't silently start crashing
+        this path without a test catching it."""
+        code = main(["validate", "does-not-exist.ipynb"])
+        assert code == 1
+        out = json.loads(capsys.readouterr().out)
+        assert out["diagnostics"][0]["code"] == "IPYNB_PARSE"
+
+    def test_diff_on_missing_file_reports_clean_json_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(["diff", "does-not-exist.ipynb", str(VALID / "minimal.ipynb")])
+        assert code == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "error" in err
+
+    def test_merge_on_missing_file_reports_clean_json_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(
+            [
+                "merge",
+                "does-not-exist.ipynb",
+                str(VALID / "minimal.ipynb"),
+                str(VALID / "minimal.ipynb"),
+            ]
+        )
+        assert code == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "error" in err
+
+    def test_convert_malformed_target_reports_clean_json_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(["convert", str(VALID / "minimal.ipynb"), "--target", "not-a-version"])
+        assert code == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "error" in err
+
+    def test_convert_downgrade_without_accept_loss_reports_clean_json_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["1 + 1"])
+        # Upgrade to 4.5 first so a downgrade to 4.4 has real losses (cell ids).
+        assert main(["upgrade", str(notebook), "-o", str(notebook)]) == 0
+
+        code = main(["convert", str(notebook), "--target", "4.4"])
+        assert code == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "error" in err
+
+
+class TestModuleInvocation:
+    def test_python_dash_m_libipynb_cli_probe_works(self) -> None:
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", "libipynb.cli", "probe", str(VALID / "minimal.ipynb")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["matched"] is True

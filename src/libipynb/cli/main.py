@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,39 @@ _NBSTRIPOUT_DEFAULT_NOTEBOOK_METADATA_KEYS = frozenset({"signature", "widgets"})
 _NBSTRIPOUT_DEFAULT_CELL_METADATA_KEYS = frozenset(
     {"ExecuteTime", "collapsed", "execution", "heading_collapsed", "hidden", "scrolled"}
 )
+
+
+def _run_cli_command(handler: Callable[[argparse.Namespace], int], args: argparse.Namespace) -> int:
+    """LIBIPYNB-Q4: shared CLI-command exception boundary.
+
+    Converts NotebookError (and every subclass: NotebookParseError,
+    NotebookWriteError, NotebookValidationError,
+    NotebookResourceLimitError, NotebookExecutionError) plus OSError
+    (missing files, permission errors) and ValueError (the CLI's own
+    input-validation errors, e.g. bad --target strings) into the
+    established ``{"error": str(exc)}``-to-stderr / exit-2 convention this
+    module already used in a few places (``_cmd_trust``, ``_cmd_execute``,
+    ``_cmd_normalize``) before this fix -- now applied consistently across
+    every plain-CLI subcommand.
+
+    Deliberately NOT a bare ``except Exception``: this must not mask
+    programmer errors (TypeError/AttributeError/KeyError) or paper over
+    defects that belong to other fixes entirely (if a future execution-
+    engine or diff/merge regression ever raises something outside this
+    tuple again, this wrapper must not silently hide it as a clean CLI
+    error). A handler that already catches a narrower set itself (e.g.
+    ``_cmd_execute``'s own ``MissingExecutionDependencyError`` handling)
+    keeps its own message -- this is purely a backstop for what an inner
+    handler does not already catch, so it is always safe to add on top.
+
+    ``_git-diff-driver``/``_git-merge-driver`` are NOT routed through this
+    wrapper -- git's external-driver protocol needs different exit-code
+    semantics (see their own dedicated try/except blocks)."""
+    try:
+        return handler(args)
+    except (NotebookError, OSError, ValueError) as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -399,33 +433,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "probe":
-        return _cmd_probe(args)
+        return _run_cli_command(_cmd_probe, args)
     if args.command == "validate":
-        return _cmd_validate(args)
+        return _run_cli_command(_cmd_validate, args)
     if args.command == "inspect":
-        return _cmd_inspect(args)
+        return _run_cli_command(_cmd_inspect, args)
     if args.command == "sanitize":
-        return _cmd_sanitize(args)
+        return _run_cli_command(_cmd_sanitize, args)
     if args.command == "upgrade":
-        return _cmd_upgrade(args)
+        return _run_cli_command(_cmd_upgrade, args)
     if args.command == "normalize":
-        return _cmd_normalize(args)
+        return _run_cli_command(_cmd_normalize, args)
     if args.command == "convert":
-        return _cmd_convert(args)
+        return _run_cli_command(_cmd_convert, args)
     if args.command == "diff":
-        return _cmd_diff(args)
+        return _run_cli_command(_cmd_diff, args)
     if args.command == "merge":
-        return _cmd_merge(args)
+        return _run_cli_command(_cmd_merge, args)
     if args.command == "execute":
-        return _cmd_execute(args)
+        return _run_cli_command(_cmd_execute, args)
     if args.command == "analytics":
-        return _cmd_analytics(args)
+        return _run_cli_command(_cmd_analytics, args)
     if args.command == "trust":
-        return _cmd_trust(args)
+        return _run_cli_command(_cmd_trust, args)
     if args.command == "_git-diff-driver":
-        return _cmd_git_diff_driver(args)
+        return _cmd_git_diff_driver(args)  # self-protecting, see below
     if args.command == "_git-merge-driver":
-        return _cmd_git_merge_driver(args)
+        return _cmd_git_merge_driver(args)  # self-protecting, see below
     return 1  # unreachable
 
 
@@ -1229,12 +1263,25 @@ def _load_for_git_driver(path_str: str) -> NotebookDocument | None:
 
 
 def _cmd_git_diff_driver(args: argparse.Namespace) -> int:
-    before = _load_for_git_driver(args.old_file)
-    after = _load_for_git_driver(args.new_file)
-    if before is None or after is None:
-        print(f"libipynb: could not parse {args.path} as a notebook; showing no diff")
+    """LIBIPYNB-Q4: git's external-diff-driver protocol has no "fall back to
+    the default diff" state once a driver is configured for a path -- the
+    forensic audit's own live reproduction confirmed a nonzero exit here is
+    fatal to the WHOLE `git diff` invocation (`fatal: external diff died,
+    stopping at notebook.ipynb`), not just this one file's diff. An
+    internal error must therefore always exit 0, mirroring the existing
+    unparseable-input branch's own convention exactly (print a short note,
+    show no diff, never fail the driver)."""
+    try:
+        before = _load_for_git_driver(args.old_file)
+        after = _load_for_git_driver(args.new_file)
+        if before is None or after is None:
+            print(f"libipynb: could not parse {args.path} as a notebook; showing no diff")
+            return 0
+        result = diff_notebooks(before, after)
+    except (NotebookError, OSError, ValueError) as exc:
+        print(f"libipynb: error diffing {args.path}: {exc}; showing no diff", file=sys.stderr)
+        print("(no diff available)")
         return 0
-    result = diff_notebooks(before, after)
     print(f"--- a/{args.path}")
     print(f"+++ b/{args.path}")
     if not result.has_changes:
@@ -1264,14 +1311,29 @@ def _cmd_git_diff_driver(args: argparse.Namespace) -> int:
 
 
 def _cmd_git_merge_driver(args: argparse.Namespace) -> int:
+    """LIBIPYNB-Q4: git's merge-driver protocol is binary (0=clean,
+    nonzero=needs manual attention) -- there is no third state for "an
+    internal error occurred." An internal error is therefore reported via
+    the same nonzero-exit / stderr-message convention already used for the
+    unparseable-input branch just below, and %A (args.ours, the file git
+    expects to hold the merge result) is left untouched rather than
+    corrupted."""
     ancestor = _load_for_git_driver(args.ancestor)
     ours = _load_for_git_driver(args.ours)
     theirs = _load_for_git_driver(args.theirs)
     if ancestor is None or ours is None or theirs is None:
         print(f"libipynb: could not parse {args.path} as a notebook for merge", file=sys.stderr)
         return 1
-    result = merge_notebooks(ancestor, ours, theirs)
-    dump(result.merged, args.ours, profile="declared")
+    try:
+        result = merge_notebooks(ancestor, ours, theirs)
+        dump(result.merged, args.ours, profile="declared")
+    except (NotebookError, OSError, ValueError) as exc:
+        print(
+            f"libipynb: error merging {args.path}: {exc}; {args.path} left unresolved "
+            "for manual merge",
+            file=sys.stderr,
+        )
+        return 1
     if result.report.has_conflicts:
         print(
             f"libipynb: {len(result.report.conflicts)} conflict(s) in {args.path} "

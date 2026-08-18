@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
@@ -193,6 +194,195 @@ def _copy_id(source_id: str, used: set[str]) -> str:
     return candidate
 
 
+def _select(raw: dict[str, Any], cell_id: str) -> tuple[int, dict[str, Any]]:
+    if not isinstance(cell_id, str) or not cell_id:
+        raise ValueError("cell_id must be a non-empty string")
+    try:
+        return _index(raw)[cell_id]
+    except KeyError as exc:
+        raise KeyError(f"cell ID not found: {cell_id}") from exc
+
+
+# LIBIPYNB-Q15a: each mutator below implements exactly one operation's core
+# logic against a caller-supplied `target` dict, with no `deepcopy`/
+# `validate()`/commit of its own. `CellEditor`'s individual per-call methods
+# and `CellEditBatch`'s accumulating methods both call the same function --
+# one `deepcopy` per single call (as before) vs. one `deepcopy` for an
+# entire batch, with identical mutation logic either way.
+
+
+def _do_insert(
+    target: dict[str, Any],
+    cell: Mapping[str, Any],
+    index: int | None,
+    notebook_minor: int,
+) -> CellEdit:
+    values = _cells(target)
+    position = len(values) if index is None else index
+    if (
+        not isinstance(position, int)
+        or isinstance(position, bool)
+        or position < 0
+        or position > len(values)
+    ):
+        raise IndexError("insert index is outside the cell collection")
+    validated = _validate_cell(cell, notebook_minor=notebook_minor)
+    cell_id = str(validated["id"])
+    if cell_id in _index(target):
+        raise ValueError(f"cell ID must be unique: {cell_id}")
+    values.insert(position, validated)
+    return CellEdit(CellEditOperation.INSERT, cell_id, None, position, None, validated)
+
+
+def _do_move(target: dict[str, Any], cell_id: str, index: int) -> CellEdit | None:
+    values = _cells(target)
+    current_index, cell = _select(target, cell_id)
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(values):
+        raise IndexError("move index is outside the cell collection")
+    if current_index == index:
+        return None
+    values.pop(current_index)
+    values.insert(index, cell)
+    return CellEdit(CellEditOperation.MOVE, cell_id, current_index, index, cell, cell)
+
+
+def _do_copy(
+    target: dict[str, Any],
+    cell_id: str,
+    index: int | None,
+    new_id: str | None,
+    notebook_minor: int,
+) -> CellEdit:
+    values = _cells(target)
+    current_index, cell = _select(target, cell_id)
+    position = current_index + 1 if index is None else index
+    if (
+        not isinstance(position, int)
+        or isinstance(position, bool)
+        or position < 0
+        or position > len(values)
+    ):
+        raise IndexError("copy index is outside the cell collection")
+    used = set(_index(target))
+    selected_id = new_id or _copy_id(cell_id, used)
+    copied = deepcopy(cell)
+    copied["id"] = selected_id
+    copied = _validate_cell(copied, notebook_minor=notebook_minor)
+    if selected_id in used:
+        raise ValueError(f"cell ID must be unique: {selected_id}")
+    values.insert(position, copied)
+    return CellEdit(CellEditOperation.COPY, selected_id, None, position, None, copied)
+
+
+def _do_replace(
+    target: dict[str, Any],
+    cell_id: str,
+    cell: Mapping[str, Any],
+    notebook_minor: int,
+) -> CellEdit | None:
+    values = _cells(target)
+    position, before = _select(target, cell_id)
+    replacement = deepcopy(dict(cell))
+    replacement["id"] = cell_id
+    replacement = _validate_cell(replacement, notebook_minor=notebook_minor)
+    if before == replacement:
+        return None
+    values[position] = replacement
+    return CellEdit(CellEditOperation.REPLACE, cell_id, position, position, before, replacement)
+
+
+def _do_remove(target: dict[str, Any], cell_id: str) -> CellEdit:
+    values = _cells(target)
+    position, cell = _select(target, cell_id)
+    values.pop(position)
+    return CellEdit(CellEditOperation.REMOVE, cell_id, position, None, cell, None)
+
+
+def _do_remove_where(target: dict[str, Any], query: CellQuery) -> tuple[CellEdit, ...]:
+    if not isinstance(query, CellQuery):
+        raise TypeError("query must be a CellQuery")
+    if not query.has_criteria:
+        raise ValueError("bulk removal requires at least one criterion")
+    values = _cells(target)
+    changes = tuple(
+        CellEdit(CellEditOperation.REMOVE, str(cell["id"]), position, None, cell, None)
+        for position, cell in enumerate(values)
+        if _matches(cell, query)
+    )
+    if not changes:
+        return ()
+    removed = {change.cell_id for change in changes}
+    target["cells"] = [cell for cell in values if cell.get("id") not in removed]
+    return changes
+
+
+class CellEditBatch:
+    """Accumulates edits against one in-memory working copy.
+
+    Returned by :meth:`CellEditor.batch`. Each method here mutates the same
+    working copy (one `deepcopy`, taken once at batch-entry) and records a
+    :class:`CellEdit`, but -- unlike :class:`CellEditor`'s own per-call
+    methods -- does not validate or commit anything itself. The single
+    deferred `validate()` call, and the atomic commit it guards, happen once
+    in :meth:`CellEditor.batch`'s `__exit__`, after the `with` block
+    completes normally. If the `with` block itself raises, `__exit__`'s
+    commit step never runs and the editor's document is left untouched --
+    the same atomic, all-or-nothing guarantee individual calls already had,
+    now covering a whole batch for the cost of one validation instead of N.
+    """
+
+    def __init__(self, editor: CellEditor) -> None:
+        self._editor = editor
+        self._target = deepcopy(editor.document.raw)
+        self._notebook_minor = editor.document.nbformat_minor
+        self._changes: list[CellEdit] = []
+        #: Set by `CellEditor.batch()` after a successful, validated commit
+        #: (or a validated dry run) -- `None` while the batch is still open.
+        self.report: CellEditReport | None = None
+
+    @property
+    def changes(self) -> tuple[CellEdit, ...]:
+        return tuple(self._changes)
+
+    def insert(self, cell: Mapping[str, Any], *, index: int | None = None) -> CellEdit:
+        change = _do_insert(self._target, cell, index, self._notebook_minor)
+        self._changes.append(change)
+        return change
+
+    def move(self, cell_id: str, index: int) -> CellEdit | None:
+        change = _do_move(self._target, cell_id, index)
+        if change is not None:
+            self._changes.append(change)
+        return change
+
+    def copy(
+        self,
+        cell_id: str,
+        *,
+        index: int | None = None,
+        new_id: str | None = None,
+    ) -> CellEdit:
+        change = _do_copy(self._target, cell_id, index, new_id, self._notebook_minor)
+        self._changes.append(change)
+        return change
+
+    def replace(self, cell_id: str, cell: Mapping[str, Any]) -> CellEdit | None:
+        change = _do_replace(self._target, cell_id, cell, self._notebook_minor)
+        if change is not None:
+            self._changes.append(change)
+        return change
+
+    def remove(self, cell_id: str) -> CellEdit:
+        change = _do_remove(self._target, cell_id)
+        self._changes.append(change)
+        return change
+
+    def remove_where(self, query: CellQuery) -> tuple[CellEdit, ...]:
+        changes = _do_remove_where(self._target, query)
+        self._changes.extend(changes)
+        return changes
+
+
 class CellEditor:
     """Cell collection mutations that preserve legacy index-based methods."""
 
@@ -217,31 +407,7 @@ class CellEditor:
         dry_run: bool = False,
     ) -> CellEditReport:
         target = deepcopy(self.document.raw)
-        values = _cells(target)
-        position = len(values) if index is None else index
-        if (
-            not isinstance(position, int)
-            or isinstance(position, bool)
-            or position < 0
-            or position > len(values)
-        ):
-            raise IndexError("insert index is outside the cell collection")
-        validated = _validate_cell(
-            cell,
-            notebook_minor=self.document.nbformat_minor,
-        )
-        cell_id = str(validated["id"])
-        if cell_id in _index(target):
-            raise ValueError(f"cell ID must be unique: {cell_id}")
-        values.insert(position, validated)
-        change = CellEdit(
-            CellEditOperation.INSERT,
-            cell_id,
-            None,
-            position,
-            None,
-            validated,
-        )
+        change = _do_insert(target, cell, index, self.document.nbformat_minor)
         return self._finish(target, (change,), dry_run=dry_run)
 
     def move(
@@ -252,27 +418,9 @@ class CellEditor:
         dry_run: bool = False,
     ) -> CellEditReport:
         target = deepcopy(self.document.raw)
-        values = _cells(target)
-        current_index, cell = self._select(target, cell_id)
-        if (
-            not isinstance(index, int)
-            or isinstance(index, bool)
-            or index < 0
-            or index >= len(values)
-        ):
-            raise IndexError("move index is outside the cell collection")
-        if current_index == index:
+        change = _do_move(target, cell_id, index)
+        if change is None:
             return CellEditReport((), False)
-        values.pop(current_index)
-        values.insert(index, cell)
-        change = CellEdit(
-            CellEditOperation.MOVE,
-            cell_id,
-            current_index,
-            index,
-            cell,
-            cell,
-        )
         return self._finish(target, (change,), dry_run=dry_run)
 
     def copy(
@@ -284,35 +432,7 @@ class CellEditor:
         dry_run: bool = False,
     ) -> CellEditReport:
         target = deepcopy(self.document.raw)
-        values = _cells(target)
-        current_index, cell = self._select(target, cell_id)
-        position = current_index + 1 if index is None else index
-        if (
-            not isinstance(position, int)
-            or isinstance(position, bool)
-            or position < 0
-            or position > len(values)
-        ):
-            raise IndexError("copy index is outside the cell collection")
-        used = set(_index(target))
-        selected_id = new_id or _copy_id(cell_id, used)
-        copied = deepcopy(cell)
-        copied["id"] = selected_id
-        copied = _validate_cell(
-            copied,
-            notebook_minor=self.document.nbformat_minor,
-        )
-        if selected_id in used:
-            raise ValueError(f"cell ID must be unique: {selected_id}")
-        values.insert(position, copied)
-        change = CellEdit(
-            CellEditOperation.COPY,
-            selected_id,
-            None,
-            position,
-            None,
-            copied,
-        )
+        change = _do_copy(target, cell_id, index, new_id, self.document.nbformat_minor)
         return self._finish(target, (change,), dry_run=dry_run)
 
     def replace(
@@ -323,25 +443,9 @@ class CellEditor:
         dry_run: bool = False,
     ) -> CellEditReport:
         target = deepcopy(self.document.raw)
-        values = _cells(target)
-        position, before = self._select(target, cell_id)
-        replacement = deepcopy(dict(cell))
-        replacement["id"] = cell_id
-        replacement = _validate_cell(
-            replacement,
-            notebook_minor=self.document.nbformat_minor,
-        )
-        if before == replacement:
+        change = _do_replace(target, cell_id, cell, self.document.nbformat_minor)
+        if change is None:
             return CellEditReport((), False)
-        values[position] = replacement
-        change = CellEdit(
-            CellEditOperation.REPLACE,
-            cell_id,
-            position,
-            position,
-            before,
-            replacement,
-        )
         return self._finish(target, (change,), dry_run=dry_run)
 
     def remove(
@@ -351,17 +455,7 @@ class CellEditor:
         dry_run: bool = False,
     ) -> CellEditReport:
         target = deepcopy(self.document.raw)
-        values = _cells(target)
-        position, cell = self._select(target, cell_id)
-        values.pop(position)
-        change = CellEdit(
-            CellEditOperation.REMOVE,
-            cell_id,
-            position,
-            None,
-            cell,
-            None,
-        )
+        change = _do_remove(target, cell_id)
         return self._finish(target, (change,), dry_run=dry_run)
 
     def remove_where(
@@ -370,41 +464,36 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        if not isinstance(query, CellQuery):
-            raise TypeError("query must be a CellQuery")
-        if not query.has_criteria:
-            raise ValueError("bulk removal requires at least one criterion")
         target = deepcopy(self.document.raw)
-        values = _cells(target)
-        changes = tuple(
-            CellEdit(
-                CellEditOperation.REMOVE,
-                str(cell["id"]),
-                position,
-                None,
-                cell,
-                None,
-            )
-            for position, cell in enumerate(values)
-            if _matches(cell, query)
-        )
+        changes = _do_remove_where(target, query)
         if not changes:
             return CellEditReport((), False)
-        removed = {change.cell_id for change in changes}
-        target["cells"] = [cell for cell in values if cell.get("id") not in removed]
         return self._finish(target, changes, dry_run=dry_run)
 
-    @staticmethod
-    def _select(
-        raw: dict[str, Any],
-        cell_id: str,
-    ) -> tuple[int, dict[str, Any]]:
-        if not isinstance(cell_id, str) or not cell_id:
-            raise ValueError("cell_id must be a non-empty string")
-        try:
-            return _index(raw)[cell_id]
-        except KeyError as exc:
-            raise KeyError(f"cell ID not found: {cell_id}") from exc
+    @contextmanager
+    def batch(self, *, dry_run: bool = False) -> Iterator[CellEditBatch]:
+        """Accumulate edits against one in-memory working copy, deferring
+        the single `validate()` call (and the atomic commit it guards) to
+        the end of the `with` block.
+
+        LIBIPYNB-Q15a: every individual mutation method above pays a fresh
+        `deepcopy` of the whole notebook plus a full `validate()` call, even
+        under `dry_run=True` -- previewing N edits one at a time costs N
+        full-notebook validations. A batch pays for exactly one of each,
+        regardless of how many edits it accumulates::
+
+            with editor.batch() as batch:
+                batch.insert(cell_a)
+                batch.remove("old-cell")
+            # batch.report is now set; committed iff validation passed.
+
+        If the `with` block itself raises, this commit step never runs and
+        `self.document` is left completely untouched -- individual calls'
+        atomic, all-or-nothing guarantee, now covering a whole batch.
+        """
+        working = CellEditBatch(self)
+        yield working
+        working.report = self._finish(working._target, tuple(working._changes), dry_run=dry_run)
 
     def _finish(
         self,
@@ -431,6 +520,7 @@ def edit_cells(document: NotebookDocument) -> CellEditor:
 
 __all__ = [
     "CellEdit",
+    "CellEditBatch",
     "CellEditOperation",
     "CellEditReport",
     "CellEditor",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from copy import deepcopy
 
@@ -333,3 +334,185 @@ def test_every_mutation_dry_run_matches_apply_and_save_reload(
     assert reloaded.raw == apply_document.raw
     assert [cell["id"] for cell in reloaded.cells] == [cell["id"] for cell in apply_document.cells]
     _valid(reloaded)
+
+
+# ── LIBIPYNB-Q15a: batch() ───────────────────────────────────────────────────
+
+
+def _large_notebook(cell_count: int) -> NotebookDocument:
+    cells = [
+        {
+            "cell_type": "code",
+            "id": f"cell-{i}",
+            "metadata": {},
+            "source": f"x = {i}",
+            "execution_count": None,
+            "outputs": [],
+        }
+        for i in range(cell_count)
+    ]
+    return NotebookDocument({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": cells})
+
+
+def test_batch_edits_commit_atomically_as_a_single_change() -> None:
+    document = _document()
+    editor = edit_cells(document)
+
+    with editor.batch() as batch:
+        batch.insert(
+            {"cell_type": "markdown", "id": "delta", "metadata": {}, "source": "new"}, index=1
+        )
+        batch.remove("gamma")
+        batch.move("beta", 0)
+
+    assert batch.report is not None
+    assert batch.report.applied is True
+    assert len(batch.report.changes) == 3
+    assert [cell["id"] for cell in document.cells] == ["beta", "alpha", "delta"]
+    _valid(document)
+
+
+def test_batch_changes_property_reflects_accumulated_edits_before_commit() -> None:
+    document = _document()
+    editor = edit_cells(document)
+
+    with editor.batch() as batch:
+        assert batch.changes == ()
+        batch.remove("gamma")
+        assert len(batch.changes) == 1
+        batch.remove("beta")
+        assert len(batch.changes) == 2
+        # Nothing committed to the real document until the `with` block exits.
+        assert [cell["id"] for cell in document.cells] == ["alpha", "beta", "gamma"]
+
+    assert [cell["id"] for cell in document.cells] == ["alpha"]
+
+
+def test_batch_dry_run_validates_but_does_not_commit() -> None:
+    document = _document()
+    before = deepcopy(document.raw)
+    editor = edit_cells(document)
+
+    with editor.batch(dry_run=True) as batch:
+        batch.remove("alpha")
+        batch.remove("gamma")
+
+    assert batch.report is not None
+    assert batch.report.would_change is True
+    assert batch.report.applied is False
+    assert document.raw == before
+
+
+def test_batch_raises_and_leaves_the_document_untouched_when_the_final_state_is_invalid() -> None:
+    """The atomicity guarantee this card exists to preserve: `remove("gamma")`
+    succeeds against the batch's own working copy, but the second accumulated
+    edit makes the notebook AS A WHOLE invalid (a dangling attachment
+    reference -- a cross-field defect only the deferred, whole-notebook
+    validate() at batch-exit catches, not either individual call). Neither
+    edit may leak into the real document."""
+    document = _document()
+    before = deepcopy(document.raw)
+    editor = edit_cells(document)
+
+    with pytest.raises(ValueError, match="cell edit would invalidate"), editor.batch() as batch:
+        batch.remove("gamma")
+        batch.insert(
+            {
+                "cell_type": "markdown",
+                "id": "dangling",
+                "metadata": {},
+                "source": "![missing](attachment:missing.png)",
+            }
+        )
+
+    assert document.raw == before, "a partially-valid batch must never leak into the real document"
+
+
+def test_batch_never_commits_when_the_with_block_itself_raises() -> None:
+    document = _document()
+    before = deepcopy(document.raw)
+    editor = edit_cells(document)
+
+    class _Boom(Exception):
+        pass
+
+    with pytest.raises(_Boom), editor.batch() as batch:
+        batch.remove("alpha")
+        raise _Boom("caller's own code failed mid-batch")
+
+    assert document.raw == before
+
+
+def test_batch_result_matches_the_equivalent_sequential_single_calls() -> None:
+    sequential_document = _document()
+    sequential_editor = edit_cells(sequential_document)
+    sequential_editor.remove("gamma")
+    sequential_editor.move("beta", 0)
+
+    batch_document = _document()
+    batch_editor = edit_cells(batch_document)
+    with batch_editor.batch() as batch:
+        batch.remove("gamma")
+        batch.move("beta", 0)
+
+    assert sequential_document.raw == batch_document.raw
+    reloaded = loads(dumps(batch_document))
+    assert reloaded.raw == batch_document.raw
+    _valid(reloaded)
+
+
+def test_batched_edits_are_meaningfully_cheaper_than_the_same_edits_one_call_at_a_time() -> None:
+    """Gate G1: measured, not claimed. Each individual mutation call pays a
+    fresh deepcopy + full validate() of the whole notebook; a batch pays for
+    exactly one of each regardless of edit count. On a 4,000-cell notebook,
+    N=20 real (would-change) edits done one call at a time must cost
+    meaningfully more than the same 20 edits accumulated in one batch."""
+    cell_count = 4000
+    edit_count = 20
+
+    sequential_document = _large_notebook(cell_count)
+    sequential_editor = edit_cells(sequential_document)
+    start = time.perf_counter()
+    for i in range(edit_count):
+        sequential_editor.replace(
+            f"cell-{i}",
+            {
+                "cell_type": "code",
+                "id": f"cell-{i}",
+                "metadata": {},
+                "source": f"x = {i} + 1",
+                "execution_count": None,
+                "outputs": [],
+            },
+        )
+    sequential_elapsed = time.perf_counter() - start
+
+    batch_document = _large_notebook(cell_count)
+    batch_editor = edit_cells(batch_document)
+    start = time.perf_counter()
+    with batch_editor.batch() as batch:
+        for i in range(edit_count):
+            batch.replace(
+                f"cell-{i}",
+                {
+                    "cell_type": "code",
+                    "id": f"cell-{i}",
+                    "metadata": {},
+                    "source": f"x = {i} + 1",
+                    "execution_count": None,
+                    "outputs": [],
+                },
+            )
+    batch_elapsed = time.perf_counter() - start
+
+    assert batch.report is not None and batch.report.applied
+    assert sequential_document.raw == batch_document.raw
+
+    # The batched path does 1 deepcopy + 1 validate instead of 20 of each --
+    # a wide margin (not a tight ratio assertion, to avoid CI flakiness) is
+    # enough to prove the architectural difference is real.
+    assert batch_elapsed < sequential_elapsed / 3, (
+        f"batched edits ({batch_elapsed:.3f}s) should be meaningfully cheaper than "
+        f"{edit_count} sequential single-call edits ({sequential_elapsed:.3f}s) on a "
+        f"{cell_count}-cell notebook"
+    )
