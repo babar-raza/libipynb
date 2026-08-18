@@ -38,6 +38,7 @@ from .document import (
 )
 from .editor import (
     CellEdit,
+    CellEditBatch,
     CellEditOperation,
     CellEditor,
     CellEditReport,
@@ -96,6 +97,7 @@ __all__ = [
     "CellChange",
     "CellConflict",
     "CellEdit",
+    "CellEditBatch",
     "CellEditOperation",
     "CellEditReport",
     "CellEditor",

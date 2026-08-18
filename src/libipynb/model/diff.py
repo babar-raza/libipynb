@@ -253,8 +253,56 @@ def _projection(
     return projected
 
 
+def _with_stable_cell_ids(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return *raw* -- an internal copy the caller already owns (from
+    ``_projection``'s ``deepcopy``) -- with every cell missing a stable,
+    non-empty id given one deterministically via the same content-hash
+    algorithm :func:`~libipynb.model.lifecycle.upgrade` already uses
+    (LIBIPYNB-Q3). Closes the confirmed blocker where ``diff_notebooks``/
+    ``merge_notebooks`` unconditionally required every cell to carry an
+    explicit ``id`` -- structurally incompatible with nbformat 4.0-4.4,
+    which the majority of real-world notebooks still are.
+
+    Stability: two cells with byte-identical content (minus ``id``) hash to
+    the same digest and therefore the same synthesized id, so an unchanged
+    cell is correctly recognized as unchanged across two independent calls
+    (e.g. one for ``before``, one for ``after``) rather than reported as a
+    remove+add -- the same idempotency guarantee ``upgrade()`` already
+    relies on and has shipped. A cell whose content genuinely changed while
+    having no stable id in either notebook gets a different synthesized id
+    on each side and is honestly reported as remove+add: without any
+    caller-supplied identity, "same conceptual cell, different content" is
+    fundamentally indistinguishable from "a different cell" -- the same
+    behavior a content-addressed system without rename detection would
+    show, not a bug.
+
+    Cells that already carry a non-empty string id are left completely
+    untouched (including malformed/duplicate ones), so ``_cell_index``'s
+    own type/uniqueness validation still fires exactly as before for those
+    -- this closes only the "no id at all" gap, not id corruption.
+    """
+    cells = raw.get("cells")
+    if not isinstance(cells, list):
+        return raw
+    from ..codec.reader import ensure_cell_id  # deferred: avoid model<->codec import cycle
+
+    used_ids = {
+        cell["id"]
+        for cell in cells
+        if isinstance(cell, dict) and isinstance(cell.get("id"), str) and cell.get("id")
+    }
+    for cell in cells:
+        if isinstance(cell, dict):
+            cell_id = cell.get("id")
+            if not isinstance(cell_id, str) or not cell_id:
+                ensure_cell_id(cell, used_ids)
+    return raw
+
+
 def _fingerprint(raw: dict[str, Any], policy: DiffPolicy) -> str:
-    return hashlib.sha256(_canonical_bytes(_projection(raw, policy))).hexdigest()
+    return hashlib.sha256(
+        _canonical_bytes(_with_stable_cell_ids(_projection(raw, policy)))
+    ).hexdigest()
 
 
 def _cell_index(
@@ -521,8 +569,8 @@ def diff_notebooks(
 
     _canonical_bytes(before.raw)
     _canonical_bytes(after.raw)
-    left = _projection(before.raw, selected_policy)
-    right = _projection(after.raw, selected_policy)
+    left = _with_stable_cell_ids(_projection(before.raw, selected_policy))
+    right = _with_stable_cell_ids(_projection(after.raw, selected_policy))
     left_order, left_index = _cell_index(left)
     right_order, right_index = _cell_index(right)
     moved_ids = _moved_cell_ids(left_order, right_order)

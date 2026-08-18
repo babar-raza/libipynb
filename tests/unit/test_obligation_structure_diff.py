@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from copy import deepcopy
 from itertools import permutations
 
@@ -272,19 +271,101 @@ def test_permutation_patch_and_reverse_patch_are_metamorphic(
     assert reverse.to_patch().apply(target).raw == base.raw
 
 
-@pytest.mark.parametrize(
-    "mutate, message",
-    [
-        (lambda value: value.cells[0].pop("id"), "missing"),
-        (lambda value: value.cells[1].update(id="alpha"), "unique"),
-    ],
-)
-def test_diff_rejects_missing_or_duplicate_stable_cell_ids(
-    mutate: Callable[[NotebookDocument], object],
-    message: str,
-) -> None:
+def test_diff_rejects_duplicate_stable_cell_ids() -> None:
+    """An explicit, malformed duplicate id is still a real diagnostic --
+    LIBIPYNB-Q3 only closes the "no id at all" gap, never id corruption."""
     document = _document()
-    mutate(document)
+    document.cells[1].update(id="alpha")  # collides with cells[0]'s "alpha"
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="unique"):
         diff_notebooks(document, _document())
+
+
+def test_diff_synthesizes_a_missing_cell_id_instead_of_raising() -> None:
+    """LIBIPYNB-Q3 regression: nbformat 4.0-4.4 notebooks -- the majority of
+    real-world existing .ipynb files -- have no cell ids at all. This used
+    to raise ValueError unconditionally; a missing id must now be
+    synthesized internally instead, never mutating the caller's document."""
+    document = _document()
+    document.cells[0].pop("id")
+
+    diff_notebooks(document, _document())  # must not raise
+
+    # Must not mutate the caller's document.
+    assert "id" not in document.cells[0]
+
+
+def _pre_45_document(cells: list[dict]) -> NotebookDocument:
+    """A genuine, id-less nbformat-4.4 notebook -- the majority-case
+    real-world shape LIBIPYNB-Q3 fixes diffing for."""
+    return NotebookDocument(
+        {
+            "nbformat": 4,
+            "nbformat_minor": 4,
+            "metadata": {
+                "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}
+            },
+            "cells": cells,
+        }
+    )
+
+
+def _pre_45_code_cell(source: str) -> dict:
+    return {
+        "cell_type": "code",
+        "source": source,
+        "metadata": {},
+        "outputs": [],
+        "execution_count": None,
+    }
+
+
+def test_diff_synthesized_ids_are_stable_across_independent_calls() -> None:
+    """LIBIPYNB-Q3: two independent diff_notebooks() calls on the same
+    id-less input must synthesize the SAME ids for unchanged cells (content
+    -> SHA-256 digest -> id is a pure function), not just avoid crashing.
+    Regression-proofs this directly rather than trusting the algorithm."""
+    before = _pre_45_document([_pre_45_code_cell("a = 1"), _pre_45_code_cell("b = 2")])
+    after = _pre_45_document([_pre_45_code_cell("a = 1"), _pre_45_code_cell("b = 3")])
+
+    first = diff_notebooks(before, after)
+    second = diff_notebooks(before, after)
+
+    assert first.cell_changes == second.cell_changes
+
+
+def test_diff_reports_an_unchanged_id_less_cell_as_unchanged_not_remove_add() -> None:
+    """An unchanged id-less cell synthesizes to the SAME id on both sides
+    (content is a pure function -> same digest) and therefore never appears
+    in cell_changes at all -- proven here alongside a genuinely changed
+    sibling cell, which correctly DOES appear (as remove+add, per the
+    honest, documented id-less-change limitation covered by the next test)
+    so this isn't just "an empty notebook produces an empty diff"."""
+    unchanged_source = "a = 1"
+    before = _pre_45_document([_pre_45_code_cell(unchanged_source), _pre_45_code_cell("b = 2")])
+    after = _pre_45_document([_pre_45_code_cell(unchanged_source), _pre_45_code_cell("b = 3")])
+
+    diff = diff_notebooks(before, after)
+
+    # The unchanged first cell must not appear in cell_changes at all.
+    changed_indices = {
+        index for change in diff.cell_changes for index in (change.before_index, change.after_index)
+    }
+    assert 0 not in changed_indices
+    # The genuinely changed second cell does appear (as remove+add, since
+    # id-less content changes cannot be told apart from a different cell).
+    assert changed_indices == {1, None}
+
+
+def test_diff_reports_a_changed_id_less_cell_as_remove_and_add() -> None:
+    """Accepted, documented limitation: without any stable id, a genuinely
+    changed id-less cell is indistinguishable from a different cell -- this
+    is honest behavior, not a bug (see _with_stable_cell_ids' docstring)."""
+    before = _pre_45_document([_pre_45_code_cell("a = 1")])
+    after = _pre_45_document([_pre_45_code_cell("a = 2")])
+
+    diff = diff_notebooks(before, after)
+
+    assert len(diff.cell_changes) == 2
+    kinds = {(change.added, change.removed) for change in diff.cell_changes}
+    assert kinds == {(True, False), (False, True)}
