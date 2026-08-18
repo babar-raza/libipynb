@@ -65,11 +65,17 @@ class Cell:
 
     @property
     def metadata(self) -> dict[str, Any]:
-        return dict(self._data.get("metadata", {}))
+        """LIBIPYNB-Q9: deep-copied, matching every other read accessor on
+        this and sibling classes (``attachments``/``to_dict()`` below,
+        ``NotebookOutput.data``) -- a shallow ``dict()`` copy here shares
+        nested values with the live cell, so mutating a value obtained from
+        this accessor would silently corrupt ``document.raw``."""
+        return deepcopy(self._data.get("metadata", {}))
 
     @property
     def outputs(self) -> list[dict[str, Any]]:
-        return list(self._data.get("outputs", []))
+        """LIBIPYNB-Q9: deep-copied -- see ``metadata`` above."""
+        return deepcopy(self._data.get("outputs", []))
 
     @property
     def attachments(self) -> dict[str, Any]:
@@ -264,7 +270,8 @@ class NotebookDocument:
 
     @property
     def metadata(self) -> dict[str, Any]:
-        return dict(self._data.get("metadata", {}))
+        """LIBIPYNB-Q9: deep-copied -- see ``Cell.metadata``'s docstring."""
+        return deepcopy(self._data.get("metadata", {}))
 
     @property
     def cells(self) -> list[dict[str, Any]]:
@@ -366,7 +373,12 @@ class NotebookDocument:
         return cleanup(self, policy=policy, dry_run=dry_run)
 
     def to_dict(self) -> dict[str, Any]:
-        return dict(self._data)
+        """LIBIPYNB-Q9: deep-copied -- a shallow ``dict()`` copy leaves this
+        method's own result sharing nested cell/output dicts with the live
+        document, so a caller using ``to_dict()`` as a clone (a very natural
+        assumption for a method literally named that) would silently
+        corrupt ``document.raw`` by mutating anything below the top level."""
+        return deepcopy(self._data)
 
     def __repr__(self) -> str:
         return f"NotebookDocument(nbformat={self.nbformat}, cells={self.cell_count})"

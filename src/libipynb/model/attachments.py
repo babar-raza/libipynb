@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from copy import deepcopy
 from dataclasses import dataclass
@@ -9,6 +11,7 @@ from enum import Enum
 from typing import Any
 from urllib.parse import quote, unquote
 
+from .._internal.paths import is_safe_resource_filename
 from .document import NotebookDocument
 
 _ATTACHMENT_REFERENCE = re.compile(r"attachment:([^\s)\]}>\"']+)")
@@ -55,10 +58,31 @@ def _json_value(value: object) -> bool:
 
 
 def _validate_name(name: str) -> None:
+    """Baseline shape check for any attachment-key USE, including as a pure
+    lookup key for an already-stored attachment (``remove()``'s ``name``,
+    ``rename()``'s ``old_name``) -- deliberately does NOT reject
+    path-traversal shapes, so a caller can still ``remove()``/``rename()``
+    AWAY FROM a badly-named attachment that predates this validation (e.g.
+    loaded from a hand-edited file) as a defensive repair, rather than
+    being permanently unable to reference it at all."""
     if not isinstance(name, str) or not name:
         raise ValueError("attachment name must be a non-empty string")
     if any(ord(character) < 32 or ord(character) == 127 for character in name):
         raise ValueError("attachment name must not contain control characters")
+
+
+def _validate_new_name(name: str) -> None:
+    """LIBIPYNB-Q9: full validation for a name that will be WRITTEN as a new
+    (or renamed-to) attachment key -- ``add()``'s ``name``, ``rename()``'s
+    ``new_name``. An attachment name is untrusted document content that a
+    downstream consumer (adapters/export.py's resource writer) may join
+    onto a directory when materializing attachments to disk -- reject
+    path-traversal-shaped names here, at the API that creates the data,
+    rather than relying entirely on that one downstream consumer to
+    independently re-derive the same safety check."""
+    _validate_name(name)
+    if not is_safe_resource_filename(name):
+        raise ValueError(f"attachment name is not a safe filename: {name!r}")
 
 
 def _validate_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
@@ -69,6 +93,18 @@ def _validate_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"invalid attachment MIME type: {media_type!r}")
         if not _json_value(payload):
             raise ValueError(f"attachment MIME payload for {media_type!r} is not JSON-compatible")
+        # LIBIPYNB-Q9: conventionally-base64-encoded MIME payloads get
+        # validated for well-formedness here, closing the gap where a
+        # corrupted/malformed payload previously vanished silently at
+        # export time (adapters/export.py's _collect_resources) with zero
+        # diagnostic -- now surfaced immediately, at the point of insertion.
+        if media_type != "text/plain" and isinstance(payload, str):
+            try:
+                base64.b64decode(payload, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError(
+                    f"attachment payload for {media_type!r} is not valid base64: {exc}"
+                ) from exc
     return deepcopy(bundle)
 
 
@@ -113,14 +149,18 @@ def _rewrite_references(
         cell["source"] = rewritten
         return replacements
 
-    lengths = [len(item) for item in source]
-    segments: list[str] = []
-    offset = 0
-    for length in lengths[:-1]:
-        segments.append(rewritten[offset : offset + length])
-        offset += length
-    segments.append(rewritten[offset:])
-    cell["source"] = segments
+    # LIBIPYNB-Q9: re-derive line boundaries from the REWRITTEN text itself
+    # rather than slicing it at the OLD per-item lengths -- slicing at stale
+    # offsets corrupts every boundary after the renamed reference whenever
+    # the new name's length differs from the old one (the common case, not
+    # an edge case: attachment names are rarely renamed to an identical
+    # length). This is safe because _validate_name() forbids control
+    # characters (including "\n") in attachment names, so a rename can only
+    # change how LONG a line is, never how many lines exist --
+    # splitlines(keepends=True) on the rewritten text reproduces exactly
+    # len(source) segments for any well-formed, newline-boundary-aligned
+    # source list (the only shape nbformat's own writer ever produces).
+    cell["source"] = rewritten.splitlines(keepends=True) or [rewritten]
     return replacements
 
 
@@ -175,7 +215,7 @@ class AttachmentManager:
         replace: bool = False,
         dry_run: bool = False,
     ) -> AttachmentReport:
-        _validate_name(name)
+        _validate_new_name(name)
         validated = _validate_bundle(bundle)
         target = deepcopy(self.document.raw)
         index, cell = _cell(target, cell_id)
@@ -237,7 +277,7 @@ class AttachmentManager:
         dry_run: bool = False,
     ) -> AttachmentReport:
         _validate_name(old_name)
-        _validate_name(new_name)
+        _validate_new_name(new_name)
         target = deepcopy(self.document.raw)
         index, cell = _cell(target, cell_id)
         values = _attachments(cell)

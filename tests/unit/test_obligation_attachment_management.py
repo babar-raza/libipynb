@@ -79,7 +79,7 @@ def test_add_rejects_invalid_cells_bundles_and_accidental_replacement() -> None:
     with pytest.raises(ValueError, match="MIME"):
         manager.add("markdown", "bad.txt", {"invalid": "bad"})
     with pytest.raises(ValueError, match="already exists"):
-        manager.add("markdown", "plot.png", {"image/png": "replacement"})
+        manager.add("markdown", "plot.png", {"image/png": "cmVwbGFjZQ=="})
 
 
 def test_rename_rewrites_encoded_references_and_preserves_source_shape() -> None:
@@ -105,6 +105,71 @@ def test_rename_rewrites_encoded_references_and_preserves_source_shape() -> None
     assert report.changes[0].references == 2
     assert report.changes[0].dangling_references == 0
     assert validate(document).is_valid
+
+
+def test_rename_with_a_longer_name_preserves_unrelated_sibling_line_content() -> None:
+    """LIBIPYNB-Q9 regression: renaming to a LONGER name used to corrupt
+    every source line after the renamed reference, because the old/buggy
+    implementation sliced the REWRITTEN text at the OLD (pre-rename)
+    per-item lengths. Uses a second, completely unrelated sibling line
+    (no attachment reference at all) to prove that line's own content
+    survives byte-for-byte, not just that the segment COUNT is unchanged."""
+    document = _document(
+        [
+            "![plot](attachment:plot.png)\n",
+            "this line has nothing to do with the attachment\n",
+        ]
+    )
+
+    manage_attachments(document).rename("markdown", "plot.png", "a-much-longer-final-plot-name.png")
+
+    cell = document.cells[0]
+    assert isinstance(cell["source"], list)
+    assert len(cell["source"]) == 2
+    assert (
+        "".join(cell["source"]) == "![plot](attachment:a-much-longer-final-plot-name.png)\n"
+        "this line has nothing to do with the attachment\n"
+    )
+    # The unrelated second line must be intact, not truncated/spliced.
+    assert cell["source"][1] == "this line has nothing to do with the attachment\n"
+    assert validate(document).is_valid
+
+
+def test_add_rejects_a_path_traversal_attachment_name() -> None:
+    manager = manage_attachments(_document())
+
+    for unsafe_name in ("../../etc/passwd", "/etc/passwd", "..", "a/b.png"):
+        with pytest.raises(ValueError, match="safe filename"):
+            manager.add("markdown", unsafe_name, {"image/png": "cGxvdA=="})
+
+
+def test_add_rejects_malformed_base64_payload() -> None:
+    manager = manage_attachments(_document())
+
+    with pytest.raises(ValueError, match="not valid base64"):
+        manager.add("markdown", "bad.png", {"image/png": "not-valid-base64!!!"})
+
+
+def test_rename_to_a_path_traversal_name_is_rejected_but_removing_a_preexisting_bad_name_still_works() -> (
+    None
+):
+    """LIBIPYNB-Q9: new/renamed-to names are validated for path safety, but
+    an already-stored (e.g. hand-edited-file-loaded) unsafe name can still
+    be used as a pure LOOKUP key for remove()/rename()'s old_name -- so a
+    caller isn't permanently unable to clean up bad pre-existing data."""
+    document = _document()
+    document.cells[0]["attachments"]["../evil.png"] = {"image/png": "cGxvdA=="}
+    manager = manage_attachments(document)
+
+    with pytest.raises(ValueError, match="safe filename"):
+        manager.rename("markdown", "plot.png", "../evil2.png")
+
+    # But removing the pre-existing bad name (a pure lookup, not a new
+    # write) still works -- a legitimate defensive-repair path.
+    report = manager.remove(
+        "markdown", "../evil.png", reference_policy=AttachmentReferencePolicy.LEAVE_DANGLING
+    )
+    assert report.applied is True
 
 
 def test_remove_refuses_dangling_reference_unless_explicitly_allowed() -> None:
