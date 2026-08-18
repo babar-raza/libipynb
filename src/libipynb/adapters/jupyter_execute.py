@@ -90,6 +90,7 @@ here rather than left to be silently rediscovered.
 from __future__ import annotations
 
 import copy
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -115,6 +116,37 @@ if TYPE_CHECKING:
 # instead (a plain `import` statement inside a function body), which is
 # always safe here because by the time any of these functions actually
 # *run*, module-level circular-import resolution has already finished.
+
+
+# LIBIPYNB-Q2: deliberate positive skew added to the watchdog's own
+# per-cell deadline, on top of nbclient's own rounded `cell_timeout`, so
+# the watchdog's `threading.Timer` can only fire AFTER nbclient's own
+# timeout mechanism would already be acting -- see `_Tracker.
+# _start_watchdog` for the full reasoning. These constants are a reasoned
+# starting point, not an empirically validated one: verified directly that
+# kernel-interrupt delivery is a genuinely different code path on POSIX
+# (a real OS signal, `os.killpg`) vs. Windows (a named event the kernel
+# process polls for, `jupyter_client.provisioning.local_provisioner.
+# LocalProvisioner.send_signal`'s own Windows branch) -- their relative
+# latency has not been measured on either platform. A too-small skew risks
+# a false positive (reporting a timeout that did not happen); a too-large
+# skew only ever delays detection, never produces an incorrect result --
+# the deliberately safer failure direction.
+_WATCHDOG_MIN_SKEW_SECONDS = 0.25
+_WATCHDOG_SKEW_FRACTION = 0.05
+
+
+class _TotalTimeoutExceeded(Exception):
+    """LIBIPYNB-Q2: raised from `_Tracker.on_cell_start` when
+    `ExecutionOptions.total_timeout` has already elapsed before the next
+    cell would start. `nbclient.util.run_hook` does not catch hook
+    exceptions (verified directly against the installed nbclient source),
+    so this propagates up through `NotebookClient.async_execute`'s own
+    cell loop and aborts the run before that cell is sent to the kernel --
+    a "soft" bound only: it never aborts a cell already in flight,
+    including the last one in a run (see `ExecutionOptions.total_timeout`'s
+    own docstring for why this does not close the unbounded-hang gap
+    tracked separately as LIBIPYNB-Q2b)."""
 
 
 def _import_backend() -> tuple[Any, Any, Any]:
@@ -184,6 +216,21 @@ class LocalJupyterExecutor:
             client.execute(**start_kwargs)
         except Exception as exc:  # noqa: BLE001 -- classified below, never re-raised bare
             return _finish(document, resolved, nb_node, tracker, client, nbclient_exc, exc)
+        except BaseException:
+            # LIBIPYNB-Q2: KeyboardInterrupt/SystemExit deliberately
+            # propagate past this method (see comment above) without ever
+            # reaching _finish() -- cancel any still-armed watchdog timer
+            # explicitly here, mirroring execute_async's own cancellation-
+            # branch cleanup, so this BaseException exit path can never
+            # leave a timer un-cancelled either. Found by an independent
+            # Gate G2 review of this design: without this, a watchdog timer
+            # armed for the cell in flight when the interrupt arrives would
+            # stay un-cancelled until it harmlessly self-fires against an
+            # already-orphaned _Tracker (bounded by cell_timeout+skew, no
+            # resource leak) -- low severity, but a real, previously-
+            # untested gap, not merely a hypothetical one.
+            tracker.cancel_pending_timer()
+            raise
         return _finish(document, resolved, nb_node, tracker, client, nbclient_exc, None)
 
     async def execute_async(
@@ -229,6 +276,12 @@ class LocalJupyterExecutor:
                 # cancelled" instead of pattern-matching on nbclient's
                 # exception shape, so this module's own public contract is
                 # deterministic even when the dependency it wraps is not.
+                #
+                # LIBIPYNB-Q2: this branch never reaches `_finish()` (it
+                # raises directly below), so the watchdog's own cleanup
+                # must happen here explicitly -- `_finish()` is not the
+                # only exit path a pending timer needs to be cancelled on.
+                tracker.cancel_pending_timer()
                 #
                 # The kernel must be shut down before that guaranteed
                 # CancelledError propagates: verified directly that
@@ -321,17 +374,56 @@ def _check_preflight(options: ExecutionOptions) -> None:
 
 class _Tracker:
     """Accumulates per-cell lifecycle state via nbclient's own hooks
-    (``on_cell_start``/``on_cell_executed``/``on_cell_error``) -- the only
-    way to learn *which* cell was active when a run stops early or times
-    out, since ``CellExecutionError``/``CellTimeoutError`` carry a message
-    but not a cell index."""
+    (``on_cell_start``/``on_cell_execute``/``on_cell_executed``/
+    ``on_cell_error``) -- the only way to learn *which* cell was active
+    when a run stops early or times out, since ``CellExecutionError``/
+    ``CellTimeoutError`` carry a message but not a cell index.
 
-    def __init__(self, on_event: Any) -> None:
+    LIBIPYNB-Q2: also runs an independent, libipynb-owned per-cell watchdog
+    (``threading.Timer``) alongside nbclient's own timeout handling, purely
+    to OBSERVE whether a cell's wall-clock budget was exceeded -- it never
+    sends any protocol message or otherwise touches the kernel itself. This
+    exists because nbclient raises no exception at all for a genuine
+    per-cell timeout when ``interrupt_on_timeout=True`` (the default): see
+    the module docstring's own account of nbclient's internal behavior.
+    All watchdog state is guarded by ``self._lock`` and is instance-scoped
+    -- a fresh ``_Tracker`` is built per ``execute()``/``execute_async()``
+    call (see ``_build_client``), so this state can never leak across
+    concurrent or sequential runs as long as it stays on the instance.
+
+    The watchdog timer is started from ``on_cell_execute`` (fired only for
+    a cell about to actually be sent to the kernel), not ``on_cell_start``
+    (fired unconditionally for every cell, including markdown/raw cells,
+    empty-source cells, and skip-tagged cells -- none of which ever reach
+    ``on_cell_executed``/``on_cell_error``, verified directly against
+    nbclient's own ``async_execute_cell``). Starting the timer from
+    ``on_cell_start`` instead would leak a timer for every such cell, since
+    nothing would ever cancel it.
+    """
+
+    def __init__(
+        self,
+        on_event: Any,
+        *,
+        cell_timeout: float | None = None,
+        interrupt_on_timeout: bool = True,
+        total_timeout: float | None = None,
+    ) -> None:
         self.reached: list[int] = []
         self.finished: set[int] = set()
         self.timing: dict[int, list[float | None]] = {}
         self.errors: dict[int, ExecutionCellError] = {}
         self._on_event = on_event
+
+        self._cell_timeout = cell_timeout
+        self._interrupt_on_timeout = interrupt_on_timeout
+        self._total_timeout = total_timeout
+        self._run_started_at = time.monotonic()
+
+        self._lock = threading.Lock()
+        self._active_timer: threading.Timer | None = None
+        self._active_timer_index: int | None = None
+        self.watchdog_timed_out: set[int] = set()
 
     def _emit(self, kind: str, cell: dict[str, Any], cell_index: int) -> None:
         if self._on_event is not None:
@@ -340,17 +432,80 @@ class _Tracker:
             self._on_event(ExecutionEvent(kind=kind, cell_index=cell_index, cell_id=cell.get("id")))
 
     def on_cell_start(self, cell: dict[str, Any], cell_index: int, **_kw: Any) -> None:
+        if self._total_timeout is not None and (
+            time.monotonic() - self._run_started_at > self._total_timeout
+        ):
+            raise _TotalTimeoutExceeded(
+                f"total_timeout ({self._total_timeout}s) exceeded before cell "
+                f"{cell_index} could start"
+            )
         self.reached.append(cell_index)
         self.timing[cell_index] = [time.time(), None]
         self._emit("cell_started", cell, cell_index)
 
+    def on_cell_execute(self, cell: dict[str, Any], cell_index: int, **_kw: Any) -> None:
+        # LIBIPYNB-Q2: fires only for a cell about to actually be sent to
+        # the kernel -- see the class docstring for why this, not
+        # `on_cell_start`, is the correct place to start the watchdog.
+        if self._cell_timeout is None or not self._interrupt_on_timeout:
+            # interrupt_on_timeout=False already gets a deterministic
+            # CellTimeoutError straight from nbclient (see the module
+            # docstring/_finish's own classification) -- running a second,
+            # redundant timer there would add risk for zero benefit.
+            return
+        rounded = max(1, round(self._cell_timeout))
+        skew = max(_WATCHDOG_MIN_SKEW_SECONDS, _WATCHDOG_SKEW_FRACTION * rounded)
+        timer = threading.Timer(rounded + skew, self._on_watchdog_fire, args=(cell_index,))
+        timer.daemon = True
+        with self._lock:
+            self._active_timer = timer
+            self._active_timer_index = cell_index
+        timer.start()
+
+    def _on_watchdog_fire(self, cell_index: int) -> None:
+        # Runs on the Timer's own OS thread -- never touches the kernel,
+        # only this instance's own lock-guarded state.
+        with self._lock:
+            if cell_index in self.finished:
+                return  # stale fire: this cell genuinely completed in time
+            self.watchdog_timed_out.add(cell_index)
+
+    def cancel_pending_timer(self) -> None:
+        """LIBIPYNB-Q2: cancels any still-pending watchdog timer. Must be
+        called on every exit path (see ``_finish`` and
+        ``execute_async``'s cancellation branch) -- ``Timer.cancel()`` on
+        an already-fired timer is always a safe no-op, so calling this
+        unconditionally on every exit is correct, not merely defensive."""
+        with self._lock:
+            timer, self._active_timer = self._active_timer, None
+            self._active_timer_index = None
+        if timer is not None:
+            timer.cancel()
+
+    def _cancel_timer_for(self, cell_index: int) -> None:
+        with self._lock:
+            if self._active_timer_index != cell_index:
+                return
+            timer, self._active_timer = self._active_timer, None
+            self._active_timer_index = None
+        if timer is not None:
+            timer.cancel()
+
     def on_cell_executed(self, cell: dict[str, Any], cell_index: int, **_kw: Any) -> None:
-        self.finished.add(cell_index)
+        with self._lock:
+            self.finished.add(cell_index)
+        self._cancel_timer_for(cell_index)
         entry = self.timing.setdefault(cell_index, [None, None])
         entry[1] = time.time()
         self._emit("cell_finished", cell, cell_index)
 
     def on_cell_error(self, cell: dict[str, Any], cell_index: int, execute_reply: Any) -> None:
+        # LIBIPYNB-Q2: nbclient always calls on_cell_executed before
+        # on_cell_error for the same cell (verified directly:
+        # async_execute_cell calls on_cell_executed, then
+        # _check_raise_for_error -> on_cell_error, in that order) -- the
+        # watchdog timer for this cell is therefore already cancelled by
+        # the time this runs; no separate cancellation needed here.
         from ..execution.results import ExecutionCellError
 
         content = execute_reply["content"]
@@ -388,7 +543,12 @@ def _build_client(
             _normalize_source_for_execution(cell)
     nb_node = nbformat_mod.from_dict(nb_dict)
 
-    tracker = _Tracker(options.on_event)
+    tracker = _Tracker(
+        options.on_event,
+        cell_timeout=options.cell_timeout,
+        interrupt_on_timeout=options.interrupt_on_timeout,
+        total_timeout=options.total_timeout,
+    )
     resources: dict[str, Any] = {}
     if options.working_directory is not None:
         resources["metadata"] = {"path": options.working_directory}
@@ -414,6 +574,7 @@ def _build_client(
         skip_cells_with_tag=options.skip_tag,
         record_timing=options.record_timing,
         on_cell_start=tracker.on_cell_start,
+        on_cell_execute=tracker.on_cell_execute,
         on_cell_executed=tracker.on_cell_executed,
         on_cell_error=tracker.on_cell_error,
     )
@@ -479,6 +640,15 @@ def _finish(
 ) -> ExecutionResult:
     from ..execution.results import CellExecutionRecord, ExecutionResult
 
+    # LIBIPYNB-Q2: unconditional, on every exit path through this function
+    # -- correct regardless of whether a timer is actually pending
+    # (`cancel_pending_timer` is a safe no-op when none is), and this is
+    # the backstop for any nbclient-internal exception path that aborts a
+    # cell before its own on_cell_executed/on_cell_error hook ever fires
+    # (the per-cell hooks are the common-case cleanup; this is the
+    # exceptional-case one).
+    tracker.cancel_pending_timer()
+
     started_at = min((t[0] for t in tracker.timing.values() if t[0] is not None), default=None)
     finished_at = time.time()
 
@@ -487,6 +657,7 @@ def _finish(
     stopped_early = False
     kernel_launch_error: str | None = None
     kernel_death_error: str | None = None
+    total_timed_out = False
 
     if exc is not None:
         if isinstance(exc, nbclient_exc.CellTimeoutError):
@@ -496,6 +667,8 @@ def _finish(
             stopped_early = True
         elif isinstance(exc, nbclient_exc.DeadKernelError):
             kernel_death_error = str(exc)
+        elif isinstance(exc, _TotalTimeoutExceeded):
+            total_timed_out = True
         elif not tracker.reached:
             # Nothing was ever reached: the kernel itself never came up
             # (missing kernelspec, startup_timeout exceeded, provisioner
@@ -509,6 +682,26 @@ def _finish(
             # it via the same field a truly unknown backend failure would
             # use, with the real exception type named for diagnosis.
             kernel_death_error = f"{type(exc).__name__}: {exc}"
+
+    # LIBIPYNB-Q2: additive, independent of the exc-classification above --
+    # deliberately NOT gated on `ename == "KeyboardInterrupt"` string
+    # matching, which is exactly the unreliable signal this watchdog
+    # exists to replace. `stopped_early`/`timed_out` are NOT mutually
+    # exclusive: a cell can genuinely both cause an early stop (its own
+    # code caught the interrupt and re-raised under stop_on_error=True)
+    # AND independently exceed its own budget -- both facts are kept, not
+    # collapsed into one (see ExecutionResult's own docstring).
+    if not timed_out and tracker.watchdog_timed_out:
+        timed_out = True
+        timed_out_cell_index = min(tracker.watchdog_timed_out)
+    # LIBIPYNB-Q2: authoritative, non-lossy per-cell timeout evidence --
+    # unlike timed_out_cell_index (which can only ever name one cell),
+    # every cell independently confirmed as timed out is tracked here, so
+    # a run with more than one such cell (possible under
+    # stop_on_error=False) is never silently reduced to a single index.
+    timed_out_cells: set[int] = set(tracker.watchdog_timed_out)
+    if isinstance(exc, nbclient_exc.CellTimeoutError) and timed_out_cell_index is not None:
+        timed_out_cells.add(timed_out_cell_index)
 
     new_raw = copy.deepcopy(original_document.raw)
     records: list[CellExecutionRecord] = []
@@ -559,6 +752,7 @@ def _finish(
                     error=None,
                     started_at=timing[0],
                     finished_at=timing[1],
+                    timed_out=index in timed_out_cells,
                 )
             )
             continue
@@ -604,6 +798,7 @@ def _finish(
                 started_at=timing[0],
                 finished_at=timing[1],
                 output_truncated=output_truncated,
+                timed_out=index in timed_out_cells,
             )
         )
 
@@ -633,6 +828,7 @@ def _finish(
         stopped_early=stopped_early,
         kernel_launch_error=kernel_launch_error,
         kernel_death_error=kernel_death_error,
+        total_timed_out=total_timed_out,
     )
 
 

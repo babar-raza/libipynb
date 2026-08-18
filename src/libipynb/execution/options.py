@@ -109,6 +109,19 @@ class ExecutionOptions:
     #: only -- exceptions raised inside it propagate and abort the run.
     on_event: Callable[[ExecutionEvent], None] | None = None
 
+    #: LIBIPYNB-Q2: total wall-clock budget in seconds for the whole run,
+    #: checked only at the start of each cell (a "soft" bound) -- if the
+    #: elapsed time since the run began already exceeds this when the next
+    #: cell would start, that cell (and all later cells) never runs and
+    #: :attr:`~.results.ExecutionResult.total_timed_out` is set. ``None``
+    #: (default) disables it. Does **not** bound a single already-running
+    #: cell, including the last one in a run -- a cell that itself hangs
+    #: forever is exactly as unbounded with this set as without it; that
+    #: requires a hard-kill escalation this executor does not implement
+    #: (tracked separately as LIBIPYNB-Q2b). Use :attr:`cell_timeout` for
+    #: the closest available per-cell control.
+    total_timeout: float | None = None
+
     #: LIBIPYNB-Q2: maximum UTF-8 byte size of a single output's own
     #: text/data payload before it is truncated and the corresponding
     #: :attr:`~.results.CellExecutionRecord.output_truncated` is set to
@@ -137,3 +150,5 @@ class ExecutionOptions:
             raise ValueError("skip_tag must be a non-empty string")
         if self.max_output_bytes is not None and self.max_output_bytes <= 0:
             raise ValueError("max_output_bytes must be positive or None")
+        if self.total_timeout is not None and self.total_timeout <= 0:
+            raise ValueError("total_timeout must be positive or None")
