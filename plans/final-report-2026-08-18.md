@@ -104,3 +104,37 @@ matches for the internal URL string.
 ## Evidence bundle
 
 **Absolute path:** `c:\Users\prora\OneDrive\Documents\GitHub\libipynb\plans\evidence-bundle-2026-08-18.md`
+
+## Pilot rerun and adversarial final review (added same day, after the above)
+
+A pilot rerun mirrored every `.gitlab-ci.yml` stage end-to-end against current HEAD (quality/test/
+interop/package, all green) and directly reproduced both Gate G6 security fixes before-vs-after using
+the real pre-fix source extracted via `git show` (bug confirmed present in the old code, confirmed fixed
+in the new code, both live-executed this session — see `plans/evidence-bundle-2026-08-18.md` §2).
+
+A genuinely independent, fresh-context adversarial review agent (no access to this session's own
+conversation) then re-verified the entire mission from scratch: re-ran all quality/test gates
+independently (exact match to claimed numbers), constructed its own adversarial payloads from scratch for
+both security fixes and the diff/merge reconciliation policy (all confirmed correct), scanned the full
+test diff for removed/weakened assertions (found none), and spot-checked documentation claims against
+source (all accurate). **Verdict: CLEAN, zero confirmed defects.** One dimension (scope discipline)
+scored 3/5 over documentation volume — accepted as a deliberate, mission-required deliverable set, not a
+defect, with rationale recorded in `plans/evidence-bundle-2026-08-18.md` §7.
+
+## Final Reconciliation
+
+- Every mandatory requirement from `plans/production-hardening-plan.md` (21 taskcards) and this
+  close-out's own scope (TC-CLOSEOUT-00 through -13) is represented and closed.
+- Every in-scope actionable finding surfaced during execution (the `ruff-format` gap, the two Gate G6
+  sanitizer bypasses) was resolved and independently re-verified, not just implemented.
+- No task remains in an unverified or weakly-verified state.
+- Generated outputs (documentation) are current and spot-check-accurate.
+- Required consumers verified: CLI smoke, example scripts, wheel/sdist install, git diff/merge drivers.
+- Pilot/E2E proof completed for the two specifically-targeted security fixes and the full CI pipeline.
+- No local blocker or eligible in-scope task remains.
+- Three items remain out of scope with recorded, investigated justification (Q2 scope deferral, Q13b
+  external GitLab-access blocker, Q13c real-world-corpus provenance decision) plus one new, honestly
+  disclosed finding for a future session (v3→v4 conversion, unimplemented).
+- Repository, plan, evidence, and adversarial review all agree.
+
+**FINAL VERDICT: ACCEPTED_VERIFIED**
