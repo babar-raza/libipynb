@@ -89,3 +89,55 @@ Until fixtures meeting this bar are added, `tests/fixtures/` remains
 entirely synthetic/hand-crafted -- an honestly-disclosed limitation, not a
 silently-assumed completeness the audit's own Anti-Overclaim discipline
 warns against.
+
+### Repeatable sourcing process (LIBIPYNB-Q2 production-design session)
+
+Selection is still, and always will be, a maintainer decision (see above) --
+what changed in this session is that the process for proposing, approving,
+fetching, and vendoring a candidate is now a repeatable, tool-assisted loop
+instead of a one-off manual question. The tool is `scripts/fetch_fixture.py`
+(stdlib-only, never wired into CI, never runs unattended):
+
+1. A future session researches candidates against the 5 criteria above and
+   appends one row per candidate to the **Candidate shortlist** table below
+   -- every column pre-filled except `Decision`/`Note/date`, so the
+   maintainer's job is a skim-and-check, not research.
+2. The maintainer marks each row's `Decision` column `Approve`,
+   `Approve-with-substitution: <url>`, or `Reject`, with a dated note.
+3. `python scripts/fetch_fixture.py --url <candidate-url> ... --dry-run`
+   (the default mode) fetches the content, prints exactly what would be
+   written (fixture path, hash, size, the `Vendored real-world fixtures`
+   row), and writes nothing. `--dry-run` also stages the fetched bytes and
+   their hash to a local, gitignored lockfile.
+4. Only `--commit` actually vendors anything -- and only after two
+   structural checks, not just human diligence: (a) the exact `--url` must
+   match an `Approve`d row in the shortlist below, refused otherwise; (b)
+   the content re-fetched at commit time must hash-match the staged dry-run
+   copy, refused otherwise (a content-changed-since-review guard). See the
+   tool's own `--help` and `tests/scripts/test_fetch_fixture.py` for the
+   full behavior.
+5. To retract a previously-vendored fixture (e.g. a license determination
+   later found to be wrong), see "Retracted fixtures" below -- this is a
+   deliberately manual, undocumented-in-tooling procedure, not automated,
+   since it should be rare and each instance needs its own recorded reason.
+
+### Candidate shortlist pending maintainer decision
+
+| # | Candidate notebook | Source repo & pinned commit/tag URL | Declared license (+ LICENSE path at that pin) | Size | Structural pattern exercised | Criteria 1-5 self-check | Decision | Note/date |
+|---|---|---|---|---|---|---|---|---|
+
+*(Empty until a future session researches and proposes candidates. See "Repeatable sourcing process" above.)*
+
+### Vendored real-world fixtures
+
+| Filename | Category | Source URL (pinned) | License | Retrieval date | SHA-256 | Size (bytes) | Structural pattern |
+|---|---|---|---|---|---|---|---|
+
+*(Empty until the maintainer approves a shortlist candidate and `scripts/fetch_fixture.py --commit` vendors it.)*
+
+### Retracted fixtures
+
+| Filename | Category | Retraction date | Reason |
+|---|---|---|---|
+
+*(Empty -- expected to stay that way except in the rare case a vendored fixture's provenance is later found faulty. Retraction procedure: (1) move the row from "Vendored real-world fixtures" here, recording the date and reason -- never silently delete it, the historical record matters; (2) delete the vendored file; (3) remove its entry from `REAL_WORLD_HASHES` in `tests/integration/test_obligation_corpus_integrity.py` and any oracle-test parametrization; (4) this requires the same dated maintainer authority as adding a fixture -- see `.supervisor/project-adapter.yaml`'s `source_external_fixture_content` gated action.)*

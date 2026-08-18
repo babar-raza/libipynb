@@ -89,7 +89,8 @@ See those two documents for the full gate text; this plan only cites which gates
 | Q7 | Close resource-limit gaps (max_entries, stream read, array hook, sanitizer DoS) | `completed_verified` (G1+G2+G6 done — a 2026-08-18 close-out session's independent security-adequacy review found a real remaining gap: `max_scan_tokens` counted only start-tags, so a payload dominated by closing tags/comments bypassed the CPU-DoS protection entirely; fixed by counting `handle_endtag`/`handle_comment`/`handle_decl`/`handle_pi` too, 2 new regression tests added) | P1 | Security & Resource Limits | none |
 | Q8 | Close text/markdown sanitizer blind spot; active-content test coverage | `completed_verified` (G1+G2+G6 done — a 2026-08-18 close-out session's independent security-adequacy review found a real remaining gap: MIME types with RFC 2046 parameters, e.g. `text/markdown; charset=utf-8`, bypassed scanning entirely via exact-string comparison; fixed with a `_media_type_base()` helper stripping parameters before comparison, applied at all 3 comparison sites, 3 new regression tests added) | P1 | Governance & Trust | none |
 | Q10 | Detect notebook-level metadata conflicts in `merge_notebooks()` | `completed_verified` (G1+G2 done — independently reviewed twice, confirmed correct both times) | P2 | Diff/Merge/Cleanup Parity | Q3 (soft) |
-| Q2 | `LocalJupyterExecutor` safety/fidelity hardening | `completed_but_weakly_verified` (G1+G2 done for sub-items a-d — independently reviewed, confirmed correct; watchdog redesign deliberately deferred, G6 N/A until it lands) | P1 | Execution Engine | Q1 (hard) |
+| Q2 | `LocalJupyterExecutor` safety/fidelity hardening | `completed_but_weakly_verified` (G1+G2 done for all sub-items incl. the watchdog/total-timeout redesign landed 2026-08-19 — independently reviewed, one real gap found and fixed; G6 still outstanding) | P1 | Execution Engine | Q1 (hard) |
+| Q2b | Wedged/interrupt-ignoring kernel hard-kill escalation (new, proposed 2026-08-19) | `not_attempted` | P2 | Execution Engine | Q2 (hard) |
 | Q12a | Resolve the internal GitLab URL leak before any public release | `completed_verified` (G1+G3 done — maintainer decision obtained 2026-08-18: "omit the field entirely"; `[project.urls] Repository` removed from `pyproject.toml`, `CONTRIBUTING.md` clone instructions genericized; verified against a fresh `python -m build --wheel --sdist`, zero matches for the internal host string in METADATA/PKG-INFO/file-list) | P0 (publication) | Release & Publish | none |
 | Q12b | Fix false/incomplete claims in SECURITY.md, README.md, CHANGELOG.md | `completed_but_weakly_verified` (G1+G2 done — G2 found and fixed a real defect, see own entry) | P1 | Docs & Evidence | none |
 | Q12c | Remove dead `pyyaml` dependency; pin `nbformat` in the `exec` extra | `completed_verified` (G1+G2+G7 done — a 2026-08-18 close-out session re-confirmed all four G7 checks against current source: `nbformat>=5.10` pin present in the `exec` extra, version floor consistent with the repo's other 3 pins, BSD-3-Clause license compatible, import-boundary test 7/7 passing) | P1/P3 | Docs & Evidence | none |
@@ -607,28 +608,74 @@ card's stated acceptance criteria.
 
 ### LIBIPYNB-Q2 — `LocalJupyterExecutor` safety/fidelity hardening
 
-**Status:** `completed_but_weakly_verified` (G1+G2 done for sub-items a-d; watchdog redesign deliberately deferred, G6 N/A until it lands) · **Priority:** P1 · **Lane:** Execution Engine · **Dependencies:** Q1 (hard — same functions) · **Evidence:** plans/forensic-capability-audit-2026-08-18.md §7 ("LocalJupyterExecutor safety surface — HIGH"), §17 items 8, 10
+**Status:** `completed_but_weakly_verified` (G1+G2 done for sub-items a-d; watchdog + total-timeout redesign landed 2026-08-19, G1 verified this session including one independent-review-found-and-fixed gap, G6 still pending a dedicated security-design sign-off before this card can claim `completed_verified`) · **Priority:** P1 · **Lane:** Execution Engine · **Dependencies:** Q1 (hard — same functions) · **Evidence:** plans/forensic-capability-audit-2026-08-18.md §7 ("LocalJupyterExecutor safety surface — HIGH"), §17 items 8, 10
 
-**Gate G2 review note (2026-08-18):** An independent review agent confirmed all four sub-fixes directly:
-(a) the `except Exception`/`except BaseException` split between `execute()` and `execute_async()` is
-correct and deliberate; (b) `CellExecutionRecord.outputs` is genuinely deep-copy-independent from the
-returned notebook's own outputs in both branches; (c) `atexit.unregister` is correctly placed; (d)
-truncation is per-output, confirmed to never reproduce the older engine's combined-stream-truncation bug.
-All four dedicated regression tests were confirmed meaningful, not superficial.
+**Gate G2 review note (2026-08-18, sub-items a-d):** An independent review agent confirmed all four
+sub-fixes directly: (a) the `except Exception`/`except BaseException` split between `execute()` and
+`execute_async()` is correct and deliberate; (b) `CellExecutionRecord.outputs` is genuinely
+deep-copy-independent from the returned notebook's own outputs in both branches; (c) `atexit.unregister`
+is correctly placed; (d) truncation is per-output, confirmed to never reproduce the older engine's
+combined-stream-truncation bug. All four dedicated regression tests were confirmed meaningful, not
+superficial.
 
-**Implementation note (2026-08-18):** Sub-items (a)-(d) landed as designed. The watchdog redesign for a
-deterministic per-cell `timed_out` signal under `interrupt_on_timeout=True` was deliberately deferred —
-flagged in the original design as the highest-complexity sub-item and out of scope for this pass; it
-remains a separately-reviewable follow-up, so this card cannot reach `completed_verified` on the
-`timed_out`-determinism acceptance criterion until that follow-up lands. All four dedicated regression
-tests specified below are in place and green: `test_synchronous_execute_propagates_keyboard_interrupt`,
+**Watchdog/total-timeout redesign, 2026-08-19 — design, implementation, and independent Gate G2 review.**
+A deeper, first-principles production-design pass (this session) preceded implementation, per this
+card's own closeout rule requiring G6 before `completed_verified`: read the installed `nbclient==0.11.0`
+and `jupyter_core` source directly rather than assuming behavior, which surfaced that the taskcard's
+literal sketch ("libipynb-owned `threading.Timer` watchdog *replacing* nbclient's internal timeout
+trait") is infeasible for the synchronous `execute()` path (`jupyter_core.utils.run_sync` manages a
+private per-call event loop with no externally-exposed handle). The maintainer confirmed, as this
+session's own Gate G6 design-review checkpoint: (1) an **observe-only** watchdog instead (never touches
+kernel-interrupt delivery, only independently confirms via its own `threading.Timer` whether a cell
+exceeded budget); (2) a wedged-kernel hard-kill escalation is out of scope, tracked as a new follow-on
+card `LIBIPYNB-Q2b` (`not_attempted`, needs its own Gate G6); (3) a soft (inter-cell-only)
+`ExecutionOptions.total_timeout` is in scope; (4) no new opt-out field, since neither addition sends any
+protocol message or touches the kernel. Full root-cause/design record, including two further findings
+from a required second, deeper design pass (a real state-coherence gap — `stopped_early`/`timed_out` can
+now both be `True` for the same run, which is correct, not a bug — and an evidence-loss gap —
+`timed_out_cell_index` can only ever name one cell, so a new per-cell `CellExecutionRecord.timed_out`
+field was added) is in `plans/q2-s-watchdog-redesign-and-expressive-crane.md`.
+
+Implemented: `_Tracker` gained lock-guarded watchdog state, started from nbclient's `on_cell_execute` hook
+(not `on_cell_start`, which fires even for cells — markdown/empty/skip-tagged — that never reach
+`on_cell_executed` and would leak a timer); `_finish()` gained an additive classification rule for the
+watchdog signal and a new `_TotalTimeoutExceeded` branch; `ExecutionOptions.total_timeout` and
+`ExecutionResult.total_timed_out`/`CellExecutionRecord.timed_out` fields added. New
+`tests/oracle/test_nbclient_timeout_characterization.py` (schedule-gated, per `LIBIPYNB-Q13b`) pins the
+exact nbclient-internal behavior this design depends on as a tripwire against `pyproject.toml`'s loose
+`nbclient>=0.10` pin silently drifting.
+
+**A genuinely separate agent invocation (Gate G2) independently reviewed this diff** (not self-review —
+the exact discipline whose absence let the original P0 blocker through, per
+`plans/forensic-capability-audit-2026-08-18.md`) and confirmed, against both static analysis and real
+kernel execution it ran itself: lock-guarding, the `on_cell_execute` hook-firing-order claim (verified
+directly against nbclient source), `_finish()`'s classification/propagation correctness, backward
+compatibility, and test quality (ran all new tests itself) all check out — **and found one real,
+low-severity gap**: `execute()`'s deliberately-uncaught `KeyboardInterrupt`/`SystemExit` path skipped
+`_finish()` (and its `cancel_pending_timer()` call) entirely, potentially leaving an armed timer running
+briefly past the call's return (bounded — self-fires within `cell_timeout+skew` against an already-orphaned
+tracker, no resource leak, no effect on any returned value). Fixed with a narrow `except BaseException:
+tracker.cancel_pending_timer(); raise` clause mirroring `execute_async`'s own cancellation-branch cleanup;
+a new regression test (`test_synchronous_execute_cancels_a_pending_watchdog_timer_before_propagating_
+keyboard_interrupt`) arms a real timer via the actual `on_cell_execute` hook before raising, proving the
+fix rather than merely asserting it.
+
+All four original dedicated regression tests remain green:
+`test_synchronous_execute_propagates_keyboard_interrupt`,
 `test_cell_execution_record_outputs_are_independently_mutable_from_the_notebook`,
 `test_cancellation_unregisters_nbclients_own_atexit_cleanup_hook`,
-`test_max_output_bytes_truncates_only_the_oversized_output_not_downstream_cells` (all in
-`tests/integration/test_obligation_jupyter_execution_adapter.py`). `mypy --strict src/libipynb` and
-`ruff check src/libipynb tests/` both clean. Full real-kernel execution suite (56 tests, was 52) green;
-oracle parity suite (`tests/oracle/test_nbclient_execution_parity.py`, 2 tests) green; full repository
-regression suite excluding the two real-kernel files (918 passed, 4 skipped) green — no regressions.
+`test_max_output_bytes_truncates_only_the_oversized_output_not_downstream_cells`. `mypy --strict
+src/libipynb` and `ruff check`/`ruff format --check src/ tests/` all clean. Full real-kernel execution
+suite (57 tests, was 52) green; new fast unit suite (`tests/unit/test_jupyter_execute_watchdog.py`, 8
+tests) green; new characterization suite (`tests/oracle/test_nbclient_timeout_characterization.py`, 3
+tests) green; full repository regression suite (**1056 passed, 9 skipped**) green — no regressions.
+Residual, disclosed risk not closed by this pass: the watchdog's timing-skew constants are reasoned, not
+empirically measured, and this repository's own CI (`.gitlab-ci.yml`) runs Linux containers exclusively —
+the Windows kernel-interrupt code path (a genuinely different mechanism, confirmed by reading
+`jupyter_client`'s own source) has never been exercised by CI, only by this session's own local Windows
+run. **This card still requires a dedicated Gate G6 security-design sign-off — distinct from this
+session's own G2 code review — before it can claim `completed_verified`**; the design rationale above is
+this session's contribution toward that G6 record, not a substitute for it.
 
 - **Objective:** Four confirmed gaps: (a) `execute()` swallows `KeyboardInterrupt`/`SystemExit` via an
   overbroad `except BaseException`. (b) `CellExecutionRecord.outputs` shares mutable nested dict objects
@@ -657,11 +704,50 @@ regression suite excluding the two real-kernel files (918 passed, 4 skipped) gre
 - **Required evidence:** Diff of the three files; the four dedicated regression tests' pass output.
 - **Acceptance criteria:** All four sub-items pass their dedicated regression tests; `output_truncated`/
   `max_output_bytes` never causes loss of an unrelated cell's result; `timed_out` fires deterministically
-  under `interrupt_on_timeout=True` on a real over-budget cell (if the watchdog sub-task lands in this
-  round).
+  under `interrupt_on_timeout=True` on a real over-budget cell — **landed 2026-08-19, see the dated note
+  above**; met.
 - **Non-goals:** True mid-execution streaming memory cap (would require nbclient's semi-internal
-  `register_output_hook` API) — `max_output_bytes` bounds what is *retained*, not peak transient memory.
-- **Closeout rules:** `completed_verified` requires Gates G1, G2, and G6.
+  `register_output_hook` API) — `max_output_bytes` bounds what is *retained*, not peak transient memory. A
+  hard bound on total run time or a wedged/interrupt-ignoring kernel — see the new `LIBIPYNB-Q2b` follow-on
+  card immediately below, deliberately out of scope for this card.
+- **Closeout rules:** `completed_verified` requires Gates G1, G2, and G6. G1+G2 met (2026-08-19, see
+  above); **G6 (dedicated security-design sign-off) still outstanding** — this session's own design
+  rationale and the maintainer's four Context-section decisions are this card's contribution toward that
+  record, not a substitute for a formal G6 pass.
+
+### LIBIPYNB-Q2b — Wedged/interrupt-ignoring kernel hard-kill escalation (new, proposed)
+
+**Status:** `not_attempted` · **Priority:** P2 · **Lane:** Execution Engine · **Dependencies:** Q2 (hard —
+same `_Tracker`/`_finish()` machinery) · **Evidence:** `plans/q2-s-watchdog-redesign-and-expressive-crane.md`
+Part A (this session's own design-plan document, §"Root causes" item 3 and §"Consistency and rerun
+analysis" — a companion finding to `LIBIPYNB-Q2`'s watchdog, verified directly against the installed
+nbclient source but deliberately not implemented as part of that card, per the maintainer's own scoping
+decision recorded in Q2's dated note above)
+
+**Objective:** Verified directly in nbclient's own `_async_poll_for_reply`/`_async_handle_timeout`
+(`nbclient/client.py`): under the default `interrupt_on_timeout=True`, nbclient resends the kernel
+interrupt every `cell_timeout` seconds, indefinitely, for as long as the kernel process reports alive —
+there is no cap today even in principle. A kernel that is wedged (native code holding the GIL,
+signal-blocked, or — on Windows specifically, a genuinely different code path, confirmed by reading
+`jupyter_client.provisioning.local_provisioner.LocalProvisioner.send_signal` — not responding to the
+named-event interrupt mechanism) can hang a run with no bound at all. Neither `LIBIPYNB-Q2`'s observe-only
+watchdog nor its soft `total_timeout` closes this gap — both are deliberately non-destructive and add no
+new control action.
+
+**Required behavior (not yet designed in detail — this is a scope-opening card, not an implementation
+plan):** a genuine escalation path — e.g. after N missed interrupts or a fixed grace period past
+`cell_timeout`, force-terminate the kernel (`km.shutdown_kernel(now=True)` or equivalent) and report the
+outcome via a new, structured result field, distinct from the existing `kernel_death_error` (which today
+means "the kernel died on its own," not "libipynb killed it"). This is a categorically higher-risk change
+than `LIBIPYNB-Q2`'s watchdog — it adds a new destructive capability (a heuristic-triggered kernel kill)
+rather than pure observation — and needs its own threat model, not an extension of Q2's.
+
+- **Required verification:** Gate G6 (security design review) **before implementation starts**, per
+  `.supervisor/project-adapter.yaml`'s `widen_execution_surface` gated action — not just before shipping.
+- **Non-goals (for now):** implementation. This card exists to make the gap tracked and visible, not to
+  resolve it.
+- **Closeout rules:** cannot be picked up for implementation without a dated Gate G6 sign-off recorded
+  here first.
 
 ### Wave 4 — Packaging & documentation accuracy
 
@@ -963,7 +1049,7 @@ limitation LIBIPYNB-V3 already recorded for `fuzz:`).
 
 ### LIBIPYNB-Q13c — Property-test/fixture/secret-scanner broadening, and the `NotebookSecurityError` disposition decision
 
-**Status:** `partially_done` (items 1/2/4 G1+G2-verified — independently reviewed twice, confirmed correct both times; item 3 deliberately deferred) · **Priority:** P3 (broadening items) / P2 (the disposition decision) · **Lane:** Validation Depth · **Dependencies:** none · **Evidence:** plans/forensic-capability-audit-2026-08-18.md §7, §13
+**Status:** `partially_done` (items 1/2/4 G1+G2-verified — independently reviewed twice, confirmed correct both times; item 3's *tooling/process* now landed 2026-08-19, G1 self-verified this session, G2 independent review pending; item 3's actual notebook *selection* remains deliberately deferred — see below) · **Priority:** P3 (broadening items) / P2 (the disposition decision) · **Lane:** Validation Depth · **Dependencies:** none · **Evidence:** plans/forensic-capability-audit-2026-08-18.md §7, §13
 
 **Gate G2 review note (2026-08-18):** Reviewed independently twice; both passes confirmed
 `NotebookSecurityError` has zero remaining references anywhere (`src/`, `tests/`, `examples/`, `fuzz/`,
@@ -994,6 +1080,38 @@ test checks against the real rules in `security/secrets.py` directly.
   this pass should not make unilaterally, the same reasoning LIBIPYNB-Q12a's URL decision already applies
   elsewhere in this plan. `tests/fixtures/` remains entirely synthetic/hand-crafted; this is the accurate,
   disclosed state, not silently left implied as done.
+- **(3a) Real-world fixture sourcing — repeatable process/tooling landed, 2026-08-19.** A deeper,
+  first-principles production-design pass (this session) found the prior close-out's deferral correct but
+  incomplete: selection genuinely can't be automated, but the *process* around it had never been made
+  repeatable, and the "requires maintainer authorization" rule existed only as prose with no structural
+  enforcement. Landed: (i) `scripts/fetch_fixture.py`, a new, stdlib-only, dry-run-by-default CLI tool that
+  fetches a candidate to a local staging area, computes its hash/size, smoke-checks it loads via
+  `libipynb.load(mode="recovery")`, and only vendors + appends a `PROVENANCE.md` row on an explicit
+  `--commit`; (ii) `--commit` is gated by two structural checks, not just human diligence — the exact
+  `--url` must match an `Approve`d row in a new "Candidate shortlist pending maintainer decision" table in
+  `PROVENANCE.md` (refused otherwise), and the content re-fetched at commit time must hash-match the
+  staged copy from a prior `--dry-run` for that same URL (a time-of-check/time-of-use guard against the
+  pinned content changing between review and commit — refused if it doesn't match); (iii) a new
+  "Vendored real-world fixtures" table (empty) and "Retracted fixtures" table + documented retraction
+  procedure (empty, expected to stay that way) added to `PROVENANCE.md`; (iv) `.supervisor/
+  project-adapter.yaml` gained a `source_external_fixture_content` gated action, giving this authorization
+  boundary the same structural status as `publish_or_tag`/`widen_execution_surface`/`add_core_dependency`,
+  not prose alone; (v) downstream integration points added ahead of need — `tests/integration/
+  test_obligation_corpus_integrity.py`'s new, currently-empty `REAL_WORLD_HASHES` dict and a parametrized
+  test consuming it, and a new `tests/oracle/test_real_world_corpus_parity.py` (currently 3 tests, each
+  collecting as a single, visibly SKIPPED case — "got empty parameter set" — not silently absent) that
+  will cross-check any future vendored fixture against real `nbformat`/an execution kernel, which is the
+  piece that actually satisfies G6's stated criterion, not vendoring alone. `tests/scripts/
+  test_fetch_fixture.py` (13 tests, all against a synthetic fake-repo layout and a mocked fetch — never a
+  real network call) covers the dry-run/commit split, both structural `--commit` gates, and the
+  `Approve-with-substitution` case. Full repository regression suite green; `mypy --strict`/`ruff check`/
+  `ruff format --check` clean on all new/changed files. **This does not, by itself, close this card or
+  Gate G6** — no real fixture has been sourced or vendored; that still requires a future session to
+  research and propose candidates on the new shortlist table, the maintainer's dated decision, and one
+  full `--commit` pass proving the pipeline end-to-end. See `plans/q2-s-watchdog-redesign-and-expressive-
+  crane.md` (this session's own design plan, Part B) for the full root-cause/design record, including the
+  two weaknesses found and fixed in a second design pass (the TOCTOU gap and the missing structural
+  approval check) before any of this landed.
 - **(4) Secret-scanner false-positive test table — done.** 8 new tests in `tests/security/
   test_secret_scanning.py`: a well-known public example AWS key (AKIAIOSFODNN7EXAMPLE) still matches by
   shape (honest disclosure, not a bug — no allowlist exists); a bare UUID and a bare git commit SHA are
