@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 from hypothesis import given, settings
@@ -79,14 +80,67 @@ _execute_result_output = st.fixed_dictionaries(
     }
 )
 
-_output = st.one_of(_stream_output, _execute_result_output)
+# LIBIPYNB-Q13c: the strategy previously only ever generated stream/
+# execute_result outputs -- error and display_data (the other two
+# nbformat-defined output types) had never been exercised by this file's
+# roundtrip properties.
+_error_output = st.fixed_dictionaries(
+    {
+        "output_type": st.just("error"),
+        "ename": st.text(
+            min_size=1, max_size=40, alphabet=st.characters(blacklist_categories=("Cs",))
+        ),
+        "evalue": _safe_text,
+        "traceback": st.lists(_safe_text, max_size=5),
+    }
+)
+
+_display_data_output = st.fixed_dictionaries(
+    {
+        "output_type": st.just("display_data"),
+        "data": st.fixed_dictionaries({"text/plain": _safe_text}),
+        "metadata": st.just({}),
+    }
+)
+
+_output = st.one_of(_stream_output, _execute_result_output, _error_output, _display_data_output)
+
+# LIBIPYNB-Q13c: an attachment-bearing branch -- previously no strategy ever
+# generated a cell carrying `attachments`, so that field's roundtrip fidelity
+# was untested by this file entirely.
+_attachment_name = st.text(
+    min_size=1,
+    max_size=20,
+    alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="._-"),
+)
+_attachment_payload = st.binary(min_size=0, max_size=50).map(
+    lambda data: base64.b64encode(data).decode("ascii")
+)
+_attachments = st.dictionaries(
+    _attachment_name,
+    st.dictionaries(
+        st.sampled_from(["image/png", "image/jpeg", "image/svg+xml"]),
+        _attachment_payload,
+        min_size=1,
+        max_size=1,
+    ),
+    max_size=2,
+)
 
 
-def _make_cell(cell_type: str, source: str, metadata: dict, outputs: list) -> dict:
+def _make_cell(
+    cell_type: str,
+    source: str,
+    metadata: dict,
+    outputs: list,
+    attachments: dict | None = None,
+) -> dict:
     cell = {"cell_type": cell_type, "source": source, "metadata": metadata}
     if cell_type == "code":
         cell["outputs"] = outputs
         cell["execution_count"] = None
+    if attachments:
+        cell["attachments"] = attachments
     return cell
 
 
@@ -104,6 +158,9 @@ _markdown_cell = st.builds(
     source=_source_text,
     metadata=_metadata,
     outputs=st.just([]),
+    # Only markdown/raw cells carry attachments in real nbformat documents
+    # (referenced via an `attachment:` URI in source) -- code cells never do.
+    attachments=st.one_of(st.just(None), _attachments),
 )
 
 _raw_cell = st.builds(
@@ -112,6 +169,7 @@ _raw_cell = st.builds(
     source=_source_text,
     metadata=_metadata,
     outputs=st.just([]),
+    attachments=st.one_of(st.just(None), _attachments),
 )
 
 _cell = st.one_of(_code_cell, _markdown_cell, _raw_cell)
@@ -126,12 +184,44 @@ def _make_notebook(cells: list[dict], minor: int, nb_metadata: dict) -> dict:
     return {"nbformat": 4, "nbformat_minor": minor, "metadata": meta, "cells": cells}
 
 
-_notebook_dict = st.builds(
+_notebook_dict_implicit_ids = st.builds(
     _make_notebook,
     cells=st.lists(_cell, min_size=0, max_size=8),
     minor=st.sampled_from([0, 1, 2, 3, 4]),
     nb_metadata=_metadata,
 )
+
+# LIBIPYNB-Q13c: an explicit-cell-id branch alongside the implicit-only one
+# above. The strategy above deliberately never generates nbformat_minor 5,
+# because 4.5 requires every cell to carry a valid, unique `id` and nothing
+# in it synthesized one (IPYNB-ID-001: only the explicit `upgrade()` path
+# synthesizes ids) -- so minor-5 roundtrip fidelity was entirely untested by
+# this file. This composite strategy generates a genuine 4.5 notebook with
+# real, unique, valid ids instead.
+_cell_id = st.text(
+    alphabet=st.characters(
+        whitelist_categories=(),
+        whitelist_characters="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+    ),
+    min_size=1,
+    max_size=64,
+)
+
+
+@st.composite
+def _notebook_with_explicit_cell_ids(draw: st.DrawFn) -> dict:
+    cells_without_id = draw(st.lists(_cell, min_size=0, max_size=8))
+    ids = draw(
+        st.lists(
+            _cell_id, min_size=len(cells_without_id), max_size=len(cells_without_id), unique=True
+        )
+    )
+    cells = [{**cell, "id": cell_id} for cell, cell_id in zip(cells_without_id, ids)]
+    nb_metadata = draw(_metadata)
+    return _make_notebook(cells, minor=5, nb_metadata=nb_metadata)
+
+
+_notebook_dict = st.one_of(_notebook_dict_implicit_ids, _notebook_with_explicit_cell_ids())
 
 
 # --- Tests ---

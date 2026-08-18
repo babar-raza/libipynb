@@ -1,7 +1,6 @@
 """Notebook validation exports."""
 
 from .validator import (
-    REQUIRED_OUTPUT_FIELDS,
     VALID_CELL_TYPES,
     VALID_OUTPUT_TYPES,
     validate,
@@ -10,7 +9,6 @@ from .validator import (
 )
 
 __all__ = [
-    "REQUIRED_OUTPUT_FIELDS",
     "VALID_CELL_TYPES",
     "VALID_OUTPUT_TYPES",
     "validate",

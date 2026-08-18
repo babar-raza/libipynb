@@ -95,6 +95,36 @@ fuzz:
     - python fuzz/fuzz_sanitizer.py -max_total_time=120
     - python fuzz/fuzz_diff_merge.py -max_total_time=120
 
+# ── Oracle and package (LIBIPYNB-Q13b, scheduled pipelines only — never blocks a normal push/MR) ──
+# tests/oracle/ compares libipynb's own output against the real, actually-
+# installed reference tools (nbdime/nbconvert/papermill/nbstripout, the
+# `oracle` extra); tests/package/ exercises the installed-distribution
+# namespace itself. Neither ran in any pipeline before this job existed.
+# Requires a GitLab CI/CD Schedule (Settings > CI/CD > Schedules) to actually
+# run periodically; that schedule itself is project-server-side config, not
+# part of this file, and has not been created (no GitLab project access from
+# this environment) -- same disclosed limitation LIBIPYNB-V3's `fuzz:` job
+# above already recorded. Until a schedule exists, this job is defined but
+# dormant -- it will not appear in any ordinary pipeline (rules below), so it
+# introduces no behavior change today.
+# Gate G2 note: `.[oracle]` pins version floors only (`nbdime>=4.0`,
+# `nbconvert>=7.16`, `papermill>=2.6`, `nbstripout>=0.7`), so this job
+# resolves whatever is latest at run time on python:3.12-slim; the exact
+# versions CI will install have not been locally verified against this exact
+# image -- only whatever happens to be installed in this repo's own working
+# `.venv` has actually been run.
+
+oracle-and-package:
+  stage: test
+  image: python:3.12-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  needs: []
+  before_script:
+    - pip install -e ".[test,oracle]"
+  script:
+    - pytest tests/oracle/ tests/package/ -v --tb=short
+
 # ── Interoperability ─────────────────────────────────────────────────────────
 
 interop:

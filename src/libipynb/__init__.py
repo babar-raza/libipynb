@@ -20,7 +20,6 @@ from .errors import (
     NotebookExecutionError,
     NotebookParseError,
     NotebookResourceLimitError,
-    NotebookSecurityError,
     NotebookValidationError,
     NotebookWriteError,
 )
@@ -52,7 +51,6 @@ __all__ = [
     "NotebookExecutionError",
     "NotebookParseError",
     "NotebookResourceLimitError",
-    "NotebookSecurityError",
     "NotebookValidationError",
     "NotebookVersion",
     "NotebookWriteError",

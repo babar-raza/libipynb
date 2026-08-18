@@ -44,12 +44,6 @@ class NotebookValidationError(NotebookError):
     code = "validation_error"
 
 
-class NotebookSecurityError(NotebookError):
-    """Raised for security constraint violations."""
-
-    code = "security_error"
-
-
 class NotebookResourceLimitError(NotebookError):
     """Processing would exceed a configured resource limit."""
 

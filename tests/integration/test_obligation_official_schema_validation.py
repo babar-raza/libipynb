@@ -215,6 +215,37 @@ def test_mapping_validation_is_bounded_before_schema_recursion() -> None:
     assert report.errors[0].code == "IPYNB_RESOURCE_LIMIT"
 
 
+def test_schema_artifact_error_surfaces_as_ipynb_schema_artifact_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LIBIPYNB-Q14: SchemaArtifactError's failure path (a vendored schema's
+    digest no longer matches the pinned expectation) was confirmed-correct
+    but had zero committed regression test before this. The audit's own
+    exact repro: corrupt one pinned digest, call the public `validate()`,
+    and confirm the failure surfaces as an IPYNB_SCHEMA_ARTIFACT diagnostic
+    -- not an uncaught exception, and not silently accepted as valid."""
+    from types import MappingProxyType
+
+    from libipynb.validation import schema as schema_module
+
+    corrupted = MappingProxyType({**dict(schema_module.SCHEMA_DIGESTS), 0: "0" * 64})
+    monkeypatch.setattr(schema_module, "SCHEMA_DIGESTS", corrupted)
+    # `_schema`/`_validator` are `lru_cache`d -- a prior test in this same
+    # session may have already cached a *correct* schema(0), which would
+    # make this monkeypatch a no-op (the corrupted digest is only ever
+    # consulted on a cache miss). Force a miss so the comparison actually
+    # runs against the corrupted value.
+    schema_module._schema.cache_clear()
+    schema_module._validator.cache_clear()
+    try:
+        report = validate(_notebook(0), profile="4.0")
+        assert not report.is_valid
+        assert any(error.code == "IPYNB_SCHEMA_ARTIFACT" for error in report.errors)
+    finally:
+        schema_module._schema.cache_clear()
+        schema_module._validator.cache_clear()
+
+
 def test_vendored_schema_bundle_has_pinned_exact_digests() -> None:
     """The vendored bundle must be the pinned official content.
 
