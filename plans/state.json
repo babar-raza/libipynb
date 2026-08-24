@@ -391,38 +391,44 @@
       "depends_on": [
         "LIBIPYNB-Q22"
       ],
-      "owner": "implementer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "actionlint .github/workflows/oracle.yml && act pull_request -j oracle-smoke",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "real local execution via actionlint + act -- oracle-smoke job genuinely passed (18 passed); the `if:` gating correctly excludes the `oracle` job from pull_request triggers (confirmed: act produced no job run at all for that combination); the oracle job's own install-exec-then-register-kernel-then-run pattern is the exact combination already verified end-to-end in LIBIPYNB-Q22 (not re-run here)",
+      "repair_commit": "5506f7fa8aea96fb0ec974dd0e587ad080a78dce",
+      "review_lenses_applied": [
+        "cardinality_spec_conformance",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "self-verification: real local execution via actionlint + act -- oracle-smoke job genuinely passed (18 passed); the `if:` gating correctly excludes the `oracle` job from pull_request triggers. Independent review: re-ran everything from scratch and additionally ran `act workflow_dispatch -j oracle` for real (full kernel registration + run) -> 33 passed, 3 skipped (skips confirmed genuine -- REAL_WORLD_HASHES = {} in test_obligation_corpus_integrity.py, LIBIPYNB-Q13c); verified file-by-file that all 4 oracle-smoke test files are genuinely kernel-independent and the 2 excluded files genuinely need a live kernel -- no oracle test file left uncovered by either job",
       "mutation_baseline_checked": null,
       "rollback": "git revert; delete .github/workflows/oracle.yml",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "5506f7fa8aea96fb0ec974dd0e587ad080a78dce",
-      "note": "Implementation 5506f7f. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only (actionlint + real act execution of the pull_request-triggered oracle-smoke job). Owner field will change to implementer+separate_reviewer and status to VERIFIED once that review runs."
+      "note": "Implementation 5506f7f. Independent Taskcard-Gate-G2 review (joint with Q28/Q29/Q30) found zero defects after genuinely trying to break the if-gate and the kernel-independence classification via real execution, not just reading the YAML. VERIFIED with no repair needed."
     },
     {
       "id": "LIBIPYNB-Q28",
       "phase": 2,
       "title": ".github/workflows/fuzz.yml (schedule-as-code)",
       "depends_on": [],
-      "owner": "implementer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "actionlint .github/workflows/fuzz.yml",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "actionlint clean; the install-then-invoke pattern verified directly in a real python:3.12-slim container (pip install .[fuzz]; python fuzz/fuzz_parser.py -max_total_time=10 -> 873,872 iterations, exit 0, no crashes) -- the full 4x120s workflow itself was not run via act (cost/time, pattern already confirmed structurally sound)",
+      "repair_commit": "aec47d5bd0b79ac8a60fa8ca026ef2b0d0ee12e2",
+      "review_lenses_applied": [
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "self-verification: actionlint clean; install-then-invoke pattern verified directly in python:3.12-slim (873,872 iterations, exit 0). Independent review: re-ran atheris install + fuzz_parser.py fresh; additionally built a scratch always-crashing fuzz target, ran it exactly as the workflow invokes each target, and empirically confirmed atheris/libFuzzer writes crash-<sha1> relative to CWD (repo root under $GITHUB_WORKSPACE) -- the workflow's `crash-*` artifact glob genuinely catches it (the `fuzz/crash-*` second pattern is harmless dead weight, not a bug)",
       "mutation_baseline_checked": null,
       "rollback": "git revert; delete .github/workflows/fuzz.yml",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "aec47d5bd0b79ac8a60fa8ca026ef2b0d0ee12e2",
-      "note": "Implementation aec47d5. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
+      "note": "Implementation aec47d5. Independent Taskcard-Gate-G2 review (joint with Q27/Q29/Q30) found zero defects, including empirically verifying the crash-artifact glob actually catches atheris's real output location rather than assuming it. VERIFIED with no repair needed."
     },
     {
       "id": "LIBIPYNB-Q29",
@@ -432,19 +438,22 @@
         "LIBIPYNB-Q27",
         "LIBIPYNB-Q28"
       ],
-      "owner": "implementer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "actionlint .github/workflows/staleness-check.yml",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "actionlint clean; the exact gh run list script logic run for real against the live public repo (github.com/babar-raza/libipynb, gh CLI genuinely authenticated with repo+workflow scope) -- caught and fixed a real bug in the first draft (unguarded `gh run list` under `set -e` aborted on a raw CLI error, HTTP 404, instead of the intended clean ::error:: message, since oracle.yml/fuzz.yml don't exist on the real default branch yet) before committing; final script's both paths (query-failure and success) verified together in one real run against that repo",
+      "repair_commit": "9d8cea124ec2a21001bb272e30d2edaabb3b1b6c",
+      "review_lenses_applied": [
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "self-verification: actionlint clean; exact script run for real against the live repo, caught and fixed a real pre-commit bug (unguarded `gh run list` under set -e). Independent review (deepest scrutiny of the four, per instructions): confirmed permissions: actions: read is exactly what gh run list needs; independently reproduced the 404-missing-workflow case; ran the literal script over BOTH oracle.yml+fuzz.yml (both missing) and confirmed it reports both failures rather than stopping at the first; ran a mixed case (one real successful workflow + two missing) and confirmed the loop doesn't short-circuit on the success; constructed and confirmed the genuinely-null-but-existing-workflow edge case (`[].[0].updatedAt` -> literal string \"null\") is a distinct, correctly-handled code path from the 404 case",
       "mutation_baseline_checked": null,
       "rollback": "git revert; delete .github/workflows/staleness-check.yml",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "9d8cea124ec2a21001bb272e30d2edaabb3b1b6c",
-      "note": "Implementation 9d8cea1. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only, though unusually thorough for self-verification (a real bug was caught and fixed against live GitHub API data before commit, not just YAML-linted)."
+      "note": "Implementation 9d8cea1. Independent Taskcard-Gate-G2 review (joint with Q27/Q28/Q30) called this 'the strongest-evidenced of the four' -- every branch of the shell script independently executed against the real repo, both directions, zero defects. VERIFIED with no repair needed."
     },
     {
       "id": "LIBIPYNB-Q30",
@@ -456,19 +465,23 @@
         "LIBIPYNB-Q28",
         "LIBIPYNB-Q29"
       ],
-      "owner": "implementer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "actionlint .github/workflows/release.yml",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "actionlint clean; deliberately NOT run via act at all (the publish/attest jobs mint real OIDC tokens and this session's gh CLI is genuinely authenticated against the real public repo -- not a risk worth taking for local verification). build job's new pieces beyond what Q26's already-verified package job covers (sdist, twine check, checksums) verified directly in a real python:3.12-slim container: build produced both wheel+sdist, twine check PASSED for both, sdist installed and imported correctly in a fresh venv, SHA256SUMS generated with real digests. publish/attest jobs are dormant by construction (no matching tag exists) and additionally gated on a GitHub Environment + PyPI Trusted Publisher entry neither of which has been configured -- correctly unverifiable and unverified pending that maintainer-side setup",
+      "repair_commit": "fcdcaa77cc67d9ae805ffe3980ec263d25390709",
+      "review_lenses_applied": [
+        "cardinality_spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "self-verification: build job's new pieces (sdist, twine check, checksums) verified in a real python:3.12-slim container. Independent review: re-ran verify+build jobs fully in an isolated git-archive extraction (avoiding an NTFS-bind-mount false positive that initially produced 129 spurious ruff EXE002 findings) -- ruff/mypy/full test suite all passed (mypy confirmed no LIBIPYNB-Q56-style extras regression), wheel+sdist build/twine-check/clean-room-install all passed. Verified both pinned third-party action SHAs (pypa/gh-action-pypi-publish, actions/attest-build-provenance) are exact matches to their real upstream release/v1 and v1 refs via git ls-remote. Verified tag pattern v*.*.* matches v0.1.0 via fnmatch. publish/attest jobs correctly not executed (real OIDC-minting steps against a genuinely authenticated gh session)",
       "mutation_baseline_checked": null,
       "rollback": "git revert; delete .github/workflows/release.yml -- cannot cause an accidental publish, tag-triggered only and no tag exists",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "54a31d51c651f6e099b2cdc8cadff81f9f487520",
-      "note": "Implementation 54a31d5. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only. The publish/attest jobs' real end-to-end behavior cannot be verified at all until a real tag exists and PyPI Trusted Publishing is configured maintainer-side -- deliberately deferred to Phase 5 (Q46-Q54) rather than faked here."
+      "note": "Implementation 54a31d5. Independent Taskcard-Gate-G2 review (joint with Q27/Q28/Q29) found the verify/build jobs and SHA pins fully solid, but surfaced 1 MAJOR finding: the publish job's own comment factually misstated GitHub's environment-auto-creation behavior (GitHub silently auto-creates a referenced environment with zero protection rules rather than failing on its absence -- the real safety boundary is PyPI's own Trusted Publisher registration, checked later during the OIDC handshake) -- and 1 NIT (shellcheck SC2035, `sha256sum *` unguarded against dash-prefixed filenames). Both repaired in fcdcaa7. Given zero CRITICAL findings, a second independent review round was not required. The publish/attest jobs' real end-to-end behavior still cannot be verified at all until a real tag exists and PyPI Trusted Publishing is configured maintainer-side -- deliberately deferred to Phase 5 (Q46-Q54), not faked here."
     },
     {
       "id": "LIBIPYNB-Q31",
