@@ -178,7 +178,7 @@
       "resume_condition": null,
       "implementation_commit": "daba624a6917f14b2d15c46623efd414ba755f1a",
       "note": "Implementation daba624; independent Taskcard-Gate-G2 review (separate Agent) found 0 CRITICAL, 4 real WARNING issues (verdict ISSUES_FOUND) -- see repair commit dc3e0d4 message for the full list, each with its own new regression test, incl. a real negative-max_output_bytes content-fabrication bug the reviewer found by hand-tracing the algorithm, not just running tests. Disclosed limitation: the repair commit itself was self-verified (re-ran the full validated command set, 76 targeted + 763 broader passed), not re-reviewed by a second separate Agent invocation -- same deliberate velocity/thoroughness tradeoff recorded for LIBIPYNB-Q17.",
-      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has landed, but deliberately scoped to only_mutate = [\"src/libipynb/codec/writer.py\"] (LIBIPYNB-Q19) for its pilot -- this module is not yet covered. Widening only_mutate to include this module is separate, not-yet-done follow-up work (see LIBIPYNB-Q31's own note); temporary partial-evidence acceptance continues until that widening lands."
     },
     {
       "id": "LIBIPYNB-Q17",
@@ -205,7 +205,7 @@
       "resume_condition": null,
       "note": "Implementation bb325f7; independent Taskcard-Gate-G2 review (separate Agent) found 0 CRITICAL, 4 real WARNING issues (verdict ISSUES_FOUND) -- see repair commit 58d95f8 message for the full list, each with its own new regression test. Disclosed limitation: the repair commit itself was self-verified (re-ran the full validated command set, 129 passed), not re-reviewed by a second separate Agent invocation -- a deliberate velocity/thoroughness tradeoff for WARNING-severity, mechanically-verifiable fixes, not silently equated with a second independent pass. Escalate to a second G2 pass if a future session has reason to doubt this repair specifically.",
       "implementation_commit": "bb325f738ab28b63fc578c5a844a89f9f6a44f37",
-      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has landed, but deliberately scoped to only_mutate = [\"src/libipynb/codec/writer.py\"] (LIBIPYNB-Q19) for its pilot -- this module is not yet covered. Widening only_mutate to include this module is separate, not-yet-done follow-up work (see LIBIPYNB-Q31's own note); temporary partial-evidence acceptance continues until that widening lands."
     },
     {
       "id": "LIBIPYNB-Q18",
@@ -233,7 +233,7 @@
       "implementation_commit": "d7ad2ef2a86c5f87a16effd42abb5e702b532f35",
       "intermediate_repair_commit": "e0d7874f920c6f8d2bcdc3614ce84f0ece237c1e",
       "note": "Implementation d7ad2ef; FIRST independent Taskcard-Gate-G2 review found 1 CRITICAL (find_non_finite_floats missed tuples entirely -- a live reproduction of the exact \"validate() valid, dumps() fails\" bug this taskcard exists to close) + 4 WARNING issues, repaired in e0d7874. Given the CRITICAL severity, a SECOND independent Agent review (not self-verification) was run specifically on the repair -- confirmed the tuple fix is fully, genuinely correct (independently constructed namedtuple/50k-deep-tuple/3-way-mixed-nesting cases beyond the implementer's own tests), and found one new WARNING (a self-referential structure hangs forever) plus minor items, repaired in 8452b94. That repair's own first attempt (a total-visited-node cap) was caught failing this session's own regression run (not by any reviewer) -- it silently reintroduced a many-minutes-long hang for a legitimate input class before finally raising, AND separately broke a genuine large notebook fixture in test_obligation_cell_editor.py. Root-caused to depth vs. node-count and fixed properly (depth-bounded, not node-count-bounded) in the same commit, per this project's own \"after two unsuccessful repair attempts, return to first principles\" rule. This is the most heavily adversarially-tested taskcard in this engagement so far -- 2 separate G2 reviews plus one self-caught regression, none of which were rubber stamps.",
-      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has landed, but deliberately scoped to only_mutate = [\"src/libipynb/codec/writer.py\"] (LIBIPYNB-Q19) for its pilot -- this module is not yet covered. Widening only_mutate to include this module is separate, not-yet-done follow-up work (see LIBIPYNB-Q31's own note); temporary partial-evidence acceptance continues until that widening lands."
     },
     {
       "id": "LIBIPYNB-Q19",
@@ -254,13 +254,12 @@
         "test_infrastructure_honesty"
       ],
       "oracle_tier_actually_executed": null,
-      "mutation_baseline_checked": null,
+      "mutation_baseline_checked": "LIBIPYNB-Q31 pilot (mutmut==3.7.0, python:3.12-slim): 268 mutants generated for src/libipynb/codec/writer.py, 186 killed, 61 survived, 21 no-tests (all in roundtrip(), a real, separately-tracked coverage gap -- see LIBIPYNB-Q58). Mutation score (killed / (killed+survived), excluding no-tests as an already-known distinct gap) = 186/247 = 75.3%. Baseline recorded; the 61 survived mutants are not fixed here -- Q31's own scope is the tooling/scaffold, not exhaustively closing every surfaced gap -- see LIBIPYNB-Q58 for that follow-up.",
       "rollback": "git revert single commit",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "6b08f13ecb1b2f172a5c63879b2418d677c76efd",
-      "note": "Implementation 6b08f13; independent Taskcard-Gate-G2 review (separate Agent, using WSL/Ubuntu to genuinely exercise real POSIX chmod/symlink/fsync semantics unavailable on this Windows dev machine) found 0 CRITICAL, 5 issues (verdict ISSUES_FOUND) -- most notably a real symlink-loop bug: Path.resolve() on CPython 3.11/3.12 raises RuntimeError (not OSError) for a symlink loop, leaking past the NotebookWriteError contract, undetectable from Windows alone since the same input behaves differently there. Repaired in 022b12c, independently re-verified for real on WSL/Ubuntu (18/18 checks pass, including the fixed loop behavior). This taskcard is notable for using WSL as a genuine second-platform verification tool, not just code reading/reasoning or mocks -- recommended precedent for any future taskcard with platform-divergent behavior.",
-      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
+      "note": "Implementation 6b08f13; independent Taskcard-Gate-G2 review (separate Agent, using WSL/Ubuntu to genuinely exercise real POSIX chmod/symlink/fsync semantics unavailable on this Windows dev machine) found 0 CRITICAL, 5 issues (verdict ISSUES_FOUND) -- most notably a real symlink-loop bug: Path.resolve() on CPython 3.11/3.12 raises RuntimeError (not OSError) for a symlink loop, leaking past the NotebookWriteError contract, undetectable from Windows alone since the same input behaves differently there. Repaired in 022b12c, independently re-verified for real on WSL/Ubuntu (18/18 checks pass, including the fixed loop behavior). This taskcard is notable for using WSL as a genuine second-platform verification tool, not just code reading/reasoning or mocks -- recommended precedent for any future taskcard with platform-divergent behavior."
     },
     {
       "id": "LIBIPYNB-Q20",
@@ -493,8 +492,17 @@
         "LIBIPYNB-Q19"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "mutmut run && mutmut results --all true (with pyproject.toml's [tool.mutmut] config)",
+      "repair_commit": "00f8ea5a1030c11ceb5a5ad4d16a47471a131f11",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "real pilot run in a python:3.12-slim container against src/libipynb/codec/writer.py (the smallest of the 4 hot modules, per this taskcard's own pilot-first mandate): 268 mutants, 186 killed, 61 survived, 21 no-tests, 75.3% score (killed/(killed+survived)). Pilot went through 3 real structural incompatibility classes before reaching a working state, each fixed via mutmut's own intended mechanism rather than forced around: (1) 3 tests asserting libipynb's import origin IS site-packages, structurally incompatible with mutmut's copy-and-mutate execution model -- deselected individually; (2) 2 tests reading repo-root files (.gitlab-ci.yml, scripts/fetch_fixture.py, plans/state.json) mutmut's mutants/ tree doesn't copy by default -- fixed via also_copy for the 2 simple files, the 2 requiring nested directories (plans/state.json, scripts/fetch_fixture.py -- also_copy uses shutil.copy2, which does not create intermediate directories) had their owning test files ignored instead, since both are governance/script metadata orthogonal to writer.py's own behavior; (3) THE load-bearing fix: pytest-cov (installed transitively via the test extra) auto-registers as a pytest plugin and conflicts with mutmut's own internal coverage.py instrumentation, making every single mutant report '<no tests>' (pytest exit code 5) regardless of real coverage -- fixed with `-p no:cov`, confirmed by re-running and getting real kill/survive results immediately after. A second real bug was caught and fixed in the accompanying mutation.yml CI workflow before commit: `mutmut results` with no flag silently omits killed mutants from its output by default (only showing survived/no-tests), which would have made the score-gate script always compute killed=0 and always fail -- fixed with `mutmut results --all true`, verified against the real 268-mutant dataset (186/61/21, exactly matching the pilot run) before committing.",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete .github/workflows/mutation.yml and the [tool.mutmut] section in pyproject.toml, zero effect on any other tool",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Scoped to codec/writer.py only, per this taskcard's own pilot-first mandate -- the other 3 designated hot modules (adapters/execute.py, adapters/jupyter_execute.py, codec/reader.py) are explicitly NOT yet included in only_mutate or the CI job; widening to them is deliberately left as separate follow-up work, not assumed to already work. The pilot's own 61-survived-mutant and 21-no-tests findings are real, actionable test-strength gaps, deliberately not fixed here (out of this taskcard's own scope) -- recorded as LIBIPYNB-Q58 rather than silently dropped. LIBIPYNB-Q19's mutation_baseline_checked field now cites this pilot's real score, closing that taskcard's temporary partial-evidence acceptance."
     },
     {
       "id": "LIBIPYNB-Q32",
@@ -814,7 +822,7 @@
       "owner": "implementer+separate_reviewer",
       "status": "NOT_STARTED",
       "legacy_status_equivalent": "not_attempted",
-      "objective": "Discovered by LIBIPYNB-Q22's independent Taskcard-Gate-G2 review: this file's own docstring says it is 'not skipped by default: CI must install the exec extra plus ipykernel for this file to prove anything,' but no real CI job actually does that for it. test-py311/312/313 (the jobs that run tests/integration/) extend .python-base, whose before_script installs only .[test] -- no jupyter_client/nbclient at all, so this file's module-level pytest.importorskip trips unconditionally and all 67 tests collapse to a single skip. oracle-and-package (the only job LIBIPYNB-Q22 taught to provision a kernel) runs pytest tests/oracle/ tests/package/ -v --tb=short -- it never touches tests/integration/. The '1056 passed' local evidence cited throughout this engagement (LIBIPYNB-Q16-Q22) counts these 67 as real passes only because this dev .venv already has ipykernel and a registered python3 kernelspec from unrelated prior work -- nothing tracked in the repo provisions that, so real CI has no such state. When the reviewer provisioned exec+kernel in a fresh python:3.12-slim container matching the CI image and ran this file there, 3 of the 67 tests FAILED with container-timing-sensitive 'Timeout waiting for execute reply (1s)' errors (test_interrupt_on_timeout_true_reports_the_timeout_as_a_cell_error, test_concurrent_runs_on_separate_threads_do_not_interfere, test_multiple_independently_timed_out_cells_are_each_recorded) -- so wiring this suite into CI is not a risk-free follow-up; the timing assumptions themselves need investigation first.",
+      "objective": "Discovered by LIBIPYNB-Q22's independent Taskcard-Gate-G2 review: this file's own docstring says it is 'not skipped by default: CI must install the exec extra plus ipykernel for this file to prove anything,' but no real CI job actually does that for it. test-py311/312/313 (the jobs that run tests/integration/) extend .python-base, whose before_script installs only .[test] -- no jupyter_client/nbclient at all, so this file's module-level pytest.importorskip trips unconditionally and all 67 tests collapse to a single skip. oracle-and-package (the only job LIBIPYNB-Q22 taught to provision a kernel) runs pytest tests/oracle/ tests/package/ -v --tb=short -- it never touches tests/integration/. The '1056 passed' local evidence cited throughout this engagement (LIBIPYNB-Q16-Q22) counts these 67 as real passes only because this dev .venv already has ipykernel and a registered python3 kernelspec from unrelated prior work -- nothing tracked in the repo provisions that, so real CI has no such state. When the reviewer provisioned exec+kernel in a fresh python:3.12-slim container matching the CI image and ran this file there, 3 of the 67 tests FAILED with container-timing-sensitive 'Timeout waiting for execute reply (1s)' errors (test_interrupt_on_timeout_true_reports_the_timeout_as_a_cell_error, test_concurrent_runs_on_separate_threads_do_not_interfere, test_multiple_independently_timed_out_cells_are_each_recorded) -- so wiring this suite into CI is not a risk-free follow-up; the timing assumptions themselves need investigation first. ADDITIONAL EVIDENCE (2026-08-24, this session, unrelated to any src/ change -- confirmed via `git diff <last-Phase-1-commit>..HEAD --stat -- src/` returning empty): a 4th test in the same file, test_stopped_early_and_timed_out_can_both_be_true_for_the_same_run, failed reproducibly (both in a full local run and in isolation, on this session's own Windows dev machine, not a Linux container) with `record.error.ename == 'KeyboardInterrupt'` instead of the expected `'RuntimeError'` -- the same general real-kernel interrupt/timeout race-classification fragility this card already tracks, now confirmed on a second, unrelated platform/mechanism (genuine system contention on a heavily-loaded shared host, not container-specific timing), broadening rather than duplicating this finding.",
       "verification_command": "docker run --rm -v <repo>:/work -w /work python:3.12-slim bash -c \"pip install -e '.[test,exec]' && python -m ipykernel install --user --name python3 && pytest tests/integration/test_obligation_jupyter_execution_adapter.py -v --tb=short\"",
       "repair_commit": null,
       "review_lenses_applied": [],
@@ -824,6 +832,27 @@
       "blocker": null,
       "resume_condition": null,
       "discovered_by": "LIBIPYNB-Q22 independent Taskcard-Gate-G2 review (of commit 02939ee), via a from-scratch Docker reproduction of the real CI image -- not this session own implementation work"
+    },
+    {
+      "id": "LIBIPYNB-Q58",
+      "phase": 4,
+      "title": "codec/writer.py's LIBIPYNB-Q31 mutation baseline surfaced 61 survived mutants and a real coverage gap in roundtrip()",
+      "depends_on": [
+        "LIBIPYNB-Q31"
+      ],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "LIBIPYNB-Q31's mutation-testing pilot (mutmut==3.7.0, scoped to src/libipynb/codec/writer.py) recorded a real, working baseline: 268 mutants, 186 killed, 61 survived, 21 no-tests (75.3% score, killed/(killed+survived)). Two distinct, actionable findings, deliberately not fixed as part of Q31 itself (whose own scope is the tooling/scaffold, not exhaustively closing every gap it surfaces): (1) ALL 21 of roundtrip()'s mutants show 'no tests' (pytest exit code 5 scoped to that function specifically), meaning mutmut's coverage-based test selection found literally no test that exercises any mutated line of roundtrip() at all -- either a genuine, total coverage gap for this one public function, or a narrower structural mutmut-vs-this-function interaction worth confirming either way, not assumed. (2) 61 survived mutants across _as_mapping, _profile_version, _normalized, dumps, dump, and _resolve_destination -- each one a real, specific behavioral change to writer.py that the CURRENT test suite does not catch, despite writer.py's own line/branch coverage sitting at 97% (coverage.py) -- direct, concrete evidence that line/branch coverage alone materially understates real test strength for this module, the same thesis the governing plan's own diagnosis section (test-authoring habits missing >=2-item interactions) already established via a different mechanism.",
+      "verification_command": "mutmut run (with pyproject.toml's [tool.mutmut] config already in place) && mutmut results --all true, then hand-triage each survived mutant (see .github/workflows/mutation.yml, LIBIPYNB-Q31)",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert; additive tests only, zero production-code risk unless a genuine bug is found among the 61",
+      "blocker": null,
+      "resume_condition": null,
+      "discovered_by": "LIBIPYNB-Q31's own mutation-testing pilot run (this session's own implementation work, not a separate reviewer) -- recorded as a new backlog item per this engagement's established discipline rather than silently dropped or force-fixed inline with Q31"
     }
   ]
 }
