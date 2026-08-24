@@ -242,17 +242,25 @@
       "title": "Atomic write loses permissions, no fsync, undecided symlink policy",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Preserve destination mode, fsync, write-through-symlink policy.",
       "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
+      "repair_commit": "022b12c223c909a7e770500fc2d8ce9277bc40b7",
+      "review_lenses_applied": [
+        "combinatorial_cardinality",
+        "spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
       "oracle_tier_actually_executed": null,
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "6b08f13ecb1b2f172a5c63879b2418d677c76efd",
+      "note": "Implementation 6b08f13; independent Taskcard-Gate-G2 review (separate Agent, using WSL/Ubuntu to genuinely exercise real POSIX chmod/symlink/fsync semantics unavailable on this Windows dev machine) found 0 CRITICAL, 5 issues (verdict ISSUES_FOUND) -- most notably a real symlink-loop bug: Path.resolve() on CPython 3.11/3.12 raises RuntimeError (not OSError) for a symlink loop, leaking past the NotebookWriteError contract, undetectable from Windows alone since the same input behaves differently there. Repaired in 022b12c, independently re-verified for real on WSL/Ubuntu (18/18 checks pass, including the fixed loop behavior). This taskcard is notable for using WSL as a genuine second-platform verification tool, not just code reading/reasoning or mocks -- recommended precedent for any future taskcard with platform-divergent behavior.",
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
     },
     {
       "id": "LIBIPYNB-Q20",
