@@ -292,17 +292,22 @@
       "title": "Corpus hashes are line-ending-dependent",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Reuse canonical_schema_digest for corpus hashes; add .gitattributes; document policy.",
       "verification_command": "pytest tests/integration/test_obligation_corpus_integrity.py -v",
-      "repair_commit": null,
-      "review_lenses_applied": [],
+      "repair_commit": "4bc1f5c51de3be2c47baf80b40d038045fe5c2f9",
+      "review_lenses_applied": [
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
       "oracle_tier_actually_executed": null,
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "9c0f07048c8f4499e78be57556c8098008d9ff37",
+      "note": "Implementation 9c0f070; first independent Taskcard-Gate-G2 review found 1 CRITICAL (a new test only guarded against git erroring, not git being entirely absent from PATH -- reproduced live in a real python:3.12-slim container matching this project actual CI image, where git is genuinely not installed) + 1 WARNING (a misattributed Gate G7 rationale), repaired in 4bc1f5c. Given the CRITICAL severity, a SECOND independent Agent review was run specifically on the repair -- confirmed fully resolved via its own from-scratch Docker reproduction, INCLUDING a negative control (proving the pre-fix commit genuinely fails the same way in the same harness) and a mutation test (reverting just the fix to confirm the new regression test would actually catch a reversion). Second review also surfaced a real, separate, Q21-unrelated finding recorded as LIBIPYNB-Q56."
     },
     {
       "id": "LIBIPYNB-Q22",
@@ -678,6 +683,25 @@
       "blocker": null,
       "resume_condition": null,
       "discovered_by": "LIBIPYNB-Q18 second-review Agent (independent G2 review of commit e0d7874), not this session's own implementation work"
+    },
+    {
+      "id": "LIBIPYNB-Q56",
+      "phase": 2,
+      "title": "Gate G1 evidence (mypy --strict, full test suite) is not reproducible in a genuinely fresh install",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Discovered by LIBIPYNB-Q21 second-review Agent via a real python:3.12-slim container matching .gitlab-ci.yml test-py312 exactly: (1) tests/unit/test_obligation_schema_digest_encoding.py::test_declared_source_version_matches_the_installed_oracle fails in a fresh install because core dependencies pins only nbformat>=5.10 with no ceiling -- a truly fresh resolve picks up whatever is newest (nbformat-5.11.1 in the reviewers container vs the hardcoded nbformat-5.10.4 assertion), while this session own dev .venv masked the gap by already having 5.10.4 pinned from earlier work. (2) mypy --strict shows import-not-found errors in a fresh [test]-only install for adapters/export.py (jupytext) and adapters/jupyter_execute.py (nbclient), neither covered by the test extra the CI mypy job installs -- again masked locally because this dev .venv happens to already have both packages installed. Every Gate G1 claim made throughout this whole engagement (LIBIPYNB-Q16-Q21) was accurate for this dev venv but has not been independently confirmed reproducible in a genuinely fresh environment for these two specific checks.",
+      "verification_command": "docker run --rm python:3.12-slim: git archive HEAD | tar -x, pip install -e \".[test]\", mypy --strict src/libipynb (or the actual CI mypy extras), pytest -q",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "discovered_by": "LIBIPYNB-Q21 second-review Agent (independent G2 review of commit 4bc1f5c), via a from-scratch Docker reproduction of the real CI image -- not this session own implementation work"
     }
   ]
 }
