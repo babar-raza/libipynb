@@ -53,49 +53,58 @@ def _pdf_backend_probe_result() -> str | None:
     reason -- the second case is a signal a real exporter regression could
     be hiding behind a false "environment not set up" skip, not an actual
     environment gap. Cached for the process lifetime: the compile attempt
-    itself is slow and this is called by a fixture every test may request."""
+    itself is slow and this is called by a fixture every test may request.
+
+    Scoped to the LaTeX backend only (LIBIPYNB-Q23 independent review,
+    finding 2): the real `nbconvert.exporters.pdf.PDFExporter` that
+    `fmt="pdf"` uses -- the only format this probe gates -- is a
+    `LatexExporter` subclass that shells out to xelatex/pdflatex and never
+    touches Playwright. An earlier version of this function also treated
+    an importable `playwright` package as "available," which was doubly
+    wrong: unprobed (the exact false-positive class this function exists
+    to close) and the wrong signal for the only test that uses it, since
+    `fmt="pdf"` would still fail even with a working Playwright and no
+    LaTeX. Playwright-based `webpdf` functional probing is deferred to
+    whenever a real `webpdf` test exists -- tracked under LIBIPYNB-Q37
+    (PDF/slides export decision), not invented here speculatively."""
     binary = shutil.which("xelatex") or shutil.which("pdflatex")
-    if binary is not None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tex_path = Path(tmp_dir) / "probe.tex"
-            tex_path.write_text(
-                r"\documentclass{article}\begin{document}probe\end{document}",
-                encoding="utf-8",
+    if binary is None:
+        return "no PDF backend (xelatex/pdflatex) is installed"
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        tex_path = Path(tmp_dir) / "probe.tex"
+        tex_path.write_text(
+            r"\documentclass{article}\begin{document}probe\end{document}",
+            encoding="utf-8",
+        )
+        try:
+            subprocess.run(
+                [binary, "-interaction=nonstopmode", "-halt-on-error", tex_path.name],
+                cwd=tmp_dir,
+                capture_output=True,
+                timeout=30,
+                check=False,
             )
-            try:
-                subprocess.run(
-                    [binary, "-interaction=nonstopmode", "-halt-on-error", tex_path.name],
-                    cwd=tmp_dir,
-                    capture_output=True,
-                    timeout=30,
-                    check=False,
-                )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                return f"PDF backend binary {binary!r} is present but failed to run ({exc})"
-            if (Path(tmp_dir) / "probe.pdf").is_file():
-                return None
-            return (
-                f"PDF backend binary {binary!r} is present but failed to compile a "
-                "minimal document -- an incomplete LaTeX install, not an absent one"
-            )
-    try:
-        import playwright  # noqa: F401
-    except ImportError:
-        return "no PDF backend (xelatex/pdflatex or playwright for webpdf) is installed"
-    return None
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return f"PDF backend binary {binary!r} is present but failed to run ({exc})"
+        if (Path(tmp_dir) / "probe.pdf").is_file():
+            return None
+        return (
+            f"PDF backend binary {binary!r} is present but failed to compile a "
+            "minimal document -- an incomplete LaTeX install, not an absent one"
+        )
 
 
 @pytest.fixture
 def pdf_backend_available() -> None:
-    """LIBIPYNB-Q15b: `pdf`/`webpdf` need a real LaTeX toolchain or a real
-    Playwright/Chromium install respectively -- neither is bundled by the
-    `export` extra (matching real nbconvert's own separate requirement for
-    these two formats specifically). Skips cleanly, matching
-    `tests/oracle/`'s own established convention for tool-not-installed
-    cases, rather than failing in every environment that lacks either --
-    via a real functional probe (LIBIPYNB-Q23, P0-H; see
+    """LIBIPYNB-Q15b: `pdf` (`fmt="pdf"`, nbconvert's `PDFExporter`) needs
+    a real LaTeX toolchain -- not bundled by the `export` extra (matching
+    real nbconvert's own separate requirement for this format). Skips
+    cleanly, matching `tests/oracle/`'s own established convention for
+    tool-not-installed cases, rather than failing in every environment
+    that lacks one -- via a real functional probe (LIBIPYNB-Q23, P0-H; see
     `_pdf_backend_probe_result`'s own docstring), not a presence-only
-    check that could be a false positive."""
+    check that could be a false positive. Scoped to LaTeX only, not
+    `webpdf`/Playwright -- see `_pdf_backend_probe_result`'s docstring."""
     reason = _pdf_backend_probe_result()
     if reason is not None:
         pytest.skip(reason)
@@ -333,22 +342,46 @@ class TestPdfBackendProbe:
     def teardown_method(self) -> None:
         _pdf_backend_probe_result.cache_clear()
 
-    def test_no_binary_and_no_playwright_reports_the_original_absent_reason(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_binary_reports_the_absent_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: None)
-        monkeypatch.setitem(sys.modules, "playwright", None)
 
-        assert (
-            _pdf_backend_probe_result()
-            == "no PDF backend (xelatex/pdflatex or playwright for webpdf) is installed"
-        )
+        assert _pdf_backend_probe_result() == "no PDF backend (xelatex/pdflatex) is installed"
 
-    def test_no_latex_binary_but_playwright_importable_reports_available(
+    def test_no_latex_binary_but_playwright_importable_still_reports_absent(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """LIBIPYNB-Q23 independent review, finding 2 (repair, deliberate
+        correction of a wrong assertion): an earlier version of this
+        function treated an importable `playwright` as "PDF backend
+        available," which was itself a false positive -- nbconvert's real
+        `fmt="pdf"` PDFExporter is LaTeX-only and never touches Playwright,
+        so a Playwright-but-no-LaTeX environment would still crash on that
+        format. Playwright must now have zero effect on this LaTeX-only
+        probe's result."""
         monkeypatch.setattr(shutil, "which", lambda name: None)
         monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+
+        assert _pdf_backend_probe_result() == "no PDF backend (xelatex/pdflatex) is installed"
+
+    def test_pdflatex_fallback_is_used_when_xelatex_is_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LIBIPYNB-Q23 independent review, finding 1: every other test in
+        this class only ever makes `which("xelatex")` truthy -- none
+        exercised the `or shutil.which("pdflatex")` fallback, so a
+        regression that silently dropped it would have passed unnoticed."""
+        monkeypatch.setattr(
+            shutil, "which", lambda name: "/fake/bin/pdflatex" if name == "pdflatex" else None
+        )
+
+        def _fake_run(
+            args: list[str], cwd: str, **kwargs: Any
+        ) -> subprocess.CompletedProcess[bytes]:
+            assert args[0] == "/fake/bin/pdflatex"
+            (Path(cwd) / "probe.pdf").write_bytes(b"%PDF-1.4 fake probe output")
+            return subprocess.CompletedProcess(args, returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
 
         assert _pdf_backend_probe_result() is None
 
@@ -422,7 +455,6 @@ class TestPdfBackendProbe:
             return None
 
         monkeypatch.setattr(shutil, "which", _counting_which)
-        monkeypatch.setitem(sys.modules, "playwright", None)
 
         _pdf_backend_probe_result()
         calls_after_first_probe = calls
