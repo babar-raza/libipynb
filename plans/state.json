@@ -752,9 +752,19 @@
       "depends_on": [
         "LIBIPYNB-Q23"
       ],
-      "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "owner": "implementer+separate_reviewer",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "pytest tests/integration/test_obligation_html_jupytext_export.py -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "Investigated scope first before writing anything: HtmlExporter/NbconvertExporter already have comprehensive corrupted/partial coverage (missing interpreter, uninstalled module, non-zero exit, timeout, missing output file after reported success) and the PDF backend probe already covers present-but-broken LaTeX (LIBIPYNB-Q23's own original scope) -- confirmed by reading the existing test file in full, nothing to add there. Papermill is not a subprocess-shelled adapter in this codebase at all -- confirmed via grep, zero runtime import/invocation anywhere in src/libipynb (LIBIPYNB-Q35 is a native re-implementation; papermill is only used as a comparison reference in tests/oracle/) -- so the plan's 'papermill once Q35 lands' scope does not apply. The one genuine gap: JupytextExporter only had 'package not installed at all' failure-path coverage. Added 2 tests: an invalid fmt string against the REAL, installed jupytext library (empirically verified first, via a standalone script, that this produces a clean NotebookError before writing the test -- not assumed from reading the adapter's try/except), and a deterministic stub-module test simulating a corrupted/partial jupytext install raising internally. Both confirm the adapter's existing `except Exception` wrapping is actually exercised end-to-end, not merely assumed correct from reading the code. Full file re-run: 28 passed, 1 skipped (no LaTeX backend installed in this environment, a genuine, pre-existing, correctly-disclosed skip -- not caused by this change). Purely additive test file change, zero production code touched.",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert 35c3147; additive test-only change, zero production-code risk",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "35c31479e41fb77e4823571ca07f7f52c0983572",
+      "note": "Implementation 35c3147. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q46",
