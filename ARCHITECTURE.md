@@ -79,7 +79,13 @@ src/libipynb/
   histograms, execution-error detection and per-cell listing, average
   source length, size/complexity analysis -- largest cells, total notebook
   byte size, metadata bloat -- and output/attachment byte-size
-  breakdowns). No third-party dependency.
+  breakdowns). No third-party dependency. Deliberately NOT re-exported at
+  top-level `libipynb.*` (accessed as `libipynb.analytics.*` only) --
+  same reasoning as `security.scan_for_secrets`, which is likewise
+  submodule-only: the top-level namespace is reserved for the core read/
+  write/transform notebook API (`load`/`dump`/`cleanup`/`upgrade`/
+  `inject_parameters`, ...), not read-only reporting/introspection
+  helpers, regardless of whether the helper happens to be dependency-free.
 
 `diagnostics.py` (shared `Diagnostic`/`ValidationResult` types) and
 `errors.py` (the exception hierarchy) sit at the top level since they're used
