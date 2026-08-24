@@ -446,6 +446,13 @@ def _run_driver_subprocess(
         target=_writer, args=(process.stdin, payload.encode("utf-8")), daemon=True
     )
     writer_thread.start()
+    # No join() here, deliberately -- nothing downstream depends on the
+    # write having finished (only the reader thread's captured bytes feed
+    # the return value). Same accepted daemon-thread tradeoff as the
+    # reader thread above: on a platform/timing pathology where a killed
+    # process's stdin write doesn't unblock promptly, this thread could
+    # linger for the caller's process lifetime, but cannot block
+    # interpreter exit.
 
     try:
         process.wait(timeout=timeout)
