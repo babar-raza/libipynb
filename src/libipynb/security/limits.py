@@ -93,7 +93,21 @@ def _utf8_size(value: str, limits: NotebookResourceLimits, current: int) -> int:
 
 
 def enforce_structure(value: Any, limits: NotebookResourceLimits | None = None) -> None:
-    """Bound an already-decoded JSON-like tree before recursive processing."""
+    """Bound an already-decoded JSON-like tree before recursive processing.
+
+    LIBIPYNB-Q55: walks ``tuple`` the same as ``list``, not just
+    ``dict``/``list`` -- a real JSON parse never produces a tuple, but
+    this function's other two call sites (``model/lifecycle.py``,
+    ``validation/validator.py``'s public ``validate()``) run on an
+    already-constructed Python mapping a caller could hand it directly,
+    where a tuple is an entirely realistic shape (found live during
+    LIBIPYNB-Q18's own independent review: a document nested 2000+
+    levels deep purely through tuples sailed through this function with
+    zero exception at the default ``max_nesting_depth=64``, meaning
+    ``max_entries``/string-size accounting was also silently skipped for
+    anything nested inside a tuple -- the same missed-container-type
+    defect :mod:`libipynb._internal.finiteness`'s ``find_non_finite_floats``
+    was already fixed for, for the same reason)."""
 
     selected = effective_limits(limits)
     stack: list[tuple[Any, int]] = [(value, 0)]
@@ -109,7 +123,7 @@ def enforce_structure(value: Any, limits: NotebookResourceLimits | None = None) 
                 if isinstance(key, str):
                     decoded_bytes = _utf8_size(key, selected, decoded_bytes)
                 stack.append((item, depth + 1))
-        elif isinstance(current, list):
+        elif isinstance(current, (list, tuple)):
             entries += len(current)
             selected.enforce("max_entries", entries)
             stack.extend((item, depth + 1) for item in current)

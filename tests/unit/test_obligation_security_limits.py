@@ -7,10 +7,10 @@ import json
 
 import pytest
 
-from libipynb import NotebookParseError, load, loads
+from libipynb import NotebookParseError, load, loads, validate
 from libipynb.errors import NotebookResourceLimitError as ResourceLimitError
 from libipynb.security import IPYNB_DEFAULT_LIMITS
-from libipynb.security.limits import NotebookResourceLimits
+from libipynb.security.limits import NotebookResourceLimits, enforce_structure
 
 
 def _notebook(*, metadata: object = None, cells: list[object] | None = None) -> str:
@@ -48,6 +48,64 @@ def test_nesting_depth_is_bounded_without_recursive_walker_failure() -> None:
 
     with pytest.raises(ResourceLimitError, match="max_nesting_depth exceeded"):
         loads(_notebook(metadata={"vendor": nested}), limits=limits)
+
+
+class TestQ55TupleNestingIsNotAResourceLimitBlindSpot:
+    """LIBIPYNB-Q55: enforce_structure() previously walked dict/list only,
+    silently skipping tuple entirely -- zero depth/entry-count/string-
+    size accounting for anything nested inside one. Not merely a
+    defense-in-depth gap: enforce_structure's other two call sites
+    (model/lifecycle.py, and validate()'s public entry point below) run
+    on an already-constructed Python mapping a caller can hand it
+    directly -- a tuple is a realistic shape there, not something JSON
+    parsing could ever produce. Found live during LIBIPYNB-Q18's own
+    independent review (the same missed-container-type defect family
+    find_non_finite_floats was already fixed for)."""
+
+    def test_deep_tuple_nesting_trips_the_depth_limit_via_the_public_validate_entry_point(
+        self,
+    ) -> None:
+        nested: object = "leaf"
+        for _ in range(20):
+            nested = (nested,)  # tuple, not dict/list -- the exact gap
+        limits = IPYNB_DEFAULT_LIMITS.with_overrides(max_nesting_depth=8)
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"vendor": nested},
+            "cells": [],
+        }
+
+        report = validate(model, limits=limits)
+
+        assert any(
+            d.code == "IPYNB_RESOURCE_LIMIT" and "max_nesting_depth exceeded" in d.message
+            for d in report.errors
+        ), report.errors
+
+    def test_a_tuples_own_elements_are_counted_toward_max_entries(self) -> None:
+        limits = NotebookResourceLimits(max_entries=10)
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"vendor": tuple(range(1000))},
+            "cells": [],
+        }
+
+        with pytest.raises(ResourceLimitError, match="max_entries exceeded"):
+            enforce_structure(model, limits)
+
+    def test_a_string_nested_inside_a_tuple_is_still_size_checked(self) -> None:
+        limits = NotebookResourceLimits(max_input_bytes=1_000_000, max_decompressed_bytes=50)
+        model = {"nbformat": 4, "metadata": {"vendor": ("x" * 500,)}, "cells": []}
+
+        with pytest.raises(ResourceLimitError, match="max_decompressed_bytes exceeded"):
+            enforce_structure(model, limits)
+
+    def test_a_shallow_tuple_within_limits_does_not_raise(self) -> None:
+        model = {"nbformat": 4, "metadata": {"vendor": (1, 2, "three")}, "cells": []}
+
+        enforce_structure(model)  # must not raise
 
 
 def test_json_recursion_failure_is_a_deterministic_parse_error() -> None:
