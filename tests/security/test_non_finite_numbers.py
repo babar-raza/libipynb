@@ -240,6 +240,80 @@ class TestValidateRejectsNonFiniteConstants:
         report = validate({"nbformat": 4, "nbformat_minor": 5, "metadata": {"n": 1.5}, "cells": []})
         assert not any(d.code == "IPYNB_NON_FINITE_NUMBER" for d in report.errors)
 
+    def test_multiple_non_finite_floats_at_distinct_paths_are_all_reported(self) -> None:
+        """LIBIPYNB-Q18 Gate G2 finding: every prior test used exactly one
+        non-finite value, unable to distinguish correct aggregation from a
+        short-circuit bug (the exact class of bug LIBIPYNB-Q17 had). Three
+        values at three distinct, non-overlapping paths must all surface,
+        not just the first one found."""
+        report = validate(
+            {
+                "nbformat": 4,
+                "nbformat_minor": 5,
+                "metadata": {"a": float("nan"), "b": float("inf")},
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "id": "x",
+                        "metadata": {"c": float("-inf")},
+                        "execution_count": None,
+                        "outputs": [],
+                        "source": "",
+                    }
+                ],
+            }
+        )
+        assert report.is_valid is False
+        non_finite_paths = {
+            d.location.path for d in report.errors if d.code == "IPYNB_NON_FINITE_NUMBER"
+        }
+        assert non_finite_paths == {
+            ("metadata", "a"),
+            ("metadata", "b"),
+            ("cells", 0, "metadata", "c"),
+        }
+
+    def test_a_non_finite_float_inside_a_tuple_is_found(self) -> None:
+        """LIBIPYNB-Q18 Gate G2 CRITICAL finding: the original scanner
+        recursed through Mapping/list only, silently missing a tuple
+        anywhere in the structure -- a live, reproducible instance of
+        exactly the "validate() says valid, dumps() fails" contract this
+        whole taskcard exists to close, reproduced directly against the
+        pre-repair code: validate() reported a NaN-inside-a-tuple document
+        as fully valid, and dumps() then raised NotebookWriteError. A tuple
+        is a realistic shape here specifically because validate() accepts
+        an already-constructed Python mapping directly -- not only JSON
+        text, which can never itself produce a tuple."""
+        report = validate(
+            {
+                "nbformat": 4,
+                "nbformat_minor": 5,
+                "metadata": {"custom": (1, float("nan"), 3)},
+                "cells": [],
+            }
+        )
+        assert report.is_valid is False
+        assert any(d.code == "IPYNB_NON_FINITE_NUMBER" for d in report.errors)
+
+    def test_a_deeply_nested_structure_does_not_raise_recursion_error(self) -> None:
+        """LIBIPYNB-Q18 Gate G2 finding: the original scanner used Python-
+        call-stack recursion with no depth guard, raising an uncaught
+        RecursionError on adversarially deep input (confirmed at ~1000
+        levels) -- fixed via an explicit-stack iterative walk, matching
+        security.limits.enforce_structure's own established pattern for
+        untrusted-depth traversal. 5000 levels comfortably exceeds Python's
+        default recursion limit (1000)."""
+        nested: dict[str, object] = {"n": float("nan")}
+        for _ in range(5000):
+            nested = {"child": nested}
+        report = validate({"nbformat": 4, "nbformat_minor": 5, "metadata": nested, "cells": []})
+        # Not asserting is_valid here -- enforce_structure's own
+        # max_nesting_depth limit (a separate, pre-existing resource guard)
+        # legitimately rejects input this deep before the scanner even
+        # runs. The only claim under test is that this does not crash with
+        # an uncaught RecursionError.
+        assert isinstance(report.is_valid, bool)
+
 
 class TestProbeRejectsNonFiniteConstants:
     def test_probe_does_not_match_a_nan_bearing_notebook(self) -> None:

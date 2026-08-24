@@ -78,6 +78,28 @@ libipynb detects duplicate keys during parsing:
 | `preservation` | Records a recovery action; keeps last value |
 | `recovery` | Records a recovery action; keeps last value |
 
+### Non-Finite Number Detection
+
+Python's `json.loads` silently accepts the non-standard `NaN`/`Infinity`/
+`-Infinity` JSON constants by default, producing legal Python `float` values
+that are not legal JSON -- and this project's own writer correctly rejects
+them (`allow_nan=False`). Without detection at parse/validation time, a
+notebook containing one of these constants could load, validate as valid, and
+probe as a matched IPYNB, then fail unrecoverably the first time it was
+written back out.
+
+libipynb detects non-finite floats at two points:
+
+| Check | Behavior |
+|---|---|
+| `strict` parse mode | Raises `NotebookParseError` with code `IPYNB_NON_FINITE_NUMBER` at JSON-text parse time |
+| `preservation`/`recovery` parse mode | Tolerated at parse time (their own lossless/tolerant contract) -- caught downstream by the check below |
+| `validate()` | Recursively scans the entire document (notebook metadata, cell metadata, output metadata, MIME data, and any nesting within any of those, including tuples in an already-constructed Python mapping) and reports `IPYNB_NON_FINITE_NUMBER` for every occurrence found, regardless of how the document was loaded |
+
+`probe()` (which loads in `preservation` mode) runs the same scan explicitly
+and reports a non-finite-constant-carrying document as not matched, rather
+than calling it a valid IPYNB.
+
 ### Atomic File Writes
 
 `dump()` writes notebooks to disk using a write-to-temp-then-rename pattern.
