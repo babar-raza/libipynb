@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Mapping
 from copy import deepcopy
@@ -144,6 +145,44 @@ def dumps(
     return result
 
 
+def _target_mode(real_path: Path) -> int:
+    """LIBIPYNB-Q19 (P0-D): the mode a new temp file should end up with,
+    before it gets renamed onto *real_path*. If *real_path* already
+    exists, preserve its exact mode -- ``tempfile.mkstemp()`` always
+    creates its file at ``0600``, so without this an overwrite of an
+    existing ``0644`` file silently produced a ``0600`` one. If it does
+    not exist yet, use the umask-aware default a plain ``open(path,
+    "w")`` would have produced (``0666 & ~umask``), not ``mkstemp``'s
+    restrictive ``0600`` -- a newly-created notebook file should not be
+    surprisingly more locked-down than any other file this process
+    creates."""
+    try:
+        return stat.S_IMODE(os.stat(real_path).st_mode)
+    except FileNotFoundError:
+        saved_umask = os.umask(0)
+        os.umask(saved_umask)  # umask has no read-only getter; restore immediately
+        return 0o666 & ~saved_umask
+
+
+def _fsync_directory_best_effort(directory: Path) -> None:
+    """LIBIPYNB-Q19 (P0-D): fsync-ing the parent directory after
+    ``os.replace()`` is what makes the rename itself durable across a
+    crash/power loss on POSIX -- the temp file's own fsync only
+    guarantees its *content* is durable, not that the directory entry now
+    pointing at it is. Best-effort only, and POSIX-only: not every
+    filesystem supports/needs a directory fsync, Windows has no
+    equivalent, and a failure here must never fail the write -- the
+    atomic rename itself has already succeeded by the time this runs."""
+    if os.name != "posix":
+        return
+    with contextlib.suppress(OSError):
+        dir_fd = os.open(str(directory), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+
+
 def dump(
     document: NotebookDocument | Mapping[str, Any],
     destination: Destination,
@@ -151,6 +190,39 @@ def dump(
     profile: str | None = None,
     indent: int | None = 1,
 ) -> None:
+    """Serialize *document* and write it to *destination*.
+
+    LIBIPYNB-Q19 (P0-D): for a path destination, this is a write-to-temp-
+    then-``os.replace()`` -- the destination either ends up with the
+    complete new content or is left completely untouched; it is never
+    observable half-written. Beyond that atomicity guarantee, this
+    function also provides:
+
+    - **Permission preservation**: overwriting an existing file keeps its
+      exact mode; a new file gets the umask-aware default a plain
+      ``open(path, "w")`` would produce. Never ``tempfile.mkstemp()``'s
+      restrictive ``0600`` for either case.
+    - **Durability** (POSIX only): the temp file's content is ``fsync``ed
+      before the rename, and the containing directory is best-effort
+      ``fsync``ed after -- both are what actually survive a crash/power
+      loss immediately after this call returns, not merely "the OS write
+      buffer accepted it." Windows has no equivalent directory-fsync
+      primitive; ``os.replace()``'s own atomicity still holds there, but
+      this function makes no durability-across-power-loss claim on
+      Windows beyond what the OS/filesystem itself provides.
+    - **Symlink policy**: if *destination* is (or is inside) a symlink,
+      this writes *through* it -- the symlink itself survives and keeps
+      pointing at the (now updated) real file, matching the common "safe
+      overwrite" convention for a config-file-like target. It does not
+      replace the symlink with a plain file.
+    - **Cleanup**: the temp file is removed on every failure path, before
+      the failure is reported.
+
+    The stream-write path (writing to a file-like object instead of a
+    path) has none of the above -- streams cannot support atomic/durable
+    replace semantics, permission inheritance, or symlink resolution, so
+    this function does not attempt to simulate any of them there.
+    """
     text = dumps(document, profile=profile, indent=indent) + "\n"
     if hasattr(destination, "write"):
         try:
@@ -161,12 +233,34 @@ def dump(
             raise NotebookWriteError("notebook destination accepted a partial write")
         return
     path = Path(destination)
+    # Resolve symlinks BEFORE deciding the temp-file directory and the
+    # os.replace() target, so this writes THROUGH an existing symlink
+    # rather than replacing the symlink itself -- and so the temp file
+    # lands on the same filesystem as the real destination, keeping
+    # os.replace() atomic. strict=False (the default) also works
+    # correctly for a destination that does not exist yet.
+    real_path = path.resolve()
     try:
-        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        target_mode = _target_mode(real_path)
+        fd, tmp = tempfile.mkstemp(dir=real_path.parent, suffix=".tmp")
         try:
+            # os.fdopen(fd, ...) must come first, before anything else
+            # that could raise: it hands the raw fd from mkstemp() to a
+            # proper file object, so the `with` block's __exit__ closes
+            # it on any failure path, not just success. A prior version
+            # called os.chmod(tmp, ...) BEFORE this -- if chmod raised,
+            # fd was never closed, and on Windows an open handle to a
+            # file blocks deleting it, so the cleanup os.unlink(tmp)
+            # below silently failed too (suppressed, since it's expected
+            # to be a no-op on the success path where the file is
+            # already gone).
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                os.chmod(tmp, target_mode)
                 f.write(text)
-            os.replace(tmp, path)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, real_path)
+            _fsync_directory_best_effort(real_path.parent)
         except BaseException:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)

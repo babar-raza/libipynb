@@ -7,12 +7,21 @@ never corrupt the target file on disk.
 from __future__ import annotations
 
 import io
+import os
+import stat
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from libipynb import dump, load, loads
 from libipynb.errors import NotebookWriteError
+
+POSIX_ONLY = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX permission bits are not meaningful on Windows",
+)
 
 
 @pytest.fixture
@@ -63,3 +72,194 @@ class TestAtomicFileWrite:
         content = target.read_text(encoding="utf-8")
         assert '"nbformat": 4' in content
         assert "old content" not in content
+
+
+class TestPermissionPreservation:
+    """LIBIPYNB-Q19 (P0-D): tempfile.mkstemp() always creates its file at
+    0600 -- without preserving the destination's own mode first,
+    overwriting a 0644 file silently produced a 0600 one."""
+
+    @POSIX_ONLY
+    def test_overwriting_a_0644_file_preserves_its_mode(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "output.ipynb"
+        target.write_text("old content", encoding="utf-8")
+        os.chmod(target, 0o644)
+
+        dump(minimal_doc, target, profile="declared")
+
+        assert stat.S_IMODE(os.stat(target).st_mode) == 0o644
+
+    @POSIX_ONLY
+    def test_overwriting_a_0600_file_preserves_its_mode_too(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        """Not just the common case -- an unusually restrictive existing
+        mode must also survive, not be silently loosened."""
+        target = tmp_path / "output.ipynb"
+        target.write_text("old content", encoding="utf-8")
+        os.chmod(target, 0o600)
+
+        dump(minimal_doc, target, profile="declared")
+
+        assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
+
+    @POSIX_ONLY
+    def test_a_brand_new_file_gets_the_umask_aware_default_not_mkstemps_0600(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "new.ipynb"
+        assert not target.exists()
+
+        dump(minimal_doc, target, profile="declared")
+
+        saved_umask = os.umask(0)
+        os.umask(saved_umask)
+        expected = 0o666 & ~saved_umask
+        assert stat.S_IMODE(os.stat(target).st_mode) == expected
+
+
+class TestSymlinkPolicy:
+    """LIBIPYNB-Q19 (P0-D): dump() writes THROUGH an existing symlink --
+    the symlink itself survives and keeps pointing at the (now updated)
+    real file, rather than being replaced by a plain file."""
+
+    def test_writing_to_a_symlink_updates_the_real_target_and_keeps_the_symlink(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        real_target = tmp_path / "real.ipynb"
+        real_target.write_text("old content", encoding="utf-8")
+        link = tmp_path / "link.ipynb"
+        os.symlink(real_target, link)
+
+        dump(minimal_doc, link, profile="declared")
+
+        assert link.is_symlink(), "dump() must not replace the symlink with a plain file"
+        # os.path.samefile() compares file identity (device+inode on
+        # POSIX), not path strings -- os.readlink() on Windows can return
+        # an extended-length (\\?\-prefixed) path that a literal/resolved
+        # string comparison would spuriously fail on even though both
+        # sides name the same file.
+        assert os.path.samefile(link, real_target)
+        content = real_target.read_text(encoding="utf-8")
+        assert '"nbformat": 4' in content
+        assert "old content" not in content
+
+    @POSIX_ONLY
+    def test_writing_through_a_symlink_preserves_the_targets_own_permissions(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        real_target = tmp_path / "real.ipynb"
+        real_target.write_text("old content", encoding="utf-8")
+        os.chmod(real_target, 0o644)
+        link = tmp_path / "link.ipynb"
+        os.symlink(real_target, link)
+
+        dump(minimal_doc, link, profile="declared")
+
+        assert stat.S_IMODE(os.stat(real_target).st_mode) == 0o644
+
+    def test_writing_to_a_new_destination_through_a_symlinked_parent_directory(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        """A symlinked PARENT directory, not the destination file itself,
+        is a different and equally realistic shape -- the temp file must
+        still land on the real directory (for atomic same-filesystem
+        rename) and the write must succeed."""
+        real_dir = tmp_path / "real_dir"
+        real_dir.mkdir()
+        link_dir = tmp_path / "link_dir"
+        os.symlink(real_dir, link_dir, target_is_directory=True)
+
+        dump(minimal_doc, link_dir / "output.ipynb", profile="declared")
+
+        assert (real_dir / "output.ipynb").exists()
+        content = (real_dir / "output.ipynb").read_text(encoding="utf-8")
+        assert '"nbformat": 4' in content
+
+
+class TestDurability:
+    """LIBIPYNB-Q19 (P0-D): the temp file's content is fsync-ed before the
+    rename, and the containing directory is best-effort fsync-ed after --
+    a test can't directly observe crash-durability, but can confirm the
+    fsync calls actually happen on the path this function's own docstring
+    now promises."""
+
+    def test_the_temp_files_content_is_fsynced_before_the_rename(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "output.ipynb"
+        with patch("os.fsync", wraps=os.fsync) as spy:
+            dump(minimal_doc, target, profile="declared")
+        assert spy.call_count >= 1
+
+    @POSIX_ONLY
+    def test_the_parent_directory_is_fsynced_after_the_rename_on_posix(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "output.ipynb"
+        with patch("os.fsync", wraps=os.fsync) as spy:
+            dump(minimal_doc, target, profile="declared")
+        # One fsync for the temp file's content, one for the parent
+        # directory (POSIX only) -- both must have actually happened, not
+        # just the file-content one.
+        assert spy.call_count >= 2
+
+    @POSIX_ONLY
+    def test_a_failure_during_directory_fsync_does_not_fail_the_write(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        """Best-effort: the atomic rename has already succeeded by the
+        time the directory fsync runs -- a platform/filesystem that
+        doesn't support it must not turn a successful write into a
+        reported failure. Only the SECOND os.fsync call (the directory,
+        after the content one already legitimately succeeded) is made to
+        fail here -- a failure on the first (content) call is a different,
+        legitimately-fatal case, covered separately below."""
+        target = tmp_path / "output.ipynb"
+        real_fsync = os.fsync
+        call_count = 0
+
+        def flaky_fsync(fd: int) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                real_fsync(fd)
+                return
+            raise OSError("simulated: directory fsync not supported here")
+
+        with patch("os.fsync", side_effect=flaky_fsync):
+            dump(minimal_doc, target, profile="declared")  # must not raise
+        assert call_count >= 2
+        assert target.exists()
+        reloaded = load(target, mode="preservation")
+        assert reloaded.nbformat == 4
+
+
+class TestCleanupOnFailure:
+    """LIBIPYNB-Q19 (P0-D): the temp file must be removed on every failure
+    path, including a failure inside the new chmod/fsync steps -- not just
+    the pre-existing write/rename failure paths."""
+
+    def test_temp_file_is_removed_if_chmod_fails(self, minimal_doc: object, tmp_path: Path) -> None:
+        target = tmp_path / "output.ipynb"
+        with (
+            patch("os.chmod", side_effect=OSError("simulated chmod failure")),
+            pytest.raises(NotebookWriteError),
+        ):
+            dump(minimal_doc, target, profile="declared")
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert not target.exists()
+
+    def test_temp_file_is_removed_if_fsync_fails_on_the_content_write(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "output.ipynb"
+        with (
+            patch("os.fsync", side_effect=OSError("simulated fsync failure")),
+            pytest.raises(NotebookWriteError),
+        ):
+            dump(minimal_doc, target, profile="declared")
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert not target.exists()
