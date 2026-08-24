@@ -856,8 +856,17 @@
         "LIBIPYNB-Q47"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Confirm both built artifacts pass PyPI's own upload-time validation (long-description rendering, metadata well-formedness) before any real publish is ever attempted.",
+      "verification_command": "python -m twine check dist/libipynb-0.1.0-py3-none-any.whl dist/libipynb-0.1.0.tar.gz",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "twine (installed transiently into the LIBIPYNB-Q46 scratch venv, not the repo's own dev environment) run against both artifacts built for LIBIPYNB-Q46/Q47: `Checking dist/libipynb-0.1.0-py3-none-any.whl: PASSED`, `Checking dist/libipynb-0.1.0.tar.gz: PASSED`. Confirms README.md's Markdown renders as valid long_description content and pyproject.toml's project metadata (name/version/license-expression/classifiers/urls) is well-formed for a real PyPI upload -- this check runs the identical validation PyPI itself performs at upload time, so a PASSED result here is a genuine pre-flight, not a weaker local approximation.",
+      "mutation_baseline_checked": null,
+      "rollback": "N/A -- verification-only, no repo state changed",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Verification-only taskcard, no separate Taskcard-Gate-G2 review required. No actual publish attempted or authorized -- this only validates the artifacts, per this taskcard's own explicit scope."
     },
     {
       "id": "LIBIPYNB-Q49",
@@ -867,8 +876,17 @@
         "LIBIPYNB-Q46"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Audit the actual resolved dependency SET a real installer would produce (pinned exact versions, including transitive deps) -- distinct from LIBIPYNB-Q42's source-tree pip-audit, which audits pyproject.toml's declared version RANGES, not one concrete resolution.",
+      "verification_command": "<clean-room venv>/Scripts/pip freeze > requirements.txt; pip-audit -r requirements.txt --skip-editable",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "Froze the LIBIPYNB-Q47 clean-room sdist venv's exact resolved environment via `pip freeze` (kept pristine -- no twine/pip-audit installed into it, avoiding self-contamination of the audited set): attrs==26.1.0, jsonschema==4.26.0, jsonschema-specifications==2025.9.1, referencing==0.37.0, rpds-py==2026.6.3, plus libipynb==0.1.0 itself. Audited that frozen requirements file from pip-audit installed separately (this repo's own dev .venv, not the audited environment) via `pip-audit -r <file> --skip-editable`: 'No known vulnerabilities found' for all 5 real PyPI dependencies; libipynb itself correctly skipped ('Dependency not found on PyPI and could not be audited') since it has never been published -- an accurate, not a masked, result.",
+      "mutation_baseline_checked": null,
+      "rollback": "N/A -- verification-only, no repo state changed",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Verification-only taskcard, no separate Taskcard-Gate-G2 review required. Distinct evidence from LIBIPYNB-Q42 (source-tree audit of declared ranges) by design -- this audits one concrete, pinned resolution a real end user would actually get."
     },
     {
       "id": "LIBIPYNB-Q50",
@@ -878,8 +896,17 @@
         "LIBIPYNB-Q46"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Confirm both examples/*.py scripts run correctly using the packaged wheel's libipynb, not an editable/source-tree install -- a real, previously-unverified distinction this mission's own brief calls out explicitly.",
+      "verification_command": "<clean-room venv>/Scripts/python.exe examples/load_and_inspect.py; <clean-room venv>/Scripts/python.exe examples/validate_notebook.py",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "First confirmed the interpreter actually resolves libipynb from the installed wheel, not src/: `python -c 'import libipynb; print(libipynb.__file__)'` -> `.../site-packages/libipynb/__init__.py` (the LIBIPYNB-Q46 clean-room venv, not this repo's own .venv). Ran both examples/*.py scripts unmodified with that interpreter (the scripts themselves still live in and read tests/fixtures/ from this repo checkout via a relative Path(__file__) lookup -- only the `import libipynb` resolution is what's under test here, matching what any real downstream user's own script would do): load_and_inspect.py -> correctly reports nbformat 4.5, 9 cells (4 code/5 markdown), per-cell source previews, and kernel display name for tests/fixtures/valid/code-and-markdown.ipynb; validate_notebook.py -> correctly reports 16/16 tests/fixtures/valid/*.ipynb as VALID and all 4 tests/fixtures/invalid/*.ipynb as INVALID with the expected diagnostic codes (IPYNB_SCHEMA_REQUIRED/IPYNB_CELLS/IPYNB_PARSE/IPYNB_SCHEMA_TYPE/IPYNB_VERSION/IPYNB_SCHEMA_MINIMUM/IPYNB_SCHEMA_ADDITIONALPROPERTIES). Both scripts' output matches what running them against the source tree already produces (spot-checked), confirming the packaged wheel is behaviorally identical to source for these workflows.",
+      "mutation_baseline_checked": null,
+      "rollback": "N/A -- verification-only, no repo state changed",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Verification-only taskcard, no separate Taskcard-Gate-G2 review required."
     },
     {
       "id": "LIBIPYNB-Q51",
@@ -889,8 +916,17 @@
         "LIBIPYNB-Q46"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Confirm the vendored nbformat schemas and the py.typed marker declared in pyproject.toml's package-data are actually present AND functional inside the installed wheel -- not just declared in config, and not just present-but-inert.",
+      "verification_command": "ls <clean-room venv>/Lib/site-packages/libipynb/validation/schemas/; python -c \"from libipynb import validate; validate({...})\"; mypy --strict <trivial consumer script importing libipynb>",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "File-presence: all 6 vendored schema files present in the installed wheel's site-packages/libipynb/validation/schemas/ (nbformat.v4.0 through v4.5 .schema.json) and site-packages/libipynb/py.typed present. Functional, not just present: `from libipynb import validate; validate({'nbformat':4,'nbformat_minor':5,'metadata':{},'cells':[]})` actually loads a real vendored schema file from the installed package and returns is_valid=True (proving the schema is read from the packaged location, not silently falling back to nothing). py.typed functional proof (the stronger of the two, and the one actually verifying 'functional' not just 'present'): installed mypy into the clean-room venv, wrote two trivial consumer scripts (`from libipynb import NotebookDocument, load; ...`) -- one with a deliberate type error (assigning `doc.cell_count`, a real `int`, to a `str`-annotated variable) and one with correct usage. `mypy --strict` against the deliberately-wrong script correctly reports 'Incompatible types in assignment (expression has type \"int\", variable has type \"str\")' -- proving mypy resolved libipynb's REAL type stubs from the installed wheel, not silently treating every symbol as Any (which would produce zero errors regardless of what's assigned). The correctly-typed script passes mypy --strict cleanly, confirming this isn't spurious over-flagging.",
+      "mutation_baseline_checked": null,
+      "rollback": "N/A -- verification-only, no repo state changed",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Verification-only taskcard, no separate Taskcard-Gate-G2 review required. The py.typed check specifically distinguishes 'file exists in the wheel' from 'mypy actually uses it', which a bare file-presence check alone would not have proven."
     },
     {
       "id": "LIBIPYNB-Q52",
