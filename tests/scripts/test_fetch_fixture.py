@@ -206,6 +206,35 @@ def test_commit_with_approved_row_and_unchanged_content_vendors_the_fixture(fake
     assert "*(Empty until the maintainer approves" not in provenance_text
 
 
+def test_recorded_hash_is_line_ending_normalized_not_raw_bytes(fake_repo) -> None:
+    """LIBIPYNB-Q21 (P0-F): the hash this tool records in PROVENANCE.md
+    must match what tests/integration/test_obligation_corpus_integrity.py
+    computes when it later re-reads the vendored file from disk -- both
+    now normalize CRLF/CR to LF before hashing. A source serving CRLF
+    content (a real possibility, not every external source serves LF)
+    must not produce a recorded hash that a raw hashlib.sha256(content)
+    of the exact fetched bytes would have -- that was the whole
+    asymmetry P0-F closes."""
+    module, fixtures_dir, provenance_path, write_provenance = fake_repo
+    indented = json.dumps(
+        {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}, indent=2
+    ).encode()
+    crlf_content = indented.replace(b"\n", b"\r\n")
+    assert b"\r\n" in crlf_content
+    write_provenance(f"| 1 | test | {URL} | MIT | 1KB | test | ok | Approve | 2026-08-19 |")
+    with patch.object(module, "_fetch", return_value=crlf_content):
+        assert module.main([*_args(), "--dry-run"]) == 0
+        assert module.main([*_args(), "--commit"]) == 0
+    vendored = fixtures_dir / "valid" / "fetched.ipynb"
+    assert vendored.read_bytes() == crlf_content  # written verbatim, never silently mangled
+    provenance_text = provenance_path.read_text(encoding="utf-8")
+    normalized_hash = hashlib.sha256(crlf_content.replace(b"\r\n", b"\n")).hexdigest()
+    raw_hash = hashlib.sha256(crlf_content).hexdigest()
+    assert normalized_hash in provenance_text
+    assert raw_hash not in provenance_text
+    assert normalized_hash != raw_hash  # sanity: the fixture content actually differs by policy
+
+
 def test_commit_refuses_if_content_changed_since_dry_run(fake_repo, capsys) -> None:
     module, _fixtures_dir, _provenance_path, write_provenance = fake_repo
     write_provenance(f"| 1 | test | {URL} | MIT | 1KB | test | ok | Approve | 2026-08-19 |")

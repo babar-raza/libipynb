@@ -1,0 +1,21 @@
+# LIBIPYNB-Q21 (P0-F): digest policy is "normalized text bytes, not exact
+# git-checkout bytes" (see tests/integration/test_obligation_corpus_integrity.py
+# and src/libipynb/validation/schema.py's canonical_schema_digest for the
+# actual normalization). This file is belt-and-suspenders on top of that:
+# forcing these specific paths to check out as LF in the first place means
+# the hash check no longer even has to *rely on* the reader-side
+# normalization catching a line-ending mismatch -- a fresh checkout is
+# byte-identical across platforms for exactly the files this project
+# content-addresses.
+#
+# General baseline: auto-detect text files, normalize line endings in the
+# repository's own storage to LF (does not force a particular checkout
+# line ending for files not explicitly overridden below).
+* text=auto
+
+# Content-addressed / digest-pinned paths: force LF on checkout regardless
+# of a contributor's core.autocrlf setting, so `git clone` on any platform
+# reproduces byte-identical content for hashing.
+*.ipynb text eol=lf
+tests/fixtures/** text eol=lf
+src/libipynb/validation/schemas/*.json text eol=lf

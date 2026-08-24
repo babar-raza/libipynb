@@ -90,6 +90,25 @@ entirely synthetic/hand-crafted -- an honestly-disclosed limitation, not a
 silently-assumed completeness the audit's own Anti-Overclaim discipline
 warns against.
 
+### Digest policy (LIBIPYNB-Q21, P0-F)
+
+Every SHA-256 in this document, and in `tests/integration/
+test_obligation_corpus_integrity.py`'s `VALID_HASHES`/`REAL_WORLD_HASHES`,
+authenticates **normalized text bytes** (CRLF/CR canonicalized to LF) --
+never exact git-checkout bytes, and never sdist-archive bytes. A Windows
+checkout with `core.autocrlf=true` (the common Windows default) and a
+Linux checkout of the identical commit have genuinely different raw bytes
+on disk for the same tracked file; hashing raw bytes made this integrity
+check pass or fail based on which OS/git-config checked the repo out,
+independent of the actual notebook content. `scripts/fetch_fixture.py`
+computes the SHA-256 it records here the same normalized way (see that
+script's own `_canonical_sha256` docstring), so a hash recorded by
+`--commit` always matches what re-hashing the vendored file later
+produces, on any platform. A root `.gitattributes` additionally forces
+these paths to check out as LF in the first place, belt-and-suspenders on
+top of the hashing normalization, not the only thing preventing a
+platform-dependent mismatch.
+
 ### Repeatable sourcing process (LIBIPYNB-Q2 production-design session)
 
 Selection is still, and always will be, a maintainer decision (see above) --

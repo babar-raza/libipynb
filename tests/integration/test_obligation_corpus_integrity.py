@@ -1,24 +1,43 @@
-"""Content-addressed IPYNB corpus integrity proof for libipynb."""
+"""Content-addressed IPYNB corpus integrity proof for libipynb.
+
+LIBIPYNB-Q21 (P0-F) digest policy: every hash in this file authenticates
+*normalized text bytes* (CRLF/CR canonicalized to LF), never exact
+git-checkout bytes and never sdist-archive bytes. This matters because git
+line-ending settings (``core.autocrlf``) mean the exact bytes on disk for a
+tracked text file genuinely differ between a Windows checkout (CRLF, if
+``core.autocrlf=true``, the common Windows default) and a Linux checkout of
+the identical commit (LF, the canonical blob content) -- hashing raw
+on-disk bytes made this integrity check pass or fail purely based on which
+OS/git-config combination checked the repo out, independent of the actual
+notebook content. Reuses ``canonical_schema_digest`` (already applied to
+the vendored nbformat schemas, for the identical reason -- see
+``validation/schema.py``'s own docstring) rather than a second,
+independently-maintained normalization implementation. A root
+``.gitattributes`` additionally forces these paths to check out as LF in
+the first place, so this normalization is belt-and-suspenders, not the
+only thing standing between this test and a platform-dependent failure.
+"""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 from libipynb import NotebookParseError, load
-from libipynb.validation.schema import schema_diagnostics
+from libipynb.validation.schema import canonical_schema_digest, schema_diagnostics
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 VALID = FIXTURES / "valid"
 INVALID = FIXTURES / "invalid"
 
+# Recomputed against LF-normalized content (see module docstring) --
+# these no longer match the raw bytes of a CRLF checkout, by design.
 VALID_HASHES = {
-    "minimal.ipynb": "60b1be44941df5d0394431f5c4a900937c6106d65888bd39ea9da9c76ca29b2b",
-    "code-and-markdown.ipynb": "77c6d7cc3b70c2a34a2dc4f9c08a71ca20a146c579a9e41e21514bfc5c903a00",
-    "with-outputs.ipynb": "03ac5f4dfae9bb393b88e39b11c2b12a7df7599e7918791e1ef837eb939e53ba",
+    "minimal.ipynb": "33b5ee284b44179f7121ecb1c766dc6503fa349913fb1678d2dcdef2d117454f",
+    "code-and-markdown.ipynb": "760f80283f4e2601bf35c9593cce19b8645fa3e2a9871ee017a36295cb05c2a4",
+    "with-outputs.ipynb": "22461b0253a600f0aac0afd8ba5ecc8d60c2efcc4cf6188a808544367308b79e",
 }
 
 # LIBIPYNB-Q2 (real-world corpus sourcing): {category: {filename: sha256}}
@@ -28,11 +47,13 @@ VALID_HASHES = {
 # -- so this can never silently drift from what was actually vendored).
 # Deliberately empty until the maintainer approves and vendors the first
 # real-world fixture; see PROVENANCE.md's "Repeatable sourcing process".
+# Hashed the same normalized way as VALID_HASHES above -- see this file's
+# own module docstring for the policy.
 REAL_WORLD_HASHES: dict[str, dict[str, str]] = {}
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return canonical_schema_digest(path.read_bytes())
 
 
 def _json(path: Path) -> dict:
@@ -60,6 +81,51 @@ def test_active_valid_corpus_is_digest_bound_and_strictly_valid(
 def test_invalid_fixture_fails_strict_load() -> None:
     with pytest.raises(NotebookParseError):
         load(INVALID / "missing-nbformat.ipynb", mode="strict")
+
+
+def test_crlf_and_lf_variants_of_the_same_content_hash_identically(tmp_path: Path) -> None:
+    """LIBIPYNB-Q21 (P0-F): proves the fix, not just re-derives new
+    hardcoded numbers -- the exact same logical content, checked out with
+    Windows-style CRLF line endings (simulating a core.autocrlf=true
+    checkout) versus Unix-style LF (simulating a Linux/CI checkout, the
+    canonical git blob form), must hash identically under this file's own
+    _sha256() -- confirmed on this exact Windows checkout AND directly
+    against a raw-bytes LF string (simulating a Linux checkout) in the
+    same test process, so this doesn't depend on this test actually
+    running on two different machines to prove the point."""
+    content = json.dumps(
+        {"nbformat": 4, "nbformat_minor": 5, "metadata": {"a": 1}, "cells": []}, indent=2
+    ).encode()
+    assert b"\r\n" not in content  # json.dumps produces bare \n
+
+    lf_path = tmp_path / "lf.ipynb"
+    crlf_path = tmp_path / "crlf.ipynb"
+    lf_path.write_bytes(content)
+    crlf_path.write_bytes(content.replace(b"\n", b"\r\n"))
+
+    assert lf_path.read_bytes() != crlf_path.read_bytes()  # sanity: genuinely different bytes
+    assert _sha256(lf_path) == _sha256(crlf_path)
+
+
+def test_gitattributes_forces_lf_for_content_addressed_paths() -> None:
+    """The .gitattributes policy is belt-and-suspenders alongside the
+    hashing normalization above -- a fresh checkout should be LF for
+    these paths in the first place, on any platform. Checked via `git
+    check-attr` rather than re-implementing gitattributes pattern
+    matching here."""
+    import subprocess
+
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["git", "check-attr", "eol", "--", "tests/fixtures/valid/minimal.ipynb"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"git check-attr unavailable in this environment: {result.stderr.strip()}")
+    assert "eol: lf" in result.stdout
 
 
 def _real_world_cases() -> list[tuple[str, str, str]]:

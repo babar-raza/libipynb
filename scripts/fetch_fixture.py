@@ -63,6 +63,25 @@ class FetchFixtureError(Exception):
     library)."""
 
 
+def _canonical_sha256(content: bytes) -> str:
+    """LIBIPYNB-Q21 (P0-F): digest policy is "normalized text bytes, not
+    exact checkout bytes" -- see tests/integration/
+    test_obligation_corpus_integrity.py's module docstring for the full
+    policy. This is a deliberate, small duplicate of
+    libipynb.validation.schema.canonical_schema_digest's exact logic, not
+    an import of it: this script is stdlib-only by design (see this
+    file's own module docstring, "never triggers Gate G7's
+    add_core_dependency review"), and the normalization itself is two
+    lines, stable, and unlikely to drift silently out of sync. Without
+    this, a fetched fixture containing CRLF (a real possibility -- not
+    every external source serves LF) would be hashed here one way and
+    re-hashed a different way when the corpus-integrity test later reads
+    the vendored file back from disk, breaking the exact guarantee this
+    tool exists to uphold: what gets recorded in REAL_WORLD_HASHES must
+    match what re-hashing the vendored file always produces."""
+    return hashlib.sha256(content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
+
+
 @dataclass(frozen=True)
 class StagedFetch:
     content: bytes
@@ -102,7 +121,7 @@ def _stage(url: str, *, refetch: bool) -> StagedFetch:
     else:
         content = _fetch(url)
         staged_path.write_bytes(content)
-    digest = hashlib.sha256(content).hexdigest()
+    digest = _canonical_sha256(content)
     lock_path.write_text(
         json.dumps({"url": url, "sha256": digest, "size": len(content)}, indent=2),
         encoding="utf-8",
@@ -121,9 +140,7 @@ def _load_prior_dry_run(url: str) -> StagedFetch | None:
     if lock.get("url") != url:
         return None
     content = staged_path.read_bytes()
-    return StagedFetch(
-        content=content, sha256=hashlib.sha256(content).hexdigest(), size=len(content)
-    )
+    return StagedFetch(content=content, sha256=_canonical_sha256(content), size=len(content))
 
 
 def _split_table_rows(markdown: str, heading: str) -> list[list[str]]:
