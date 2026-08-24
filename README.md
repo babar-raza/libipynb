@@ -203,15 +203,19 @@ gracefully with recovery actions recorded on the document.
 
 ## Platform support
 
-CI (`.gitlab-ci.yml`) runs exclusively on Linux (`python:3.11`/`3.12`/`3.13-slim`
-containers). **Windows and macOS are not covered by CI** and are best-effort only --
-this is a deliberate, recorded scope limitation (see `plans/full-parity-plan.md`
-LIBIPYNB-P9), not a silent gap. The library and CLI are pure Python with no
-platform-conditional code paths outside `adapters/execute.py`'s POSIX-only
-`max_memory_bytes` enforcement (which refuses rather than silently no-ops on
-Windows) and the `fuzz/` harnesses (Linux-only, outside `tests/` and never
-required for the normal suite). If you hit a Windows/macOS-specific issue,
-please report it -- it has not been exercised by an automated gate.
+The internal GitLab mirror's CI (`.gitlab-ci.yml`) runs exclusively on Linux
+(`python:3.11`/`3.12`/`3.13-slim` containers). GitHub Actions
+(`.github/workflows/ci.yml`, LIBIPYNB-Q26) additionally runs a Windows and
+macOS leg (Python 3.12, the core `unit`/`integration`/`security` suite --
+not the slower property suite or the Linux-only `fuzz`/oracle/exec-heavy
+tiers) on every push and pull request, superseding the scope limitation
+LIBIPYNB-P9 originally recorded here. The library and CLI are pure Python
+with no platform-conditional code paths outside `adapters/execute.py`'s
+POSIX-only `max_memory_bytes` enforcement (which refuses rather than
+silently no-ops on Windows) and the `fuzz/` harnesses (Linux-only, outside
+`tests/` and never required for the normal suite). If you hit a
+Windows/macOS-specific issue, please report it -- the core suite is now
+gated there, but the property/fuzz/oracle tiers still are not.
 
 ## API Overview
 

@@ -56,8 +56,11 @@ jobs:
         run: mypy --strict src/libipynb/
 
   # ── Coverage ─────────────────────────────────────────────────────────────
-  # New: not wired into .gitlab-ci.yml at all (see project-adapter.yaml's own
-  # comment on the `coverage:` command entry, "not wired into CI yet").
+  # New: not wired into .gitlab-ci.yml at all -- confirmed by reading that
+  # file directly, which has no coverage-invoking job anywhere in it (the
+  # "not wired into CI yet" phrasing lives on project-adapter.yaml's
+  # `fuzz_example:` entry, not `coverage:` -- this comment previously
+  # misattributed it).
   # fail_under=85 is enforced by pyproject.toml's [tool.coverage.report],
   # which pytest-cov reads automatically -- no extra CLI flag needed.
   coverage:
