@@ -69,16 +69,30 @@ def _canonical_sha256(content: bytes) -> str:
     test_obligation_corpus_integrity.py's module docstring for the full
     policy. This is a deliberate, small duplicate of
     libipynb.validation.schema.canonical_schema_digest's exact logic, not
-    an import of it: this script is stdlib-only by design (see this
-    file's own module docstring, "never triggers Gate G7's
-    add_core_dependency review"), and the normalization itself is two
-    lines, stable, and unlikely to drift silently out of sync. Without
-    this, a fetched fixture containing CRLF (a real possibility -- not
-    every external source serves LF) would be hashed here one way and
-    re-hashed a different way when the corpus-integrity test later reads
-    the vendored file back from disk, breaking the exact guarantee this
-    tool exists to uphold: what gets recorded in REAL_WORLD_HASHES must
-    match what re-hashing the vendored file always produces."""
+    an import of it.
+
+    Gate G2 finding: an earlier version of this docstring justified the
+    duplication by citing Gate G7 (this script being "stdlib-only,
+    deliberately, to never trigger add_core_dependency review") -- that's
+    a misattribution. Gate G7 governs adding a NEW third-party dependency
+    to pyproject.toml; it says nothing about a maintainer script importing
+    this repo's own libipynb package, which this file already does
+    elsewhere (see _smoke_check_loadable's `from libipynb import load`).
+    The real reason is ordering and reliability: this function is called
+    from _stage(), which runs during the very first thing a user invokes
+    (--dry-run), and must always produce a hash reliably -- unlike
+    _smoke_check_loadable's import, which is explicitly best-effort (a
+    sys.path hack wrapped in try/except ImportError, printing a warning
+    and continuing if libipynb isn't importable from wherever this script
+    happens to be run). Hashing can't degrade the same way: without
+    normalization, a fetched fixture containing CRLF (a real possibility
+    -- not every external source serves LF) would be hashed here one way
+    and re-hashed a different way when the corpus-integrity test later
+    reads the vendored file back from disk, breaking the exact guarantee
+    this tool exists to uphold -- what gets recorded in REAL_WORLD_HASHES
+    must match what re-hashing the vendored file always produces. The
+    normalization itself is two lines, stable, and unlikely to drift
+    silently out of sync with canonical_schema_digest's own."""
     return hashlib.sha256(content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
 
 

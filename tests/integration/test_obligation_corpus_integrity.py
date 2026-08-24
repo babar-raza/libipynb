@@ -112,20 +112,54 @@ def test_gitattributes_forces_lf_for_content_addressed_paths() -> None:
     hashing normalization above -- a fresh checkout should be LF for
     these paths in the first place, on any platform. Checked via `git
     check-attr` rather than re-implementing gitattributes pattern
-    matching here."""
+    matching here.
+
+    Gate G2 CRITICAL finding: the original version only guarded against
+    `git` existing but erroring (a non-zero return code) -- not `git`
+    being entirely absent from PATH, which raises FileNotFoundError from
+    subprocess.run() itself before a return code even exists to check.
+    Reproduced live in this project's own actual, already-configured,
+    non-schedule-gated .gitlab-ci.yml test-py31x jobs (`python:*-slim`
+    images do not include git) via a real python:3.12-slim container
+    running a clean `git archive HEAD` checkout: this test FAILED there
+    (not skipped), directly contradicting its own intended fail-open
+    behavior for "git unavailable"."""
     import subprocess
 
     repo_root = Path(__file__).resolve().parents[2]
-    result = subprocess.run(
-        ["git", "check-attr", "eol", "--", "tests/fixtures/valid/minimal.ipynb"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "check-attr", "eol", "--", "tests/fixtures/valid/minimal.ipynb"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        pytest.skip(f"git executable not available in this environment: {exc}")
     if result.returncode != 0:
         pytest.skip(f"git check-attr unavailable in this environment: {result.stderr.strip()}")
     assert "eol: lf" in result.stdout
+
+
+def test_gitattributes_check_skips_cleanly_when_git_is_entirely_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gate G2 CRITICAL finding regression test: directly proves the fix
+    -- when the `git` executable itself is missing from PATH (not merely
+    erroring), subprocess.run() raises FileNotFoundError (a subclass of
+    OSError) before any return code exists. Simulated by monkeypatching
+    subprocess.run to reproduce exactly that, rather than actually
+    removing git from this test's own PATH (which would be disruptive and
+    environment-dependent to set up reliably)."""
+    import subprocess
+
+    def _raise_not_found(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("[Errno 2] No such file or directory: 'git'")
+
+    monkeypatch.setattr(subprocess, "run", _raise_not_found)
+    with pytest.raises(pytest.skip.Exception):
+        test_gitattributes_forces_lf_for_content_addressed_paths()
 
 
 def _real_world_cases() -> list[tuple[str, str, str]]:
