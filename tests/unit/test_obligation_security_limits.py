@@ -140,6 +140,32 @@ class TestQ55TupleNestingIsNotAResourceLimitBlindSpot:
             for d in report.errors
         ), report.errors
 
+    def test_a_mappingproxytype_nesting_is_covered_too_not_just_userdict(self) -> None:
+        """Gate-G2 follow-up review MINOR finding: the fix is a broad
+        `isinstance(current, Mapping)` check, not a `UserDict` special
+        case, so any Mapping implementation should be structurally
+        covered -- this closes the specific gap in coverage rather than
+        relying on that being merely asserted."""
+        from types import MappingProxyType
+
+        limits = IPYNB_DEFAULT_LIMITS.with_overrides(max_nesting_depth=8)
+        nested: object = "leaf"
+        for _ in range(20):
+            nested = MappingProxyType({"nested": nested})
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"vendor": nested},
+            "cells": [],
+        }
+
+        report = validate(model, limits=limits)
+
+        assert any(
+            d.code == "IPYNB_RESOURCE_LIMIT" and "max_nesting_depth exceeded" in d.message
+            for d in report.errors
+        ), report.errors
+
 
 def test_json_recursion_failure_is_a_deterministic_parse_error() -> None:
     deeply_nested = (
