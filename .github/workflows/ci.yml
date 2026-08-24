@@ -113,14 +113,18 @@ jobs:
         run: pytest tests/property/ -v --tb=short
 
   # ── Supply-chain audit ──────────────────────────────────────────────────
-  # LIBIPYNB-Q42: `pip-audit` against every extra this project ships
-  # (test+exec+export+oracle+fuzz -- every extras group in pyproject.toml;
-  # `fuzz`'s `atheris` marker is Linux-only, which this runner satisfies),
-  # auditing the complete real dependency surface, not just the bare core.
-  # Findings are triaged explicitly, never silently ignored -- see this
-  # job's own `ignore-vuln` flags (if any are ever added) for the
-  # accepted-risk record, each requiring a comment citing the specific
-  # advisory and reasoning.
+  # LIBIPYNB-Q42: `pip-audit` against every extra this project ships that
+  # can add a package pip-audit doesn't already see (test+exec+export+
+  # oracle+fuzz -- `fuzz`'s `atheris` marker is Linux-only, which this
+  # runner satisfies). `reference` (pyproject.toml) is the only extras
+  # group not installed here -- its sole dependency, `nbformat==5.10.4`,
+  # is an exact duplicate of the pin `test` already carries, so it adds no
+  # additional package/version to the audited surface; not worth a second
+  # install step to cover a set already fully included. Findings are
+  # triaged explicitly, never silently ignored -- see this job's own
+  # `ignore-vuln` flags (if any are ever added) for the accepted-risk
+  # record, each requiring a comment citing the specific advisory and
+  # reasoning.
   #
   # Gate-G2 review finding (repaired here): pip-audit also audits pip
   # itself, and this session's own verification run found pip 24.3.1 (the
