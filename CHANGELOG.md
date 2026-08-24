@@ -191,8 +191,25 @@ afterward is recorded here instead.)
 
 - Test coverage: 87.92% (752 tests) -> 89.07% (874 tests) -> 89.05% (879
   tests) across the full-parity and kernel-execution work above
-
-## [0.1.0] - 2026-08-12
+- **Mutation-after-access hardening** (LIBIPYNB-Q43/Q61): several `frozen`
+  result-object fields that looked immutable but weren't -- `frozen=True`
+  blocks *reassigning* a field, not mutating a `dict`/`list` value already
+  stored in it -- are now deep-frozen (nested `dict`/`list` values become
+  `types.MappingProxyType`/`tuple`) instead of merely being copied once at
+  construction time. Affects: `model.diff`'s `FieldChange`/
+  `NotebookFieldChange`, `model.parameters.InjectedParameter.value`,
+  `model.attachments.AttachmentChange`, `model.merge.CellConflict`,
+  `model.cleanup.Change`, `model.editor.CellQuery.metadata`/`CellEdit`,
+  `model.metadata`'s typed metadata classes, `execution.options.
+  ExecutionOptions.extra_env`, `execution.results.CellExecutionRecord.
+  outputs`, `diagnostics.Diagnostic.details`, and
+  `adapters.export.ExportResult.metadata`. A caller that previously read
+  one of these fields and mutated the returned `dict`/`list` in place will
+  now get a `TypeError` instead of silently corrupting what a later read
+  of the same object returns; `dict(value)`/`list(value)` (or the
+  already-mutable-copy-returning `to_dict()`/`target_snapshot`-style
+  accessors these classes also expose where applicable) still work for
+  building a normal mutable copy.
 
 First publication-ready release.
 
