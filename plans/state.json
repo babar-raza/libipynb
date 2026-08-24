@@ -617,8 +617,18 @@
         "LIBIPYNB-Q17"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "pytest tests/property/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "10 Hypothesis properties across both truncation functions, self-verified with a genuine negative control: reproduced the OLD any()-short-circuit implementation inline and confirmed the property test correctly fails against it (Hypothesis found a 2-output counterexample immediately), proving these tests would have caught the real P0-B bug, not just passing coincidentally post-fix",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete the new test file, zero production-code risk",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "9dc6e5f05d605e2712ccaa1048a711cc46806e08",
+      "note": "Implementation 9dc6e5f. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q40",
