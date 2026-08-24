@@ -107,6 +107,39 @@ class TestQ55TupleNestingIsNotAResourceLimitBlindSpot:
 
         enforce_structure(model)  # must not raise
 
+    def test_a_non_dict_mapping_is_not_a_resource_limit_blind_spot_either(self) -> None:
+        """Gate-G2 review finding on this same commit's own tuple fix: the
+        same defect class recurs for any non-``dict`` ``Mapping`` --
+        validate()'s own ``_mapping()`` helper accepts
+        ``isinstance(value, Mapping)``, not only ``dict``, so a
+        ``collections.UserDict`` is exactly as realistic a shape here as
+        a tuple was. Confirmed live before this specific check was
+        added: a 2000-level ``UserDict`` nest sailed through
+        ``enforce_structure`` with zero exception at the default limits,
+        then crashed ``validate()`` with an uncaught ``RecursionError``
+        from ``find_non_finite_floats``'s own independent 1000-level
+        backstop -- the exact same "broke the intended defense-in-depth
+        ordering" symptom the tuple fix itself was verified against."""
+        from collections import UserDict
+
+        limits = IPYNB_DEFAULT_LIMITS.with_overrides(max_nesting_depth=8)
+        nested: object = "leaf"
+        for _ in range(20):
+            nested = UserDict({"nested": nested})
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"vendor": nested},
+            "cells": [],
+        }
+
+        report = validate(model, limits=limits)
+
+        assert any(
+            d.code == "IPYNB_RESOURCE_LIMIT" and "max_nesting_depth exceeded" in d.message
+            for d in report.errors
+        ), report.errors
+
 
 def test_json_recursion_failure_is_a_deterministic_parse_error() -> None:
     deeply_nested = (
