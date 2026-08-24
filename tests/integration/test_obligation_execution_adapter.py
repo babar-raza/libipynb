@@ -18,8 +18,8 @@ test_obligation_core_path_no_execution.py.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -222,22 +222,24 @@ def test_timeout_preserves_partial_output_from_completed_cells() -> None:
     assert report.results[0].stdout == "captured\n"
 
 
-def test_timeout_partial_output_is_decoded_when_the_platform_returns_bytes() -> None:
-    """subprocess.run's timeout+kill path returns TimeoutExpired.stdout as
-    str on Windows (it re-invokes communicate(), which decodes) but as raw
-    bytes on POSIX (no re-drain, so text=True's decoding step is never
-    reached) -- confirmed by direct reproduction on Linux, where this
-    silently discarded all partial output before this fix (the previous
-    code's `if isinstance(exc.stdout, str) else ""` treated bytes as
-    "nothing captured", turning a real timeout+partial-output case into a
-    zero-results one). Mocked here with real driver-format bytes so the
-    regression is caught on any platform's CI, not only by running on
-    Linux."""
+def test_timeout_partial_output_bytes_are_decoded_into_the_report() -> None:
+    """LIBIPYNB-Q44: execute_notebook decodes the raw bytes
+    ``_run_driver_subprocess`` returns exactly once, uniformly, regardless
+    of platform or whether the run timed out -- superseding an earlier,
+    now-structurally-impossible-to-reintroduce bug where
+    ``subprocess.run``'s own timeout+kill path returned ``TimeoutExpired.
+    stdout`` as ``str`` on Windows but raw ``bytes`` on POSIX, and the
+    then-current code silently treated the POSIX bytes case as "nothing
+    captured". Mocked at the driver-subprocess seam (not subprocess.run,
+    which this path no longer calls) with real driver-format bytes,
+    asserting the decode still happens correctly on the timed-out path."""
     document = _document([_code("print('captured')", "a")])
     driver_line = b'{"index": 0, "stdout": "captured\\n", "error": null}\n'
-    timeout_error = subprocess.TimeoutExpired(cmd=["python"], timeout=1, output=driver_line)
 
-    with patch("libipynb.adapters.execute.subprocess.run", side_effect=timeout_error):
+    with patch(
+        "libipynb.adapters.execute._run_driver_subprocess",
+        return_value=(driver_line, True),
+    ):
         report = execute_notebook(document, timeout=1, acknowledge_unsandboxed=True)
 
     assert report.timed_out is True
@@ -685,3 +687,120 @@ def test_max_memory_bytes_none_does_not_limit_normal_allocation_on_posix() -> No
 
     assert report.memory_limit_bytes is None
     assert report.results[0].stdout.strip() == "1024"
+
+
+# ── LIBIPYNB-Q44: grandchild process defeats timeout + is leaked ───────────
+#
+# Two compounding defects, both reproduced directly (not assumed) via a
+# standalone diagnostic before this test was written:
+#
+# 1. execute_notebook's `timeout` is meant to bound wall-clock time -- the
+#    whole point of an "opt-in execution adapter" for untrusted code. But
+#    subprocess.run(timeout=...)'s kill path still calls communicate() to
+#    drain output, which blocks reading the pipe until EOF. If a cell
+#    spawns a grandchild process without redirecting ITS OWN stdout, the
+#    grandchild inherits the driver's stdout pipe handle by default (a
+#    well-known subprocess gotcha, not Windows-specific: `close_fds=True`
+#    only closes *unnamed* fds, never fd 1/2 themselves, on POSIX either) --
+#    so the pipe has a second writer, and EOF (hence communicate()'s
+#    return, hence execute_notebook's own return) does not happen until
+#    that grandchild ALSO exits, regardless of the driver already having
+#    been killed. Reproduced directly: `timeout=2` against a driver whose
+#    only cell spawns a `time.sleep(60)` grandchild made execute_notebook
+#    itself take >60s to return, not ~2s -- the caller-visible bound the
+#    `timeout` parameter promises was silently violated by nothing more
+#    than the executed (untrusted!) cell code spawning a subprocess.
+# 2. Separately, even once execute_notebook does return, the grandchild
+#    itself was never explicitly terminated -- only the direct driver
+#    process was killed (subprocess.run's internal kill signals exactly
+#    one PID). A process a cell spawned and left running survives as a
+#    leaked/orphaned process.
+#
+# Both share one root cause (the timeout path never manages the whole
+# process TREE, only the one direct child) and one fix.
+
+
+class TestTimeoutIsNotDefeatedByASpawnedGrandchild:
+    def test_execute_notebook_returns_promptly_even_if_a_cell_spawns_a_long_lived_process(
+        self,
+    ) -> None:
+        """The primary, most important invariant: wall-clock time to get a
+        result back is actually bounded by `timeout`, regardless of what
+        the executed cell code spawns. A grandchild sleeping for 20s must
+        not make a `timeout=1` call take anywhere near that long."""
+        document = _document(
+            [
+                _code(
+                    "import subprocess, sys\n"
+                    "child = subprocess.Popen(\n"
+                    "    [sys.executable, '-c', 'import time; time.sleep(20)']\n"
+                    ")\n"
+                    "print(child.pid)\n",
+                    "spawn",
+                ),
+                _code("import time; time.sleep(30)", "hang"),
+            ]
+        )
+
+        t0 = time.monotonic()
+        report = execute_notebook(document, timeout=1, acknowledge_unsandboxed=True)
+        elapsed = time.monotonic() - t0
+
+        assert report.timed_out is True
+        # Generous margin over the 1s timeout for process-spawn/kill
+        # overhead -- but decisively less than the grandchild's own 20s
+        # lifetime, so this can only pass if the grandchild's lifetime
+        # genuinely did not gate the return.
+        assert elapsed < 10.0, (
+            f"execute_notebook took {elapsed:.1f}s to return with timeout=1 -- "
+            "a spawned grandchild process defeated the timeout bound "
+            "(LIBIPYNB-Q44)"
+        )
+
+    def test_a_process_spawned_by_a_cell_does_not_survive_a_timeout_kill(self) -> None:
+        psutil = pytest.importorskip("psutil")
+
+        document = _document(
+            [
+                _code(
+                    "import subprocess, sys\n"
+                    "child = subprocess.Popen(\n"
+                    "    [sys.executable, '-c', 'import time; time.sleep(20)']\n"
+                    ")\n"
+                    "print(child.pid)\n",
+                    "spawn",
+                ),
+                _code("import time; time.sleep(30)", "hang"),
+            ]
+        )
+
+        report = execute_notebook(document, timeout=1, acknowledge_unsandboxed=True)
+
+        assert report.timed_out is True
+        assert len(report.results) == 1, "the spawning cell's own result must have flushed"
+        child_pid = int(report.results[0].stdout.strip())
+
+        # Give the OS a brief, bounded grace period to finish tearing the
+        # process down -- psutil.Process(pid) can still resolve a just-killed
+        # PID for a short window before it's fully reaped. The grandchild's
+        # own 20s sleep is long enough that reaching this point via natural
+        # exit (rather than actual cleanup) would already contradict the
+        # companion test's <10s bound -- this test still checks cleanup
+        # directly and independently, without relying on that ordering.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                child = psutil.Process(child_pid)
+                if child.status() == psutil.STATUS_ZOMBIE:
+                    break
+            except psutil.NoSuchProcess:
+                break
+            time.sleep(0.2)
+        else:
+            pytest.fail(
+                f"grandchild process {child_pid} was still running "
+                f"{deadline - time.monotonic():.1f}s past the timeout-kill -- "
+                "execute_notebook's timeout path only killed the direct "
+                "driver subprocess, not processes the executed cell code "
+                "itself spawned (LIBIPYNB-Q44)"
+            )

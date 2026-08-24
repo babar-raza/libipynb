@@ -33,11 +33,15 @@ subprocess per cell.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import queue
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
@@ -295,6 +299,148 @@ def _apply_output_budget(
     return tuple(budgeted), truncated_any
 
 
+def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
+    """LIBIPYNB-Q44: terminate the driver AND every process it (or code it
+    ran) spawned -- ``Popen.kill()`` alone only ever signals that one PID,
+    leaving anything the executed cell code itself spawned (e.g. via its
+    own ``subprocess.Popen`` call) running, untouched, after the driver
+    itself is gone. Best-effort: a process that already exited on its own
+    between the timeout firing and this call is not an error here."""
+    if sys.platform == "win32":
+        # taskkill /T kills the whole process tree rooted at this PID, not
+        # just the one process -- a ubiquitous, OS-provided tool (System32),
+        # not a new dependency. /F forces termination without prompting.
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        # Always also try the direct kill -- taskkill failing (missing
+        # binary on a stripped-down install, access-denied, ...) must not
+        # leave the driver process itself alive.
+        with contextlib.suppress(OSError):
+            process.kill()
+    else:
+        # _run_driver_subprocess starts the driver in its own session
+        # (start_new_session=True), making it the leader of a new process
+        # group -- os.killpg signals every process in that group, not just
+        # the driver, which is what actually reaches a grandchild the
+        # driver's own cell code spawned.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        with contextlib.suppress(OSError):
+            process.kill()
+
+
+def _run_driver_subprocess(
+    kernel: str,
+    payload: str,
+    *,
+    timeout: float | None,
+    cwd: str | None,
+    env: dict[str, str] | None,
+    preexec_fn: Callable[[], None] | None,
+) -> tuple[bytes, bool]:
+    """Runs the driver subprocess and returns ``(captured_stdout, timed_out)``.
+
+    LIBIPYNB-Q44: reads the driver's stdout on a background thread instead
+    of via ``subprocess.run``'s own ``communicate()``-based timeout
+    handling, so a timeout-triggered kill can never block waiting for the
+    pipe to reach EOF. EOF only happens once *every* process holding the
+    write end of the pipe has exited -- not guaranteed to be true of the
+    driver alone if the executed cell code spawned its own child process
+    without redirecting that child's stdout (inheriting the driver's pipe
+    handle is the *default* when a child's own stdout isn't explicitly
+    redirected -- a well-known, cross-platform subprocess gotcha: POSIX's
+    ``close_fds=True`` only closes *unnamed* descriptors, never fds 0/1/2
+    themselves). Reproduced directly before this fix: a `timeout=2` call
+    against a driver whose only cell spawned a 60s-sleeping grandchild
+    made ``execute_notebook`` itself take over 60s to return -- the
+    wall-clock bound the ``timeout`` parameter promises was silently
+    defeated by nothing more than the executed cell code spawning a
+    subprocess. See ``TestTimeoutIsNotDefeatedByASpawnedGrandchild`` in
+    ``tests/integration/test_obligation_execution_adapter.py``.
+    """
+    popen_kwargs: dict[str, Any] = {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "cwd": cwd,
+        "env": env,
+        "preexec_fn": preexec_fn,
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    process: subprocess.Popen[bytes] = subprocess.Popen(
+        [kernel, "-c", _DRIVER_SCRIPT], **popen_kwargs
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+
+    chunks: queue.Queue[bytes | None] = queue.Queue()
+
+    def _reader(stream: Any) -> None:
+        # This thread is the stream's sole owner from here on -- the main
+        # thread never touches process.stdout again after starting this
+        # thread. Closing it here, not from the main thread, avoids a
+        # cross-thread close-while-reading race: if the pipe never reaches
+        # EOF (a grandchild still holds it open), this thread -- and only
+        # this thread -- may still be blocked in stream.read() when
+        # _run_driver_subprocess returns; it is a daemon thread, so it
+        # cannot block interpreter exit, and it closes its own stream once
+        # (if ever) it does unblock.
+        try:
+            for chunk in iter(lambda: stream.read(65536), b""):
+                chunks.put(chunk)
+        except (OSError, ValueError):
+            pass
+        finally:
+            chunks.put(None)
+            with contextlib.suppress(OSError):
+                stream.close()
+
+    reader_thread = threading.Thread(target=_reader, args=(process.stdout,), daemon=True)
+    reader_thread.start()
+
+    try:
+        process.stdin.write(payload.encode("utf-8"))
+        process.stdin.close()
+    except OSError:
+        pass  # driver may already have exited/failed to launch fully
+
+    try:
+        process.wait(timeout=timeout)
+        timed_out = False
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _kill_process_tree(process)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=10)
+
+    # A brief, bounded wait for the reader thread to catch up -- NOT a
+    # requirement for correctness (the queue.get_nowait() drain below
+    # returns whatever has already arrived regardless), just reduces the
+    # chance of missing the last already-in-flight chunk. If a grandchild
+    # is still holding the pipe open, this thread may never finish; it is
+    # a daemon thread, so it cannot block process/interpreter exit.
+    reader_thread.join(timeout=1.0)
+    buffer = bytearray()
+    while True:
+        try:
+            chunk = chunks.get_nowait()
+        except queue.Empty:
+            break
+        if chunk is not None:
+            buffer.extend(chunk)
+
+    return bytes(buffer), timed_out
+
+
 def execute_notebook(
     document: NotebookDocument,
     *,
@@ -398,32 +544,15 @@ def execute_notebook(
     work_dir = work_dir_ctx.name if work_dir_ctx is not None else None
     try:
         try:
-            completed = subprocess.run(
-                [resolved_kernel, "-c", _DRIVER_SCRIPT],
-                input=payload,
-                capture_output=True,
-                text=True,
+            raw_bytes, timed_out = _run_driver_subprocess(
+                resolved_kernel,
+                payload,
                 timeout=timeout,
-                check=False,
                 cwd=work_dir,
                 env=resolved_env,
                 preexec_fn=preexec_fn,
             )
-            raw_output = completed.stdout
-        except subprocess.TimeoutExpired as exc:
-            # subprocess.run's timeout+kill path re-decodes captured output
-            # to str on Windows (it re-invokes communicate() to drain,
-            # which goes through the text-mode wrapper) but attaches raw
-            # bytes on POSIX (no re-drain, so text=True's decoding step is
-            # never reached) -- confirmed by direct reproduction against
-            # this exact driver script and payload on Linux. Decoding here
-            # makes partial-output capture on timeout actually
-            # cross-platform instead of Windows-only.
-            captured: str | bytes | None = exc.stdout
-            if isinstance(captured, bytes):
-                captured = captured.decode("utf-8", errors="replace")
-            raw_output = captured if isinstance(captured, str) else ""
-            timed_out = True
+            raw_output = raw_bytes.decode("utf-8", errors="replace")
         except OSError as exc:
             # The kernel process itself could not be started (missing
             # interpreter, not executable, etc.) -- a controlled, reported
