@@ -648,7 +648,16 @@ class TestGate2ReviewCrashAndScopeFixes:
             "nbformat": 4,
             "nbformat_minor": 5,
             "metadata": {"created": datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)},
-            "cells": [],
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "c",
+                    "source": "x",
+                    "metadata": {"touched": datetime.datetime(2026, 1, 2, tzinfo=datetime.UTC)},
+                }
+            ],
         }
         assert notebook_byte_size(model) > 0
-        assert metadata_size_breakdown(model)["notebook_metadata_bytes"] > 0
+        breakdown = metadata_size_breakdown(model)
+        assert breakdown["notebook_metadata_bytes"] > 0
+        assert breakdown["cell_metadata_bytes"] > 0
