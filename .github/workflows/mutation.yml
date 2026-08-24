@@ -1,0 +1,84 @@
+name: Mutation
+
+on:
+  schedule:
+    # 05:53 UTC nightly -- offset from oracle.yml (03:17) and fuzz.yml
+    # (04:37) so the three scheduled tiers don't contend for the same
+    # runner-pool minute.
+    - cron: "53 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # LIBIPYNB-Q31: mutation testing via mutmut, Linux-only -- confirmed
+  # directly (`mutmut` itself refuses to run on native Windows: "To run
+  # mutmut on Windows, please use the WSL"), matching this project's own
+  # `fuzz` extra's existing platform posture.
+  #
+  # Scoped to codec/writer.py only -- the one module the LIBIPYNB-Q31
+  # pilot actually ran to completion and recorded a baseline for (see
+  # plans/state.json's LIBIPYNB-Q19 entry: 268 mutants, 186 killed, 61
+  # survived, 21 no-tests, 75.3% score). The other 3 designated hot
+  # modules (adapters/execute.py, adapters/jupyter_execute.py,
+  # codec/reader.py) are NOT yet included here -- widening `only_mutate`
+  # in pyproject.toml's [tool.mutmut] section to cover them is deliberately
+  # left as separate follow-up work, not silently assumed to already work
+  # just because the pilot succeeded for one module.
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + mutmut
+        run: pip install -e ".[test]" mutmut==3.7.0
+      - name: Run mutation testing
+        run: mutmut run || true
+        # mutmut's own exit code reflects whether the RUN completed, not
+        # whether the mutation SCORE is acceptable -- a clean run with a
+        # terrible score still exits 0, and (per LIBIPYNB-Q31's pilot
+        # findings) a single freshly-surfaced "no tests" mutant would
+        # otherwise fail this step before the score-gate step below ever
+        # runs. `|| true` defers the actual pass/fail decision to the
+        # explicit gate next, where it can be reported clearly.
+      - name: Mutation score gate
+        run: |
+          set -e
+          # `mutmut results` (no flag) only lists non-killed mutants by
+          # default -- confirmed directly (a bare run showed only
+          # "survived"/"no tests" lines, zero "killed" ones, even though
+          # the run itself reported 186 killed). --all is required to get
+          # every mutant's status, including killed ones this gate needs
+          # to compute a real score.
+          mutmut results --all true > /tmp/mutmut-results.txt
+          killed=$(grep -c ': killed$' /tmp/mutmut-results.txt || true)
+          survived=$(grep -c ': survived$' /tmp/mutmut-results.txt || true)
+          no_tests=$(grep -c ': no tests$' /tmp/mutmut-results.txt || true)
+          total=$((killed + survived))
+          echo "killed=$killed survived=$survived no_tests=$no_tests (denominator excludes no_tests, matching LIBIPYNB-Q19's own baseline calculation)"
+          if [ "$total" -eq 0 ]; then
+            echo "::error::No killed-or-survived mutants at all -- mutation testing did not genuinely run against any test-covered code. Treat as a tooling failure, not a 100% or 0% score."
+            exit 1
+          fi
+          # Threshold: 70%, a few points under the LIBIPYNB-Q19 pilot's own
+          # 75.3% baseline -- tight enough to catch a real regression,
+          # loose enough to absorb normal mutant-set churn as writer.py's
+          # own code changes over time without needing a threshold bump
+          # for every incidental fluctuation.
+          score=$(( killed * 100 / total ))
+          echo "mutation score: ${score}% (threshold: 70%)"
+          if [ "$score" -lt 70 ]; then
+            echo "::error::Mutation score ${score}% is below the 70% threshold (LIBIPYNB-Q19 baseline: 75.3%) -- a real regression in test strength for codec/writer.py, not noise."
+            exit 1
+          fi
+      - name: Upload mutation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-results
+          path: /tmp/mutmut-results.txt
+          if-no-files-found: ignore
+          retention-days: 30

@@ -90,6 +90,60 @@ python_version = "3.11"
 strict = true
 packages = ["libipynb"]
 
+[tool.mutmut]
+# LIBIPYNB-Q31 pilot (Linux-only, matches this project's own `fuzz` extra
+# platform posture -- mutmut refuses to run on native Windows at all,
+# confirmed directly: "To run mutmut on Windows, please use the WSL").
+# Deliberately scoped to one module for the pilot; not yet a standing CI
+# job. Widen `only_mutate` to the other 3 hot modules
+# (adapters/execute.py, adapters/jupyter_execute.py, codec/reader.py) only
+# after this scope's own baseline is recorded.
+only_mutate = ["src/libipynb/codec/writer.py"]
+# mutmut copies only tests/, pyproject.toml, and lockfiles into its mutated
+# `mutants/` tree by default -- a couple of tests read other repo-root
+# files directly (grep-confirmed: README.md, .gitlab-ci.yml) and would 404
+# there otherwise. also_copy is mutmut's own intended mechanism for this,
+# so used here rather than working around it by deselecting those tests.
+# plans/state.json is NOT included here: also_copy uses shutil.copy2 (file
+# only, does not create intermediate directories), so a nested destination
+# like mutants/plans/state.json fails outright unless mutants/plans/
+# already exists -- confirmed directly (FileNotFoundError). The one test
+# needing it (tests/scripts/test_state_json_schema.py) also runs `git log`
+# against this project's own commit history to validate VERIFIED rows,
+# which is governance/plan-process metadata orthogonal to codec/writer.py's
+# actual code behavior -- deselected as a whole file instead.
+also_copy = ["README.md", ".gitlab-ci.yml"]
+# mutmut runs pytest against a copied-and-mutated `mutants/` source tree,
+# never a real site-packages install -- structurally incompatible with
+# every test asserting libipynb's import origin IS site-packages (a
+# legitimate packaging-integrity check in every other context, just not
+# this one; grep confirmed exactly these 3 occurrences repo-wide). This
+# class genuinely can't be fixed via also_copy (the assertion is about
+# where the package resolves FROM, not about a missing file), so it's
+# deselected rather than dropping broader test-selection scope.
+pytest_add_cli_args_test_selection = [
+    "--deselect=tests/integration/test_obligation_nbformat_core.py::test_core_proof_uses_installed_production_namespace",
+    "--deselect=tests/package/test_production_namespace.py::test_implicit_namespace_importable",
+    "--deselect=tests/unit/test_obligation_attachments.py::test_attachment_proof_uses_installed_production_namespace",
+    "--ignore=tests/scripts/test_state_json_schema.py",
+    # Same also_copy directory-creation limitation as plans/state.json
+    # above: this file imports scripts/fetch_fixture.py directly via a
+    # loader, another repo-root path outside src/libipynb, orthogonal to
+    # codec/writer.py's own behavior.
+    "--ignore=tests/scripts/test_fetch_fixture.py",
+    # CONFIRMED root cause of every mutant showing "no tests" (pytest exit
+    # code 5, "no tests collected") in earlier pilot runs: pytest-cov
+    # (installed via the `test` extra) auto-registers as a pytest plugin
+    # even without --cov passed, and conflicts with mutmut's own internal
+    # coverage.py-based instrumentation of the same process. Disabling it
+    # here was the fix that took the pilot from 100% "no tests" to real
+    # kill/survive results (268 mutants: 186 killed, 61 survived, 21 no
+    # tests -- see LIBIPYNB-Q19's mutation_baseline_checked for the score
+    # and LIBIPYNB-Q58 for the survived-mutant follow-up).
+    "-p",
+    "no:cov",
+]
+
 [tool.coverage.run]
 source = ["libipynb"]
 branch = true
