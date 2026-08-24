@@ -587,21 +587,22 @@
       "title": "Analytics module expansion",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "pytest tests/unit/test_ipynb_analytics.py tests/unit/test_cli.py::TestAnalytics tests/unit/test_doc_drift.py -v --tb=short",
-      "repair_commit": "f886a3b55210ed824e59b1d01027c845b0500b5c",
+      "repair_commit": "52b2d63539e3a44fe4742cfc8937101cecf25fa7",
       "review_lenses_applied": [
         "spec_conformance_line_by_line",
-        "resource_durability_failure_path"
+        "resource_durability_failure_path",
+        "combinatorial_cardinality"
       ],
-      "oracle_tier_actually_executed": "6 new pure functions in analytics/notebook.py covering the 3 gaps named in the plan. Taskcard-Gate-G2 review (separate Agent) found 3 MAJOR + 3 MINOR: (1) unhandled TypeError crash when a cell's 'outputs' or the top-level 'cells' is an explicit JSON null (not just absent) -- .get(key, []) only substitutes for an absent key; reproduced end-to-end through the real installed CLI, bypassing the structured error boundary entirely; (2) execution_errors (code-cell-only scope) and output_type_histogram/has_execution_errors (previously scope-agnostic) disagreed about the same notebook, contradicting execution_errors's own docstring; (3) the commit's 'preserved unchanged' claim for average_source_length was false for source: null. All 3 repaired in f886a3b via a shared _list_or_empty() coercion and _code_cell_outputs() helper (reconciling scope to this codebase's own established cell_type=='code' convention), plus making _text_length/_text_byte_length special-case only None (not every falsy value). 3 MINOR also repaired: non-string attachment payloads now skipped entirely; notebook_byte_size/metadata_size_breakdown use default=str for resilience against non-JSON-native direct-Mapping input; largest_cells's top_n now rejects non-int types with its own ValueError. 12 new regression tests, each confirmed against the actual pre-repair crash/disagreement/miscount via a scratch script before being formalized. Full suite (77 tests: analytics + CLI + doc-drift) green; full core suite (tests/unit + tests/integration + tests/security): 1145 passed, 11 skipped, 0 failed. ruff format/check and mypy --strict clean.",
+      "oracle_tier_actually_executed": "6 new pure functions in analytics/notebook.py covering the 3 gaps named in the plan. Round 1 review found 3 MAJOR (null-outputs/cells crash reaching the real CLI; execution_errors vs has_execution_errors scope disagreement; a false 'preserved unchanged' claim) + 3 MINOR, all repaired in f886a3b via shared _list_or_empty()/_code_cell_outputs() helpers. Round 2 review (separate Agent) independently re-verified every fix from scratch rather than trusting round 1's own claims: ran all 10 analytics functions against outputs:null/cells:null across 40 combinations (both loader-mediated and direct-Mapping paths, both preservation and recovery modes) with zero crashes; confirmed mode='strict' correctly still rejects these shapes (no conformance-boundary regression); scanned the ENTIRE tests/fixtures corpus programmatically confirming the cell_type=='code' scope tightening is a pure no-op against every existing fixture; pulled the actual pre-Q36 git history (commit 47b40af) to diff _text_length's new behavior against the TRUE original formula across 10 values, confirming exact match except the deliberate None->0 change; independently confirmed the previously-flagged bool/top_n edge case is already correctly handled (isinstance(top_n, bool) explicitly rejected). Verdict: 'All 6 findings genuinely repaired. No new blocking issues found in the shared helpers or elsewhere in the module. Safe to mark VERIFIED.' One NIT (a regression test only covered half of a 2-call-site fix) closed in 52b2d63. Full suite (70 unit + CLI + doc-drift, and separately 77 with the CLI subset) green; full core suite from round 1's own re-run: 1145 passed, 11 skipped, 0 failed (round 2's own supplementary full-suite cross-check did not finish in its session window, explicitly disclosed as not independently re-confirmed rather than silently assumed). ruff format/check and mypy --strict clean both rounds.",
       "mutation_baseline_checked": null,
-      "rollback": "git revert f886a3b, then 2a6063a; new functions + CLI wiring + docs only, no existing analytics function's behavior changed beyond the review-found edge cases (source: null, non-code-cell outputs) this repair itself corrected",
+      "rollback": "git revert 52b2d63, then f886a3b, then 2a6063a; new functions + CLI wiring + docs only, no existing analytics function's behavior changed beyond the review-found edge cases (source: null, non-code-cell outputs) this repair itself corrected",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "2a6063add28fab314334e1dc62ec0f1584838876",
-      "note": "Implementation 2a6063a, repair f886a3b. 3 MAJOR findings from round 1 review, repaired; a second review round is being commissioned per this engagement's policy (any CRITICAL/MAJOR finding requires a repair-verification round before VERIFIED)."
+      "note": "Implementation 2a6063a, repair f886a3b, NIT closure 52b2d63. VERIFIED after 2 full Taskcard-Gate-G2 review rounds (round 1: 3 MAJOR + 3 MINOR; round 2: all genuinely repaired, 1 new NIT, now closed)."
     },
     {
       "id": "LIBIPYNB-Q37",
