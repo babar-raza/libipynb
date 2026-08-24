@@ -530,3 +530,125 @@ class TestAttachmentSizeSummary:
     def test_invalid_source_raises(self):
         with pytest.raises(NotebookParseError):
             attachment_size_summary(INVALID_DIR / "missing-nbformat.ipynb")
+
+    def test_non_string_payloads_are_skipped_not_miscounted(self):
+        """LIBIPYNB-Q36 Gate-G2 review MINOR-5: a non-string MIME payload
+        is malformed/adversarial content (real nbformat always stores a
+        base64 string) -- must not be counted at all, not counted with a
+        nonsensical size."""
+        data = _nb(
+            [
+                {
+                    "cell_type": "markdown",
+                    "source": "x",
+                    "metadata": {},
+                    "attachments": {"a": {"image/png": None, "image/jpeg": 0, "text/x": {}}},
+                }
+            ]
+        )
+        assert attachment_size_summary(data) == {"count": 0, "total_bytes": 0}
+
+
+class TestGate2ReviewCrashAndScopeFixes:
+    """LIBIPYNB-Q36 Gate-G2 review, 3 MAJOR findings -- all reproduced
+    against the pre-repair code before being fixed, per this engagement's
+    write-failing-test-first discipline."""
+
+    def test_outputs_explicit_null_does_not_crash_any_output_inspecting_function(self):
+        """MAJOR-1: `.get("outputs", [])` only substitutes its default
+        when the key is ABSENT -- a permissively-loaded notebook can
+        legitimately carry `"outputs": null` (confirmed loadable under
+        preservation/recovery mode), which used to reach a raw
+        `TypeError: 'NoneType' object is not iterable`, bypassing the
+        CLI's own structured-error boundary entirely."""
+        data = _nb([{"cell_type": "code", "source": "x", "metadata": {}, "outputs": None}])
+        assert output_type_histogram(data) == {}
+        assert execution_errors(data) == []
+        assert output_size_histogram(data) == {}
+        assert has_execution_errors(data) is False
+
+    def test_cells_explicit_null_does_not_crash_any_function(self):
+        """Same bug class as MAJOR-1, one level up: `"cells": null` is
+        also legitimately loadable, and used to crash every function
+        that iterated `_model(value).get("cells", [])` directly."""
+        data = b'{"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": null}'
+        assert cell_type_histogram(data) == {}
+        assert output_type_histogram(data) == {}
+        assert average_source_length(data) == 0.0
+        assert largest_cells(data) == []
+        assert execution_errors(data) == []
+        assert output_size_histogram(data) == {}
+        assert attachment_size_summary(data) == {"count": 0, "total_bytes": 0}
+        assert notebook_byte_size(data) > 0  # still measures the envelope itself
+        assert metadata_size_breakdown(data)["cell_metadata_bytes"] == 0
+
+    def test_error_output_on_a_non_code_cell_is_ignored_by_both_functions_consistently(self):
+        """MAJOR-2: `execution_errors` (code-cell-only) and
+        `output_type_histogram`/`has_execution_errors` (previously
+        scope-agnostic) used to disagree about the exact same notebook --
+        a raw cell carrying an adversarial/malformed `outputs` entry
+        made `has_execution_errors` report True while `execution_errors`
+        reported an empty list, in the same analytics response. Both
+        must now agree: a non-code cell's `outputs` is out of scope for
+        every output-inspecting function, matching this codebase's own
+        established `cell_type == "code"` convention elsewhere (model/
+        document.py, model/cleanup.py, adapters/export.py,
+        validation/rules.py)."""
+        data = _nb(
+            [
+                {
+                    "cell_type": "raw",
+                    "source": "x",
+                    "metadata": {},
+                    "outputs": [
+                        {
+                            "output_type": "error",
+                            "ename": "E",
+                            "evalue": "e",
+                            "traceback": [],
+                        }
+                    ],
+                }
+            ]
+        )
+        assert has_execution_errors(data) is False
+        assert execution_errors(data) == []
+        assert output_type_histogram(data) == {}
+
+    def test_source_explicit_null_measures_as_zero_length_not_the_string_none(self):
+        """MAJOR-3: `_text_length`/`_text_byte_length` special-case
+        `None` to 0 -- not `str(None)` == "None" (length 4), which the
+        original inline logic this was factored out of would have
+        produced for a legitimately-loadable `"source": null` cell.
+        Falsy-but-present values that are NOT None (0, False, "") still
+        measure via `str(value)`, matching the original logic exactly
+        for every case except None itself."""
+        data = _nb([{"cell_type": "code", "source": None, "metadata": {}}])
+        assert average_source_length(data) == 0.0
+        assert largest_cells(data)[0]["source_length"] == 0
+
+    def test_non_int_top_n_is_rejected_not_a_confusing_typeerror(self):
+        """MINOR-6: the original `top_n < 1` guard only checked
+        magnitude, not type -- `top_n=2.5`/`float('nan')`/`"3"` all
+        raised a generic, unhelpful `TypeError` from deep inside the
+        slicing/comparison logic instead of this function's own clear
+        `ValueError`."""
+        for bad in (2.5, float("nan"), "3", None):
+            with pytest.raises(ValueError, match="top_n"):
+                largest_cells(_nb([]), top_n=bad)  # type: ignore[arg-type]
+
+    def test_notebook_byte_size_does_not_crash_on_non_json_native_direct_mapping_input(self):
+        """MINOR-4: a directly-passed Mapping (bypassing the loader,
+        which only ever produces plain JSON-native types) could contain
+        arbitrary Python objects -- `default=str` keeps this resilient
+        instead of raising TypeError."""
+        import datetime
+
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"created": datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)},
+            "cells": [],
+        }
+        assert notebook_byte_size(model) > 0
+        assert metadata_size_breakdown(model)["notebook_metadata_bytes"] > 0
