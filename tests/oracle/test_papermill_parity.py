@@ -326,8 +326,13 @@ class TestCellPlacementMatchesRealPapermill:
             if "injected-parameters" in cell.get("metadata", {}).get("tags", [])
         ]
         assert real_injected_indices == [0]
+        # Confirms an actual replace, not an insert-at-top masked by
+        # "index 0" being ambiguous in a 1-cell notebook -- a cell count
+        # that grew would mean a second cell was inserted instead.
+        assert len(real_result.cells) == len(notebook["cells"])
 
         document = loads(json.dumps(notebook), mode="preservation")
         report = inject_parameters(document, {"alpha": 1})
         assert report.injected_cell_index == 0
         assert report.replaced_existing_injection is True
+        assert len(document.cells) == len(notebook["cells"])

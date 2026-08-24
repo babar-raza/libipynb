@@ -62,14 +62,14 @@ several separate tools for. Current state, honestly:
 - 🚧 partially shipped -- some of the capability exists, some is designed but not built
 - ⛔ not yet implemented
 
-A ✅ next to `nbstripout`/`nbdime` specifically means a real, byte-for-byte
-oracle comparison was run against the actual installed tool (`libipynb[oracle]`)
-and passed, with every intentional divergence explicitly proven and documented
-rather than assumed -- see `tests/oracle/test_nbstripout_parity.py` and
-`test_nbdime_parity.py`. `nbconvert`/`papermill` are not yet compared this way
-(the capability they'd be compared against doesn't exist yet -- see Roadmap);
-`tests/oracle/`'s fixtures for them still skip cleanly when the tool isn't
-installed and import-check when it is, per `plans/full-parity-plan.md` Gate G8.
+A ✅ in this table means a real, byte-for-byte oracle comparison was run
+against the actual installed reference tool (`libipynb[oracle]`) and passed,
+with every intentional divergence explicitly proven and documented rather
+than assumed -- see `tests/oracle/test_nbstripout_parity.py`,
+`test_nbdime_parity.py`, `test_nbclient_execution_parity.py`, and
+`test_papermill_parity.py`. `tests/oracle/`'s fixtures skip cleanly when a
+given reference tool isn't installed and import-check when it is, per
+`plans/full-parity-plan.md` Gate G8.
 
 | Capability | Reference tool | Status | Notes |
 |---|---|---|---|
