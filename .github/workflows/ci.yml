@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Quality ──────────────────────────────────────────────────────────────
+  # Mirrors .gitlab-ci.yml's ruff-format/ruff-lint/mypy jobs -- exact
+  # command forms quoted verbatim from .supervisor/project-adapter.yaml's
+  # `commands:` block (the CI-gating form, not CONTRIBUTING.md's looser dev
+  # shorthand which omits mypy's --strict flag). A single run (not matrixed)
+  # is enough: these tools' findings do not vary across the supported
+  # interpreter range for this codebase.
+  #
+  # ruff/mypy pinned exact, not floating -- confirmed via a real
+  # cross-version reproduction (an actions runner image found to ship a
+  # stale pre-installed ruff that an unpinned `pip install ruff` silently
+  # left in place, "already satisfied") that ruff's DEFAULT enabled rule
+  # set genuinely differs between minor versions (0.15.x enables E402 by
+  # default; 0.16.x does not), with no explicit [tool.ruff.lint] select in
+  # pyproject.toml to pin that selection down. Pinned to the exact versions
+  # every Gate-G1 command in this engagement was actually verified against.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.16.2
+      - name: ruff format --check
+        run: ruff format --check src/ tests/
+      - name: ruff check
+        run: ruff check src/ tests/
+      - name: Install package + mypy
+        # LIBIPYNB-Q56: `.[test]` alone is not enough for mypy --strict to
+        # resolve every import under src/libipynb/ -- adapters/jupyter_execute.py
+        # and adapters/export.py conditionally import nbclient/jupytext, which
+        # only the exec/export extras declare. Confirmed via a from-scratch
+        # python:3.12-slim container (this workflow's own runner is likewise a
+        # genuinely fresh install, not a long-lived dev .venv that happens to
+        # already have these installed from unrelated earlier work) that
+        # `.[test]` alone reproduces real import-not-found errors here, and
+        # that `.[test,exec,export]` resolves them cleanly.
+        run: |
+          pip install -e ".[test,exec,export]"
+          pip install mypy==2.3.0
+      - name: mypy --strict
+        run: mypy --strict src/libipynb/
+
+  # ── Coverage ─────────────────────────────────────────────────────────────
+  # New: not wired into .gitlab-ci.yml at all (see project-adapter.yaml's own
+  # comment on the `coverage:` command entry, "not wired into CI yet").
+  # fail_under=85 is enforced by pyproject.toml's [tool.coverage.report],
+  # which pytest-cov reads automatically -- no extra CLI flag needed.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: pip install -e ".[test]"
+      - name: pytest --cov (fail_under=85 gate)
+        run: pytest tests/ --cov=libipynb --cov-report=term-missing
+
+  # ── Test matrix ──────────────────────────────────────────────────────────
+  # Linux runs the full core+property suite on all 3 supported interpreters
+  # (matching .gitlab-ci.yml's test-py311/312/313 jobs). Windows/macOS run
+  # only the core subset (unit/integration/security) on a single interpreter
+  # each -- cross-platform coverage for the parts of this codebase most
+  # exposed to platform differences (atomic writes, path handling, process
+  # execution), without tripling the slower property-based suite's runtime
+  # across two more OSes for no proportional benefit.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package
+        run: pip install -e ".[test]"
+      - name: Core suite (unit, integration, security)
+        run: pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short
+      - name: Property suite (Linux only)
+        if: runner.os == 'Linux'
+        run: pytest tests/property/ -v --tb=short
+
+  # ── Package ──────────────────────────────────────────────────────────────
+  # Mirrors .gitlab-ci.yml's package-wheel job: build a real wheel, install
+  # it into a fresh venv (not the repo's own editable install), and confirm
+  # the installed package actually imports and resolves from site-packages,
+  # not from the source checkout.
+  package:
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build --wheel
+      - name: Install wheel into a fresh venv and smoke-test it
+        run: |
+          python -m venv wheel-test-venv
+          wheel-test-venv/bin/pip install dist/libipynb-*.whl
+          wheel-test-venv/bin/python -c "from libipynb import NotebookDocument, load, validate, NotebookError; print('wheel import OK')"
+          wheel-test-venv/bin/python -c "import libipynb, pathlib; p = pathlib.Path(libipynb.__file__).resolve(); assert 'site-packages' in str(p), f'not from site-packages: {p}'; print(f'resolved from {p}')"
+          wheel-test-venv/bin/libipynb --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          retention-days: 30
