@@ -1,0 +1,60 @@
+name: Fuzz
+
+on:
+  schedule:
+    # 04:37 UTC daily -- offset from oracle.yml's 03:17 so the two
+    # scheduled jobs don't contend for the same runner-pool minute.
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Linux-only: atheris has no Windows wheels and fails to build from
+  # source there (see fuzz/README.md's own "Platform note") -- matching
+  # the `fuzz` extra's own `sys_platform == 'linux'` marker in
+  # pyproject.toml. Mirrors .gitlab-ci.yml's dormant `fuzz:` job (gated on
+  # a GitLab CI/CD Schedule that was never created); schedule-as-code here
+  # instead, same pattern as LIBIPYNB-Q27's oracle.yml.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + fuzz extra
+        run: pip install -e ".[fuzz]"
+      # Each target is bounded (-max_total_time, seconds) so this job has a
+      # predictable runtime -- coverage-guided fuzzing has no natural stopping
+      # point otherwise. A time-boxed clean run is a search that found nothing
+      # within budget, not an exhaustiveness proof; see fuzz/README.md's own
+      # "What a clean run does and does not prove" section.
+      - name: fuzz_parser.py (libipynb.loads on raw bytes)
+        run: python fuzz/fuzz_parser.py -max_total_time=120
+      - name: fuzz_validator.py (libipynb.validate on fuzzed documents)
+        run: python fuzz/fuzz_validator.py -max_total_time=120
+      - name: fuzz_sanitizer.py (libipynb.sanitize's markup scanner)
+        run: python fuzz/fuzz_sanitizer.py -max_total_time=120
+      - name: fuzz_diff_merge.py (diff_notebooks/merge_notebooks)
+        run: python fuzz/fuzz_diff_merge.py -max_total_time=120
+      # atheris/libFuzzer write a minimized reproducer (`crash-<sha1>`) to
+      # the process's working directory the moment a target raises anything
+      # outside its expected-exception allowlist -- uploaded here so a
+      # scheduled-run failure leaves something actionable, not just a log.
+      # To reproduce locally: download the artifact, then
+      # `python fuzz/fuzz_<target>.py crash-<sha1>` replays that exact
+      # input against the same target (matching fuzz/README.md's own
+      # "Running locally" convention, just pointed at a saved input instead
+      # of a fresh session).
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            crash-*
+            fuzz/crash-*
+          if-no-files-found: ignore
+          retention-days: 30
