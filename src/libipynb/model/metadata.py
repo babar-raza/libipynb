@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
+from .._internal.immutable import deep_freeze, deep_thaw
 from .document import Cell, NotebookDocument, NotebookOutput
 
 
@@ -18,7 +18,22 @@ class MetadataShapeError(ValueError):
 def _mapping(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise MetadataShapeError(f"{context} metadata must be an object")
-    return deepcopy(dict(value))
+    # LIBIPYNB-Q43 Gate-G2 review round 2: `value` may itself be a
+    # nested value read out of an already `deep_freeze`-d adapter `_raw`
+    # (e.g. `NotebookMetadataAdapter._raw.get("kernelspec")`, itself a
+    # `MappingProxyType`) -- `deepcopy(dict(value))` only shallow-
+    # converts the top level, so any nested `MappingProxyType`/`tuple`
+    # inside it still hits `TypeError: cannot pickle 'mappingproxy'
+    # object`. `deep_thaw(dict(value))` has the same shallow problem in
+    # a different guise: `deep_thaw` only recurses when its *own*
+    # argument is a `MappingProxyType`, and wrapping `value` in `dict()`
+    # first turns it into a plain dict before `deep_thaw` ever sees it,
+    # so any nested `MappingProxyType`/`tuple` still inside it is never
+    # thawed. Thawing each item individually, instead of thawing the
+    # container, is correct regardless of whether `value` itself (a
+    # plain dict, a `MappingProxyType`, or some other `Mapping`) is
+    # frozen -- only the items need it.
+    return {key: deep_thaw(item) for key, item in value.items()}
 
 
 def _required_string(
@@ -62,24 +77,39 @@ def _extras(
     value: Mapping[str, Any],
     known: frozenset[str],
 ) -> dict[str, Any]:
-    return deepcopy({key: item for key, item in value.items() if key not in known})
+    # LIBIPYNB-Q43 Gate-G2 review round 2 finding: `value` may now be a
+    # `deep_freeze`-produced structure whose nested values are
+    # `MappingProxyType`/`tuple`, not plain `dict`/`list` -- a bare
+    # `copy.deepcopy` over those raises (no pickle/deepcopy support of
+    # its own). `deep_thaw` per item correctly produces an ordinary,
+    # freely mutable result regardless of whether `item` was frozen.
+    return {key: deep_thaw(item) for key, item in value.items() if key not in known}
 
 
 def _freeze_raw(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    """LIBIPYNB-Q43 Gate-G2 review finding: ``_raw`` was a bare, directly
-    mutable ``dict`` field on a ``frozen=True`` dataclass -- ``frozen``
-    only blocks *reassigning* ``instance._raw``, not mutating it in
-    place (``instance._raw["x"] = 1``), and single-underscore is a
-    Python naming convention, not access control. Since ``extras``/
-    ``to_dict()`` both re-read ``self._raw`` fresh on every call (no
-    caching), an in-place mutation of ``_raw`` changed what those
-    methods returned afterward -- directly contradicting this module's
-    own "Read-only typed metadata snapshots" docstring claim.
-    ``MappingProxyType`` genuinely prevents item assignment (unlike a
-    ``__post_init__`` deep-copy alone, which only stops the dataclass
-    from *aliasing* the constructor's input -- the mutable dict it
-    copies into is itself still just as mutable)."""
-    return MappingProxyType(deepcopy(dict(value)))
+    """LIBIPYNB-Q43 Gate-G2 review finding (round 1): ``_raw`` was a
+    bare, directly mutable ``dict`` field on a ``frozen=True`` dataclass
+    -- ``frozen`` only blocks *reassigning* ``instance._raw``, not
+    mutating it in place (``instance._raw["x"] = 1``), and
+    single-underscore is a Python naming convention, not access
+    control. Since ``extras``/``to_dict()`` both re-read ``self._raw``
+    fresh on every call (no caching), an in-place mutation of ``_raw``
+    changed what those methods returned afterward -- directly
+    contradicting this module's own "Read-only typed metadata
+    snapshots" docstring claim.
+
+    Gate-G2 review **round 2** finding: the first version of this
+    function used a single-level ``types.MappingProxyType`` wrap, which
+    only blocks mutating the *top* level -- ``kspec._raw["vendor"]
+    ["nested"] = "x"`` still succeeded, since ``_raw["vendor"]`` returned
+    an unwrapped, fully mutable nested dict. This is precisely the
+    shallow-wrap mistake ``model.diff``'s own docstring in the SAME
+    original commit already documented as insufficient for exactly
+    this reason -- missed here at the time because this function was
+    written before that lesson was learned, and never retrofitted.
+    ``deep_freeze`` recurses through every level, closing the gap for
+    real this time."""
+    return cast("Mapping[str, Any]", deep_freeze(dict(value)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +140,7 @@ class KernelSpecMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(dict(self._raw))
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +158,9 @@ class LanguageInfoMetadata:
         # LIBIPYNB-Q43: same bare-mutable-field gap as `_raw` -- a plain
         # dataclass field always returns the same object reference on
         # every access, so an object-shaped codemirror_mode was directly
-        # mutable in place by any caller holding a reference.
+        # mutable in place by any caller holding a reference. Deeply
+        # frozen for the same round-2 reason `_raw` is, in case a real
+        # editor's codemirror_mode payload is itself nested.
         if isinstance(self.codemirror_mode, dict):
             object.__setattr__(self, "codemirror_mode", _freeze_raw(self.codemirror_mode))
 
@@ -173,7 +205,7 @@ class LanguageInfoMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(dict(self._raw))
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +238,7 @@ class AuthorMetadata:
         return _extras(self._raw, frozenset({"name"}))
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(dict(self._raw))
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +270,7 @@ class JupyterCellMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(dict(self._raw))
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +294,7 @@ class SlideshowMetadata:
         return _extras(self._raw, frozenset({"slide_type"}))
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(dict(self._raw))
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,28 +342,49 @@ class ExecutionMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(dict(self._raw))
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
 class MimeRenderingMetadata:
+    """LIBIPYNB-Q43 Gate-G2 review round 2 CRITICAL finding: this class
+    -- the very one the original ``_raw`` fix was modeled on -- itself
+    only ever deep-copied ``values`` once at construction, which
+    prevents *aliasing* the constructor's input but does nothing to stop
+    a caller mutating ``instance.values`` (a fully public field) in
+    place afterward, e.g. ``mime.values["nested"]["deep"] = "x"``,
+    which then changed what ``to_dict()`` returned on the next call.
+    Same fix as everywhere else in this module: ``deep_freeze`` at
+    construction, ``deep_thaw`` on read."""
+
     mime_type: str
-    values: dict[str, Any]
+    values: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "values", deepcopy(self.values))
+        object.__setattr__(self, "values", deep_freeze(dict(self.values)))
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self.values)
+        return cast("dict[str, Any]", deep_thaw(self.values))
 
 
 class NotebookMetadataAdapter:
+    """LIBIPYNB-Q43 Gate-G2 review round 2 MAJOR finding: this adapter
+    (and its two siblings below) is not a ``@dataclass`` -- the original
+    fix's sweep was scoped to ``@dataclass`` definitions specifically --
+    but carries the structurally identical bare, directly mutable
+    ``_raw`` gap: ``adapter._raw["kernelspec"]["name"] = "x"`` silently
+    changed what ``.kernelspec`` returned afterward, reachable via the
+    exact same single-underscore-is-not-privacy reasoning that
+    justified fixing the dataclasses. Deliberately closed here too,
+    rather than left as an unstated scope gap a reader could mistake
+    for "already covered.\""""
+
     __slots__ = ("_raw",)
 
     def __init__(self, document: NotebookDocument) -> None:
         if not isinstance(document, NotebookDocument):
             raise TypeError("document must be an NotebookDocument")
-        self._raw = _mapping(document.raw.get("metadata"), "notebook")
+        self._raw = deep_freeze(_mapping(document.raw.get("metadata"), "notebook"))
 
     @property
     def kernelspec(self) -> KernelSpecMetadata | None:
@@ -352,7 +405,7 @@ class NotebookMetadataAdapter:
         value = self._raw.get("authors")
         if value is None:
             return None
-        if not isinstance(value, list):
+        if not isinstance(value, (list, tuple)):
             raise MetadataShapeError("notebook.authors must be an array")
         return tuple(AuthorMetadata.from_value(item) for item in value)
 
@@ -364,7 +417,7 @@ class NotebookMetadataAdapter:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 class CellMetadataAdapter:
@@ -373,14 +426,14 @@ class CellMetadataAdapter:
     def __init__(self, cell: Cell) -> None:
         if not isinstance(cell, Cell):
             raise TypeError("cell must be a Cell")
-        self._raw = _mapping(cell.to_dict().get("metadata"), "cell")
+        self._raw = deep_freeze(_mapping(cell.to_dict().get("metadata"), "cell"))
 
     @property
     def tags(self) -> tuple[str, ...]:
         value = self._raw.get("tags")
         if value is None:
             return ()
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
             raise MetadataShapeError("cell tags must be a string array")
         tags = tuple(value)
         if len(tags) != len(set(tags)):
@@ -412,7 +465,7 @@ class CellMetadataAdapter:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 class OutputMetadataAdapter:
@@ -421,7 +474,7 @@ class OutputMetadataAdapter:
     def __init__(self, output: NotebookOutput) -> None:
         if not isinstance(output, NotebookOutput):
             raise TypeError("output must be a NotebookOutput")
-        self._raw = _mapping(output.to_dict().get("metadata", {}), "output")
+        self._raw = deep_freeze(_mapping(output.to_dict().get("metadata", {}), "output"))
 
     @property
     def mime_types(self) -> tuple[str, ...]:
@@ -435,14 +488,14 @@ class OutputMetadataAdapter:
             return None
         if not isinstance(value, Mapping):
             raise MetadataShapeError(f"output metadata for {mime_type} must be an object")
-        return MimeRenderingMetadata(mime_type, deepcopy(dict(value)))
+        return MimeRenderingMetadata(mime_type, dict(value))
 
     @property
     def extras(self) -> dict[str, Any]:
-        return deepcopy({key: value for key, value in self._raw.items() if "/" not in key})
+        return {key: deep_thaw(value) for key, value in self._raw.items() if "/" not in key}
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return cast("dict[str, Any]", deep_thaw(self._raw))
 
 
 def notebook_metadata(document: NotebookDocument) -> NotebookMetadataAdapter:

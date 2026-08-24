@@ -42,7 +42,17 @@ def deep_thaw(value: Any) -> Any:
     every container at every level is newly built, exactly like
     ``copy.deepcopy`` would produce, except that ``copy.deepcopy`` itself
     cannot be used directly on a ``deep_freeze``-produced structure
-    (``MappingProxyType`` has no pickle/deepcopy support of its own)."""
+    (``MappingProxyType`` has no pickle/deepcopy support of its own).
+
+    Not a general-purpose deep copy: ``deep_thaw(deep_freeze(x))`` is only
+    an identity round-trip for JSON-shaped input (``dict``/``list`` and
+    scalars, the only shapes a notebook's ``.raw`` ever contains). A bare
+    ``tuple`` given directly to ``deep_freeze`` -- never produced by
+    ``deep_freeze`` itself, but a caller could hand one in -- comes back
+    as a ``list``, since ``deep_thaw`` cannot distinguish "a tuple
+    ``deep_freeze`` produced from a list" from "a tuple that was always a
+    tuple." Every real call site here only ever freezes/thaws JSON-shaped
+    values, so this asymmetry does not currently surface in practice."""
     if isinstance(value, MappingProxyType):
         return {key: deep_thaw(item) for key, item in value.items()}
     if isinstance(value, tuple):
