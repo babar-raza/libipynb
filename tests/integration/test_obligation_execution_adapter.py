@@ -367,6 +367,14 @@ def test_extra_env_is_passed_through_even_while_isolating() -> None:
 
 
 def test_output_beyond_max_output_bytes_is_truncated_and_reported() -> None:
+    """LIBIPYNB-Q16 (P0-A): a single oversized cell's stdout is truncated
+    IN PLACE on its own CellExecutionResult -- it is never dropped from
+    ``results`` entirely. The previous version of this test asserted
+    ``report.results == ()`` as correct, codifying the confirmed bug
+    (byte-slicing the combined raw stream before parsing silently discarded
+    every result once one cell's own line couldn't fit); this is a
+    deliberate correction of that wrong assertion, not a weakening -- the
+    old assertion described the defect, not the intended contract."""
     document = _document([_code("print('x' * 5000)")])
 
     report = execute_notebook(
@@ -375,10 +383,9 @@ def test_output_beyond_max_output_bytes_is_truncated_and_reported() -> None:
 
     assert report.output_truncated is True
     assert report.output_limit_bytes == 200
-    # Truncation lands mid-record (the single 5000-char print never
-    # finishes its JSON line before the 200-byte cap), so the incomplete
-    # trailing record is dropped, not surfaced as a parse crash.
-    assert report.results == ()
+    assert len(report.results) == 1
+    assert report.results[0].stdout_truncated is True
+    assert len(report.results[0].stdout.encode("utf-8")) <= 200
 
 
 def test_output_within_max_output_bytes_is_not_truncated() -> None:
@@ -388,6 +395,7 @@ def test_output_within_max_output_bytes_is_not_truncated() -> None:
 
     assert report.output_truncated is False
     assert report.results[0].stdout == "short\n"
+    assert report.results[0].stdout_truncated is False
 
 
 def test_max_output_bytes_none_disables_truncation() -> None:
@@ -399,6 +407,227 @@ def test_max_output_bytes_none_disables_truncation() -> None:
 
     assert report.output_truncated is False
     assert report.output_limit_bytes is None
+
+
+def test_oversized_first_cell_does_not_erase_small_later_cells() -> None:
+    """LIBIPYNB-Q16's exact motivating regression: a big cell BEFORE small
+    ones must not wipe the small ones' results, reproduced directly against
+    the pre-fix code (a 3-cell run returned zero results, not two)."""
+    document = _document(
+        [
+            _code("print('x' * 5000, end='')", "big"),
+            _code("print('after1', end='')", "after1"),
+            _code("print('after2', end='')", "after2"),
+        ]
+    )
+
+    report = execute_notebook(
+        document,
+        timeout=10,
+        acknowledge_unsandboxed=True,
+        on_error="continue",
+        max_output_bytes=200,
+    )
+
+    assert len(report.results) == 3
+    assert report.total_code_cells == 3
+    big, after1, after2 = report.results
+    assert big.stdout_truncated is True
+    # Every byte of the cumulative budget was already spent by the big
+    # cell -- both later cells are correctly reported (never dropped) but
+    # their own stdout is truncated to nothing, and flagged as such.
+    assert after1.stdout_truncated is True
+    assert after2.stdout_truncated is True
+    assert after1.stdout == ""
+    assert after2.stdout == ""
+
+
+def test_oversized_middle_cell_leaves_the_first_cell_untouched() -> None:
+    document = _document(
+        [
+            _code("print('before', end='')", "before"),
+            _code("print('x' * 5000, end='')", "big"),
+        ]
+    )
+
+    report = execute_notebook(
+        document,
+        timeout=10,
+        acknowledge_unsandboxed=True,
+        on_error="continue",
+        max_output_bytes=2000,
+    )
+
+    before, big = report.results
+    assert before.stdout == "before"
+    assert before.stdout_truncated is False
+    assert big.stdout_truncated is True
+
+
+def test_oversized_last_cell_leaves_earlier_cells_untouched() -> None:
+    document = _document(
+        [
+            _code("print('one', end='')", "one"),
+            _code("print('two', end='')", "two"),
+            _code("print('x' * 5000, end='')", "big"),
+        ]
+    )
+
+    report = execute_notebook(
+        document,
+        timeout=10,
+        acknowledge_unsandboxed=True,
+        on_error="continue",
+        max_output_bytes=2000,
+    )
+
+    one, two, big = report.results
+    assert one.stdout == "one"
+    assert two.stdout == "two"
+    assert one.stdout_truncated is False
+    assert two.stdout_truncated is False
+    assert big.stdout_truncated is True
+
+
+def test_multiple_oversized_cells_are_each_reported_and_correctly_budgeted() -> None:
+    document = _document(
+        [
+            _code("print('x' * 3000, end='')", "big1"),
+            _code("print('y' * 3000, end='')", "big2"),
+        ]
+    )
+
+    report = execute_notebook(
+        document,
+        timeout=10,
+        acknowledge_unsandboxed=True,
+        on_error="continue",
+        max_output_bytes=200,
+    )
+
+    assert len(report.results) == 2
+    big1, big2 = report.results
+    assert big1.stdout_truncated is True
+    assert len(big1.stdout.encode("utf-8")) <= 200
+    assert big2.stdout_truncated is True
+    # big1 alone already exhausted the cumulative budget.
+    assert big2.stdout == ""
+
+
+def test_unicode_output_is_truncated_at_a_utf8_byte_boundary() -> None:
+    document = _document([_code("print('é' * 500, end='')")])
+
+    report = execute_notebook(
+        document, timeout=10, acknowledge_unsandboxed=True, max_output_bytes=201
+    )
+
+    result = report.results[0]
+    assert result.stdout_truncated is True
+    result.stdout.encode("utf-8")  # must not raise
+    assert len(result.stdout.encode("utf-8")) <= 201
+
+
+def test_error_result_after_an_oversized_output_is_still_reported() -> None:
+    document = _document(
+        [
+            _code("print('x' * 3000, end='')", "big"),
+            _code("raise ValueError('boom')", "errors"),
+        ]
+    )
+
+    report = execute_notebook(
+        document,
+        timeout=10,
+        acknowledge_unsandboxed=True,
+        on_error="continue",
+        max_output_bytes=200,
+    )
+
+    big, errored = report.results
+    assert big.stdout_truncated is True
+    assert errored.error is not None
+    assert errored.error.evalue == "boom"
+
+
+def test_on_error_stop_still_correctly_budgets_output_before_stopping() -> None:
+    document = _document(
+        [
+            _code("print('x' * 3000, end='')", "big"),
+            _code("raise ValueError('boom')", "errors"),
+            _code("print('never runs', end='')", "never"),
+        ]
+    )
+
+    report = execute_notebook(
+        document, timeout=10, acknowledge_unsandboxed=True, on_error="stop", max_output_bytes=200
+    )
+
+    assert len(report.results) == 2
+    big, errored = report.results
+    assert big.stdout_truncated is True
+    assert errored.error is not None
+
+
+def test_on_error_continue_budgets_output_across_every_cell() -> None:
+    document = _document(
+        [
+            _code("print('x' * 3000, end='')", "big"),
+            _code("raise ValueError('boom')", "errors"),
+            _code("print('still runs', end='')", "still-runs"),
+        ]
+    )
+
+    report = execute_notebook(
+        document,
+        timeout=10,
+        acknowledge_unsandboxed=True,
+        on_error="continue",
+        max_output_bytes=200,
+    )
+
+    assert len(report.results) == 3
+    assert report.total_code_cells == 3
+    _big, errored, last = report.results
+    assert errored.error is not None
+    # Budget was already exhausted by the big cell -- the last cell still
+    # gets an explicit, correctly-flagged result, just with empty stdout.
+    assert last.stdout_truncated is True
+    assert last.stdout == ""
+
+
+def test_extremely_small_output_limit_does_not_crash() -> None:
+    document = _document([_code("print('hello world')")])
+
+    report = execute_notebook(
+        document, timeout=10, acknowledge_unsandboxed=True, max_output_bytes=1
+    )
+
+    assert report.output_truncated is True
+    assert isinstance(report.results[0].stdout, str)
+    assert len(report.results[0].stdout.encode("utf-8")) <= 1
+
+
+def test_timeout_plus_partial_output_still_correctly_budgets_what_was_captured() -> None:
+    """The pre-existing timeout+partial-output contract (an incomplete
+    trailing line is dropped, not surfaced as a crash) must keep holding
+    once max_output_bytes is also in play -- the two mechanisms are
+    independent and must not interact badly."""
+    document = _document(
+        [
+            _code("print('before-sleep', end='')", "before"),
+            _code("import time; time.sleep(30)", "sleeper"),
+        ]
+    )
+
+    report = execute_notebook(
+        document, timeout=1, acknowledge_unsandboxed=True, max_output_bytes=100
+    )
+
+    assert report.timed_out is True
+    # Whatever was flushed before the timeout-kill is still correctly
+    # budgeted, not corrupted by the interaction of the two mechanisms.
+    for result in report.results:
+        assert len(result.stdout.encode("utf-8")) <= 100
 
 
 # ── LIBIPYNB-V4: memory limiting (platform-specific enforcement) ───────────

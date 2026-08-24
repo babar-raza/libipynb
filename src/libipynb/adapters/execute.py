@@ -39,9 +39,10 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from .._internal.text import truncate_utf8_text
 from ..errors import NotebookExecutionError
 from ..model.document import NotebookDocument
 
@@ -145,6 +146,10 @@ class CellExecutionResult:
     index: int
     stdout: str
     error: ExecutionError | None = None
+    #: LIBIPYNB-Q16: ``True`` when this cell's own ``stdout`` was shortened
+    #: because the run's cumulative captured output reached
+    #: ``max_output_bytes``. Always ``False`` when that option is ``None``.
+    stdout_truncated: bool = False
 
     @property
     def succeeded(self) -> bool:
@@ -218,12 +223,21 @@ def _cell_source(cell: dict[str, Any]) -> str:
 def _parse_results(raw_output: str) -> tuple[CellExecutionResult, ...]:
     """Parse the driver's newline-delimited JSON result stream.
 
-    A trailing line can be incomplete -- not just from a timeout-kill
-    (already the case before max_output_bytes existed) but now also from
-    byte-boundary truncation, which has no reason to land on a record
-    boundary. Either way it's the same situation the driver's own
-    contract already accepted: a result already flushed is kept; a
-    result cut off mid-write is dropped, not surfaced as a crash.
+    LIBIPYNB-Q16: always called on the full, untruncated ``raw_output`` --
+    ``max_output_bytes`` is applied afterwards, per already-parsed cell
+    result, by :func:`_apply_output_budget` below, never by byte-slicing
+    this combined stream before it is split into records. Byte-slicing
+    first was the confirmed bug: a single oversized cell's line, cut off
+    mid-write by the slice, silently dropped every later cell's already-
+    complete, unrelated result along with it (reproduced directly: a
+    3-cell run with one oversized cell and a small max_output_bytes
+    returned zero parsed results, not two).
+
+    A trailing line can still be incomplete for a genuinely unrelated
+    reason -- a timeout-kill severing the subprocess mid-write, which
+    predates ``max_output_bytes`` entirely. That's the same situation the
+    driver's own contract already accepted: a result already flushed is
+    kept; a result cut off mid-write is dropped, not surfaced as a crash.
     """
     results = []
     for line in raw_output.splitlines():
@@ -240,6 +254,45 @@ def _parse_results(raw_output: str) -> tuple[CellExecutionResult, ...]:
             CellExecutionResult(index=payload["index"], stdout=payload["stdout"], error=error)
         )
     return tuple(results)
+
+
+def _apply_output_budget(
+    results: tuple[CellExecutionResult, ...], max_bytes: int | None
+) -> tuple[tuple[CellExecutionResult, ...], bool]:
+    """Cap the run's *cumulative* captured stdout at *max_bytes*, applied to
+    already-parsed, structured per-cell results -- never to the combined
+    raw stream (see :func:`_parse_results`'s docstring for why that was the
+    bug). Every cell keeps its own explicit result; once the running total
+    reaches the budget, each subsequent cell's own ``stdout`` is shortened
+    to what remains (down to empty once the budget is exhausted) and
+    flagged via ``stdout_truncated`` -- visible, not silent, data loss, and
+    distinct from :mod:`libipynb.adapters.jupyter_execute`'s
+    ``max_output_bytes``, which caps each output *independently* rather
+    than cumulatively (documented separately on each engine's own options,
+    a genuine, pre-existing difference between the two -- not something
+    this fix introduces or is trying to unify).
+    """
+    if max_bytes is None:
+        return results, False
+    truncated_any = False
+    remaining = max_bytes
+    budgeted: list[CellExecutionResult] = []
+    for result in results:
+        stdout_bytes = len(result.stdout.encode("utf-8"))
+        if stdout_bytes <= remaining:
+            budgeted.append(result)
+            remaining -= stdout_bytes
+            continue
+        budgeted.append(
+            replace(
+                result,
+                stdout=truncate_utf8_text(result.stdout, remaining),
+                stdout_truncated=True,
+            )
+        )
+        truncated_any = True
+        remaining = 0
+    return tuple(budgeted), truncated_any
 
 
 def execute_notebook(
@@ -275,12 +328,23 @@ def execute_notebook(
       environment, so secrets/tokens/config the caller happens to have
       set are not implicitly exposed. Pass ``extra_env`` for anything a
       specific notebook genuinely needs.
-    - ``max_output_bytes`` (default 10 MiB): captured stdout is
-      truncated to this size; ``ExecutionReport.output_truncated`` says
-      whether that happened. This bounds what's *returned*, not
-      necessarily peak memory while the OS pipe buffer fills during
-      capture -- a true streaming-bounded read is a further step, not
-      implemented here.
+    - ``max_output_bytes`` (default 10 MiB): the run's *cumulative*
+      captured stdout across every cell is capped at this size --
+      distinct from :mod:`libipynb.adapters.jupyter_execute`'s
+      identically-named option, which caps each output independently
+      rather than cumulatively; the two engines have never shared this
+      exact semantic. Applied per already-parsed cell result, in cell
+      order, after the full subprocess output is parsed -- never by
+      slicing the combined raw stream before parsing it, which used to
+      silently drop every unrelated later cell's already-complete result
+      once one cell pushed the shared stream past the cutoff (LIBIPYNB-
+      Q16). Every cell always gets its own ``CellExecutionResult``;
+      ``CellExecutionResult.stdout_truncated`` says whether that specific
+      cell's own stdout was shortened, and ``ExecutionReport.
+      output_truncated`` is true iff any cell's was. This bounds what's
+      *returned*, not necessarily peak memory while the OS pipe buffer
+      fills during capture -- a true streaming-bounded read is a further
+      step, not implemented here.
     - ``max_memory_bytes`` (default None = no limit): enforced via
       ``RLIMIT_AS`` on POSIX. **Not enforceable on Windows** -- passing
       it there raises ``NotebookExecutionError`` rather than silently
@@ -360,13 +424,15 @@ def execute_notebook(
         if work_dir_ctx is not None:
             work_dir_ctx.cleanup()
 
-    output_truncated = False
-    if max_output_bytes is not None and len(raw_output.encode("utf-8")) > max_output_bytes:
-        raw_output = raw_output.encode("utf-8")[:max_output_bytes].decode("utf-8", errors="ignore")
-        output_truncated = True
+    # LIBIPYNB-Q16: parse the FULL, untruncated raw_output first -- never
+    # byte-slice the combined stream before splitting it into per-cell
+    # records (see _parse_results' and _apply_output_budget's own
+    # docstrings for the confirmed bug this fixes). The budget is applied
+    # afterwards, per already-parsed result.
+    results, output_truncated = _apply_output_budget(_parse_results(raw_output), max_output_bytes)
 
     return ExecutionReport(
-        results=_parse_results(raw_output),
+        results=results,
         kernel=resolved_kernel,
         total_code_cells=len(sources),
         timed_out=timed_out,
