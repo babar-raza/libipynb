@@ -269,17 +269,21 @@
       "title": "Full-suite collection failure (missing tests/__init__.py)",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Add tests/__init__.py so tests/ is a regular package rooted at repo root.",
       "verification_command": "pytest -q",
-      "repair_commit": null,
-      "review_lenses_applied": [],
+      "repair_commit": "069fe8a503d2d04b28bcfb4228fe16f31c4e2b97",
+      "review_lenses_applied": [
+        "test_infrastructure_honesty"
+      ],
       "oracle_tier_actually_executed": null,
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "3e8e854d2cf625854904c7ca0d3ed04f6320e4ac",
+      "note": "Implementation 3e8e854 (empty tests/__init__.py). Independent Taskcard-Gate-G2 review found 0 CRITICAL, 1 WARNING (this state.json drift, expected process step) + 3 INFO items -- reviewer independently reproduced the PRE-FIX bug live (temporarily removed __init__.py, confirmed bare pytest fails with ModuleNotFoundError while python -m pytest on the same broken tree silently succeeds -- proving the invocation-dependent fragility claim, not just restating it), built and inspected the real sdist/wheel to confirm tests/ does not leak into the package, and ran a from-scratch namespace-merge repro on 3 platform/filesystem combinations (Windows, WSL 9p-mount, WSL native ext4) confirming the fix is genuinely platform-invariant as claimed. One optional finding (tests/scripts/ was the one subdirectory still missing __init__.py, a latent trap) closed proactively in follow-up commit 069fe8a."
     },
     {
       "id": "LIBIPYNB-Q21",
