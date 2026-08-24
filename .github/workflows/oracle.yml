@@ -1,0 +1,67 @@
+name: Oracle
+
+on:
+  schedule:
+    # 03:17 UTC daily -- an off-the-hour time, not top-of-hour, to avoid
+    # herding onto GitHub's busiest scheduling minute.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/libipynb/adapters/**"
+      - "src/libipynb/codec/**"
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Full oracle run (schedule + manual dispatch only) ───────────────────
+  # Mirrors .gitlab-ci.yml's oracle-and-package job: real, installed
+  # nbdime/nbconvert/papermill/nbstripout compared against libipynb's own
+  # output (Gate G8), plus a real registered kernel so the
+  # nbclient-execution-comparison tests actually run instead of silently
+  # skipping (LIBIPYNB-Q22, P0-G). Schedule-as-code here, unlike
+  # .gitlab-ci.yml's equivalent job, which depends on a GitLab CI/CD
+  # Schedule that has to be created out-of-band and was never set up.
+  oracle:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + oracle/exec extras
+        run: pip install -e ".[test,oracle,exec]"
+      - name: Register a kernelspec
+        run: python -m ipykernel install --user --name python3 --display-name "Python 3 (libipynb CI)"
+      - name: Oracle + package tests
+        run: pytest tests/oracle/ tests/package/ -v --tb=short
+
+  # ── PR smoke subset (kernel-independent oracle comparisons only) ────────
+  # Oracle coverage should not be 100% schedule-dependent -- this job runs
+  # on every PR that touches the adapter/codec surfaces oracle tests cover,
+  # using only the comparisons that need an installed reference tool
+  # (nbdime/nbstripout) but not a live kernel process, so it stays fast
+  # enough to run on every such PR. The kernel-execution-comparison tests
+  # (test_nbclient_execution_parity.py, test_nbclient_timeout_characterization.py)
+  # and the real-world-corpus tests are intentionally excluded here -- they
+  # remain schedule-only, above.
+  oracle-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + oracle extra (no exec -- no kernel needed for this subset)
+        run: pip install -e ".[test,oracle]"
+      - name: Kernel-independent oracle comparisons
+        run: |
+          pytest \
+            tests/oracle/test_diff_parity.py \
+            tests/oracle/test_nbdime_parity.py \
+            tests/oracle/test_nbstripout_parity.py \
+            tests/oracle/test_scaffolding_smoke.py \
+            -v --tb=short
