@@ -1,0 +1,73 @@
+name: Staleness Check
+
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC -- deliberately its own file rather than
+    # folded into ci.yml's existing jobs (LIBIPYNB-Q29's originating plan
+    # language): a separate `on: schedule` trigger there would need every
+    # one of ci.yml's 4 existing, already-verified jobs individually
+    # guarded with `if: github.event_name != 'schedule'` to avoid quietly
+    # re-running push/PR jobs on a weekly cron too. A dedicated file
+    # matches this repo's own established one-workflow-per-concern pattern
+    # (ci.yml / oracle.yml / fuzz.yml already each stand alone) for the
+    # same functional outcome with less risk to those already-working jobs.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  # Best-effort, not a guarantee (honest limit, matching the governing
+  # plan's own §2 disclosure): checks that oracle.yml and fuzz.yml each
+  # have a successful run within the last STALENESS_THRESHOLD_DAYS days --
+  # catching "the job itself started failing silently for schedule-only
+  # runs nobody watches" as a loud, visible failure here instead. What
+  # this CANNOT catch: GitHub disabling a repository's scheduled workflows
+  # entirely after ~60 days of push inactivity -- a workflow that itself
+  # only runs on a schedule cannot detect its own schedule being disabled,
+  # since it would simply stop running too. There is no way to close that
+  # gap from inside GitHub Actions alone; it needs an external prod (e.g. a
+  # human periodically checking the Actions tab, or a push that happens to
+  # occur anyway) that this repository does not currently have.
+  staleness-check:
+    runs-on: ubuntu-latest
+    env:
+      STALENESS_THRESHOLD_DAYS: "10"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check oracle.yml and fuzz.yml ran successfully recently
+        run: |
+          set -e
+          failed=0
+          for wf in oracle.yml fuzz.yml; do
+            # `gh run list` exits non-zero (not an empty result) when the
+            # named workflow file doesn't exist on the default branch at
+            # all -- confirmed directly against this repo before either
+            # oracle.yml or fuzz.yml had been merged. The `if !` form below
+            # is deliberate: testing a command's exit status in an `if`
+            # suppresses `set -e` for just that command, so a query failure
+            # is handled explicitly instead of aborting the whole step with
+            # a raw, unhandled CLI error.
+            if ! last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow="$wf" \
+                --status=success --limit=1 --json updatedAt --jq '.[0].updatedAt' 2>&1); then
+              echo "::error::Could not query runs for $wf -- it may not exist on the default branch yet: $last"
+              failed=1
+              continue
+            fi
+            if [ -z "$last" ] || [ "$last" = "null" ]; then
+              echo "::error::No successful run found for $wf -- it may never have run, or its schedule may be disabled"
+              failed=1
+              continue
+            fi
+            last_epoch=$(date -d "$last" +%s)
+            now_epoch=$(date +%s)
+            age_days=$(( (now_epoch - last_epoch) / 86400 ))
+            echo "$wf last succeeded ${age_days} day(s) ago (threshold: ${STALENESS_THRESHOLD_DAYS})"
+            if [ "$age_days" -gt "$STALENESS_THRESHOLD_DAYS" ]; then
+              echo "::error::$wf's last successful run is ${age_days} days old (threshold: ${STALENESS_THRESHOLD_DAYS}) -- its schedule may have been silently disabled or it has started failing"
+              failed=1
+            fi
+          done
+          exit "$failed"
