@@ -586,9 +586,19 @@
       "phase": 3,
       "title": "Analytics module expansion",
       "depends_on": [],
-      "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "owner": "implementer+separate_reviewer",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "pytest tests/unit/test_ipynb_analytics.py tests/unit/test_cli.py::TestAnalytics tests/unit/test_doc_drift.py -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "6 new pure functions in analytics/notebook.py covering the 3 gaps named in the plan: size/complexity (largest_cells, notebook_byte_size, metadata_size_breakdown), per-cell error listing (execution_errors, vs the existing has_execution_errors boolean), output/attachment size analytics (output_size_histogram, attachment_size_summary). Byte-size fields genuinely measure UTF-8 byte length via a new _text_byte_length helper, not character count -- caught and fixed this exact gap in my own first draft before committing (non-ASCII test case 'café': 4 chars, 5 UTF-8 bytes, asserted explicitly). average_source_length's pre-existing character-count convention deliberately left unchanged (factored into a separate _text_length helper, not touched) to avoid a silent behavior change to an already-shipped function. Wired into libipynb.analytics's __all__, the CLI's analytics subcommand (new --top-n flag, validated via largest_cells's own ValueError on non-positive input, routed through the existing shared CLI exception boundary), README (feature bullet, API section, CLI example), ARCHITECTURE.md's module-map bullet, and CHANGELOG's Unreleased section. 67 new/updated tests (unit: 36 new across 6 new test classes; CLI: 3 new + 1 updated). One self-caught test bug during authoring: test_matches_actual_json_encoding assumed a bytes/path input's byte size would equal json.dumps(json.loads(input)) directly, not accounting for the loader's own recovery-mode field synthesis (filling in a missing code cell's outputs/execution_count) -- fixed by using a dict input directly, which bypasses that normalization. Full quality gate clean across the whole src/ tree: ruff format --check, ruff check, mypy --strict (45 source files). Manual CLI smoke test against a real fixture confirmed correct end-to-end JSON output, not just unit-level.",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert 2a6063a; new functions + CLI wiring + docs only, no existing analytics function's behavior changed",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "2a6063add28fab314334e1dc62ec0f1584838876",
+      "note": "Implementation 2a6063a. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q37",
