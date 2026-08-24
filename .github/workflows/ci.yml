@@ -114,12 +114,23 @@ jobs:
 
   # ── Supply-chain audit ──────────────────────────────────────────────────
   # LIBIPYNB-Q42: `pip-audit` against every extra this project ships
-  # (test+exec+export+oracle -- the fullest combination any single CI job
-  # already installs elsewhere in this file, so this audits the complete
-  # real dependency surface, not just the bare core). Findings are triaged
-  # explicitly, never silently ignored -- see this job's own `ignore-vuln`
-  # flags (if any are ever added) for the accepted-risk record, each
-  # requiring a comment citing the specific advisory and reasoning.
+  # (test+exec+export+oracle+fuzz -- every extras group in pyproject.toml;
+  # `fuzz`'s `atheris` marker is Linux-only, which this runner satisfies),
+  # auditing the complete real dependency surface, not just the bare core.
+  # Findings are triaged explicitly, never silently ignored -- see this
+  # job's own `ignore-vuln` flags (if any are ever added) for the
+  # accepted-risk record, each requiring a comment citing the specific
+  # advisory and reasoning.
+  #
+  # Gate-G2 review finding (repaired here): pip-audit also audits pip
+  # itself, and this session's own verification run found pip 24.3.1 (the
+  # runner image's preinstalled version) carries 7 known advisories
+  # (PYSEC-2026-196/1795/1796/2875/2876/3721), unrelated to any libipynb
+  # dependency -- confirmed via a from-scratch disposable venv that
+  # upgrading pip alone resolves all 7 (pip 26.2.1: "No known
+  # vulnerabilities found", exit 0). Upgraded here rather than
+  # `--ignore-vuln`-listed, since upgrading fixes the actual issue instead
+  # of just silencing the scanner.
   security-audit:
     runs-on: ubuntu-latest
     steps:
@@ -127,10 +138,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Upgrade pip (pip itself is part of pip-audit's own scan)
+        run: pip install --upgrade pip
       - name: Install package (full extras) + pip-audit
         run: |
-          pip install -e ".[test,exec,export,oracle]"
-          pip install pip-audit
+          pip install -e ".[test,exec,export,oracle,fuzz]"
+          pip install pip-audit==2.10.1
       - name: pip-audit
         run: pip-audit --progress-spinner=off
 
