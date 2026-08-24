@@ -809,8 +809,15 @@ def test_cell_execution_record_outputs_are_independently_mutable_from_the_notebo
     `result.notebook`, but still silently corrupted every later read of
     the SAME `CellExecutionRecord.outputs` instance. `outputs` elements
     are now `deep_freeze`-d, so a mutation attempt is rejected outright,
-    not merely contained."""
-    document = _document([_code("print('hello')")])
+    not merely contained.
+
+    LIBIPYNB-Q43 Gate-G2 round-4 review (INFO-level thoroughness note):
+    a single-output single-cell fixture cannot distinguish correct
+    per-item freezing from a short-circuit that only protects the first
+    item -- exercises 2 cells producing 3 total outputs (2 from one
+    cell's 2 print statements, 1 from another cell) so every output,
+    not just the first, is confirmed independently frozen."""
+    document = _document([_code("print('hello')\n3 + 3", "c1"), _code("print('again')", "c2")])
 
     result = executor.execute(document, options=_opts())
 
@@ -825,6 +832,12 @@ def test_cell_execution_record_outputs_are_independently_mutable_from_the_notebo
     assert result.cell_records[0].outputs[0]["text"] == notebook_output["text"], (
         "a later read of the same instance's .outputs must be unaffected"
     )
+
+    # Every output across both cells rejects mutation, not just the first.
+    for record in result.cell_records:
+        for output in record.outputs:
+            with pytest.raises(TypeError):
+                output["text"] = "MUTATED"  # type: ignore[index]
 
 
 def test_cancellation_unregisters_nbclients_own_atexit_cleanup_hook(
