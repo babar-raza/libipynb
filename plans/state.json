@@ -584,8 +584,17 @@
         "LIBIPYNB-Q23"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "pytest tests/unit/test_doc_drift.py tests/integration/test_obligation_html_jupytext_export.py -v --tb=short",
+      "repair_commit": "6726bf51ed2b408ad4412100785dad98a58c8528",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "DECISION: adapter-only (NbconvertExporter's existing fmt=\"pdf\"/\"webpdf\" support, no first-party renderer) -- the implementation already reflected this decision correctly (confirmed by reading adapters/export.py directly); the actual gap was documentation, since NbconvertExporter/pdf/webpdf/slides had zero mentions anywhere in README.md/ARCHITECTURE.md/SECURITY.md (confirmed by grep before writing anything). Added a README \"Export formats\" section documenting the pdf/webpdf runtime requirement, with the error-wrapping claim (NotebookError code=export_tool_failed wrapping nbconvert's own real stderr, not a synthesized hint) verified directly against this environment's real absent-LaTeX state rather than assumed. Documentation-only, self-verified directly without a separate-Agent review, matching the LIBIPYNB-Q1/Q2/Q33/Q34 precedent for zero-functional-code-risk taskcards."
     },
     {
       "id": "LIBIPYNB-Q38",
