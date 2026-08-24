@@ -1,5 +1,11 @@
 # libipynb Production-Hardening Plan
 
+> **2026-08-24 pointer:** new work opened from this date onward (including the follow-on repairs
+> to this plan's own `Q2`/`Q13c` cards) is governed by
+> [`plans/publication-readiness-plan-2026-08-24.md`](publication-readiness-plan-2026-08-24.md)
+> and tracked in [`plans/state.json`](state.json). This file's own Taskcard Register remains the
+> authoritative record for the `LIBIPYNB-Q1`–`Q15b` work it already governs.
+
 **Status:** Drafted 2026-08-18, execution starting and completing the same day; closed out the same day by
 a second, separate 2026-08-18 close-out session. **All 21 taskcards are now `completed_verified` except
 three accurately-described non-blockers:** Q2's timeout-watchdog redesign (deliberately deferred — larger

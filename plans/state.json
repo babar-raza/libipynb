@@ -1,0 +1,628 @@
+{
+  "schema_version": "1.0",
+  "generated": "2026-08-24",
+  "governing_narrative_plan": "plans/publication-readiness-plan-2026-08-24.md",
+  "engagement_source": "2026-08-24 maintainer publication-readiness mission (Babar Raza)",
+  "notes": [
+    "This file is the machine-readable task register for the 2026-08-24 publication-readiness engagement. It is a NEW, complementary layer alongside the pre-existing plans/*.md narrative/evidence governance -- not a replacement. See plans/publication-readiness-plan-2026-08-24.md section 'Relationship to plans/*.md' for the reconciliation record.",
+    "Concurrency: re-read this file immediately before writing to it, not from an earlier read in the same or a different session -- the same discipline .supervisor/README.md section 7 and prompt4-close-task.md already require for plans/remediation-plan.md and plans/full-parity-plan.md now applies here too.",
+    "A task cannot be marked VERIFIED without: taskcard_gate_g1 populated with real command output/reference, taskcard_gate_g2 populated with a citation to a genuinely separate Agent review, and -- for the 4 designated hot modules only -- mutation_baseline_checked populated once LIBIPYNB-Q31's pilot has landed.",
+    "Gate letters are always prefixed to avoid collision across three unrelated numbering schemes in this engagement: Mission-G# (the 2026-08-24 mission brief's G0-G9), Taskcard-G# (plans/remediation-plan.md section 7 / plans/full-parity-plan.md section 4.1's pre-existing Gate Contract), Capability-G# (plans/gate-status-g1-g7.md's separately disambiguated capability-contract gates)."
+  ],
+  "status_vocabulary": [
+    "NOT_STARTED",
+    "IN_PROGRESS",
+    "BLOCKED_EXTERNAL",
+    "IMPLEMENTED_UNVERIFIED",
+    "VERIFIED",
+    "DEFERRED_WITH_AUTHORITY"
+  ],
+  "legacy_status_vocabulary_for_cross_reference": [
+    "not_attempted",
+    "claimed_unproven",
+    "partially_done",
+    "completed_but_weakly_verified",
+    "completed_verified",
+    "blocker",
+    "follow_up"
+  ],
+  "hot_modules_requiring_mutation_baseline": [
+    "src/libipynb/adapters/execute.py",
+    "src/libipynb/adapters/jupyter_execute.py",
+    "src/libipynb/codec/reader.py",
+    "src/libipynb/codec/writer.py"
+  ],
+  "carried_forward_from_prior_plans": [
+    {
+      "id": "LIBIPYNB-Q2b",
+      "title": "Wedged-kernel hard-kill escalation (follow-on to the 2026-08-19 observe-only watchdog)",
+      "source_plan": "plans/production-hardening-plan.md",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "blocker": null,
+      "resume_condition": "Needs its own Taskcard-Gate-G6 (execution-surface widening) security-design review before implementation, per plans/production-hardening-plan.md's own scoping."
+    },
+    {
+      "id": "LIBIPYNB-Q13b-legacy-numbering",
+      "title": "GitLab CI/CD Schedule activation for the fuzz/oracle-and-package jobs",
+      "source_plan": "plans/production-hardening-plan.md",
+      "status": "BLOCKED_EXTERNAL",
+      "legacy_status_equivalent": "blocker",
+      "blocker": "No GitLab project-settings/API access from this environment.",
+      "resume_condition": "A maintainer with GitLab project access creates the CI/CD Schedule. Superseded in practice by this engagement's Q27/Q28 (GitHub Actions schedule: trigger lives in versioned YAML instead), but the GitLab-side gap is recorded here until GitLab CI is formally retired."
+    },
+    {
+      "id": "LIBIPYNB-Q13c-legacy-numbering-fixture-selection",
+      "title": "Real-world notebook corpus fixture selection and vendoring (tooling itself already landed 2026-08-19)",
+      "source_plan": "plans/production-hardening-plan.md",
+      "status": "DEFERRED_WITH_AUTHORITY",
+      "legacy_status_equivalent": "partially_done",
+      "blocker": null,
+      "resume_condition": "Maintainer decision on source, license, and selection required per tests/fixtures/PROVENANCE.md's 'Repeatable sourcing process' and .supervisor/project-adapter.yaml's source_external_fixture_content gated action. Not picked up opportunistically."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "P0.1",
+      "phase": 0,
+      "title": "Create branch fix/publication-readiness from master",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Dedicated working branch, per operating rules.",
+      "verification_command": "git branch --show-current",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git checkout master; git branch -D fix/publication-readiness",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q1",
+      "phase": 0,
+      "title": "plans/state.json + .supervisor/ machinery reconciliation (M1, M2)",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Create this file; heal the stale authoritative_plans list and the state-file prohibition found in .supervisor/ machinery.",
+      "verification_command": "python -m json.tool plans/state.json",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert the Phase 0 commit; no functional code touched.",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q2",
+      "phase": 0,
+      "title": "Append questions 16-19 to adversarial-review.md (M8, append not replace)",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Extend the existing 15-question Anti-Overclaim checklist with 4 technical bug-finding lenses.",
+      "verification_command": "manual diff review: 1-15 byte-identical, 16-19 appended",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q3",
+      "phase": 0,
+      "title": "Static anti-pattern check for side-effecting any()/all()",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "IN_PROGRESS",
+      "legacy_status_equivalent": "partially_done",
+      "objective": "AST-walk src/libipynb/ for any()/all() wrapping a side-effecting call, same idiom as test_import_boundary.py.",
+      "verification_command": "pytest tests/unit/test_no_short_circuiting_side_effects.py -v",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert; additive test only",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Checker built and calibrated (0 false positives on curated allowlist); its own real-sweep test is intentionally red until LIBIPYNB-Q17 rewrites the one real offender at jupyter_execute.py:629. Doubles as Q17s pre-fix failing regression test."
+    },
+    {
+      "id": "LIBIPYNB-Q25",
+      "phase": 0,
+      "title": "plans/state.json schema-check test",
+      "depends_on": [
+        "LIBIPYNB-Q1"
+      ],
+      "owner": "implementer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Mechanically enforce that VERIFIED rows carry required evidence fields.",
+      "verification_command": "pytest tests/scripts/test_state_json_schema.py -v",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert; additive test only",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q16",
+      "phase": 1,
+      "mission_id": "P0-A",
+      "title": "Subprocess execution truncates the combined stream before parsing",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Parse full raw_output before applying max_output_bytes as a per-cell budget; retrofit the test that codifies the bug.",
+      "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q17",
+      "phase": 1,
+      "mission_id": "P0-B",
+      "title": "Kernel-output truncation short-circuits and can corrupt binary MIME",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Fix any() short-circuit; omit (not corrupt) oversized binary MIME payloads.",
+      "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q18",
+      "phase": 1,
+      "mission_id": "P0-C",
+      "title": "Strict reader and validate() accept NaN/Infinity",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "parse_constant rejection in strict mode; recursive non-finite-float scan in validate().",
+      "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q19",
+      "phase": 1,
+      "mission_id": "P0-D",
+      "title": "Atomic write loses permissions, no fsync, undecided symlink policy",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Preserve destination mode, fsync, write-through-symlink policy.",
+      "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q20",
+      "phase": 1,
+      "mission_id": "P0-E",
+      "title": "Full-suite collection failure (missing tests/__init__.py)",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Add tests/__init__.py so tests/ is a regular package rooted at repo root.",
+      "verification_command": "pytest -q",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q21",
+      "phase": 1,
+      "mission_id": "P0-F",
+      "title": "Corpus hashes are line-ending-dependent",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Reuse canonical_schema_digest for corpus hashes; add .gitattributes; document policy.",
+      "verification_command": "pytest tests/integration/test_obligation_corpus_integrity.py -v",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q22",
+      "phase": 1,
+      "mission_id": "P0-G",
+      "title": "Oracle CI cannot provision its execution oracle",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Add ipykernel to exec extra; register kernelspec in the live .gitlab-ci.yml oracle job.",
+      "verification_command": "pytest tests/oracle/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q23",
+      "phase": 1,
+      "mission_id": "P0-H",
+      "title": "PDF backend detection is a false positive",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Minimal functional LaTeX probe instead of shutil.which()-only.",
+      "verification_command": "pytest tests/integration/test_obligation_html_jupytext_export.py -v",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null
+    },
+    {
+      "id": "LIBIPYNB-Q26",
+      "phase": 2,
+      "title": ".github/workflows/ci.yml",
+      "depends_on": [
+        "LIBIPYNB-Q20"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q27",
+      "phase": 2,
+      "title": ".github/workflows/oracle.yml (schedule-as-code) + PR smoke subset",
+      "depends_on": [
+        "LIBIPYNB-Q22"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q28",
+      "phase": 2,
+      "title": ".github/workflows/fuzz.yml (schedule-as-code)",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q29",
+      "phase": 2,
+      "title": "Staleness check for schedule-gated CI tiers (best-effort)",
+      "depends_on": [
+        "LIBIPYNB-Q27",
+        "LIBIPYNB-Q28"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q30",
+      "phase": 2,
+      "title": ".github/workflows/release.yml (tag-triggered, dormant)",
+      "depends_on": [
+        "LIBIPYNB-Q26",
+        "LIBIPYNB-Q27",
+        "LIBIPYNB-Q28",
+        "LIBIPYNB-Q29"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q31",
+      "phase": 2,
+      "title": "Mutation-testing scaffold (mutmut, pilot-first)",
+      "depends_on": [
+        "LIBIPYNB-Q17",
+        "LIBIPYNB-Q18",
+        "LIBIPYNB-Q19"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q32",
+      "phase": 2,
+      "title": "[project.urls] in pyproject.toml",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q33",
+      "phase": 2,
+      "title": "CHANGELOG.md [Unreleased] section (M5 healed decision)",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q34",
+      "phase": 3,
+      "title": "v3->v4 legacy notebook import (decision-gated)",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q35",
+      "phase": 3,
+      "title": "Papermill-style parameter injection",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q36",
+      "phase": 3,
+      "title": "Analytics module expansion",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q37",
+      "phase": 3,
+      "title": "PDF/slides export decision + documentation",
+      "depends_on": [
+        "LIBIPYNB-Q23"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q38",
+      "phase": 3,
+      "title": "CLI/API parity sweep for Q35/Q36",
+      "depends_on": [
+        "LIBIPYNB-Q35",
+        "LIBIPYNB-Q36"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q39",
+      "phase": 4,
+      "title": "Property-based tests targeting the P0-A/B bug class",
+      "depends_on": [
+        "LIBIPYNB-Q16",
+        "LIBIPYNB-Q17"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q40",
+      "phase": 4,
+      "title": "Fuzz target expansion for newly-fixed paths",
+      "depends_on": [
+        "LIBIPYNB-Q18",
+        "LIBIPYNB-Q28"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q41",
+      "phase": 4,
+      "title": "Cross-platform path/permission tests",
+      "depends_on": [
+        "LIBIPYNB-Q19"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q42",
+      "phase": 4,
+      "title": "Supply-chain/dependency audit (pip-audit in CI)",
+      "depends_on": [
+        "LIBIPYNB-Q26"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q43",
+      "phase": 4,
+      "title": "Mutation-after-access audit (result-object immutability sweep)",
+      "depends_on": [],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q44",
+      "phase": 4,
+      "title": "Cancellation/process-leak test re-verification",
+      "depends_on": [
+        "LIBIPYNB-Q17"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q45",
+      "phase": 4,
+      "title": "Corrupted/partial external-tool behavior tests",
+      "depends_on": [
+        "LIBIPYNB-Q23"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q46",
+      "phase": 5,
+      "title": "Clean-room wheel install",
+      "depends_on": [
+        "LIBIPYNB-Q26"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q47",
+      "phase": 5,
+      "title": "Clean-room sdist install",
+      "depends_on": [
+        "LIBIPYNB-Q26"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q48",
+      "phase": 5,
+      "title": "twine check dist/*",
+      "depends_on": [
+        "LIBIPYNB-Q46",
+        "LIBIPYNB-Q47"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q49",
+      "phase": 5,
+      "title": "pip-audit against clean-room resolved install",
+      "depends_on": [
+        "LIBIPYNB-Q46"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q50",
+      "phase": 5,
+      "title": "Examples run against the installed wheel",
+      "depends_on": [
+        "LIBIPYNB-Q46"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q51",
+      "phase": 5,
+      "title": "Packaged schema + py.typed verification",
+      "depends_on": [
+        "LIBIPYNB-Q46"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q52",
+      "phase": 5,
+      "title": "Git diff/merge/clean-filter integration test in scratch repo",
+      "depends_on": [
+        "LIBIPYNB-Q46"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q53",
+      "phase": 5,
+      "title": "Final evidence report",
+      "depends_on": [
+        "LIBIPYNB-Q1",
+        "LIBIPYNB-Q52"
+      ],
+      "owner": "implementer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted"
+    },
+    {
+      "id": "LIBIPYNB-Q54",
+      "phase": 5,
+      "title": "Gate stop -- Mission-G9 publication authorization",
+      "depends_on": [
+        "LIBIPYNB-Q53"
+      ],
+      "owner": "maintainer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "blocker": "Requires explicit, dated maintainer authorization before any tag/push/publish.",
+      "resume_condition": "Maintainer reviews the Q53 evidence report and the release-candidate commit, then explicitly authorizes publication."
+    }
+  ]
+}

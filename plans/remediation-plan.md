@@ -1,5 +1,11 @@
 # libipynb Remediation Plan — Phase 2
 
+> **2026-08-24 pointer:** new work opened from this date onward is governed by
+> [`plans/publication-readiness-plan-2026-08-24.md`](publication-readiness-plan-2026-08-24.md)
+> and tracked in [`plans/state.json`](state.json). This file's own history and taskcard register
+> below remain the authoritative record for the Tier B/M/V work it already governs — historical,
+> not superseded in content, only in currency for new work.
+
 **Date:** 2026-08-13 (execution pass completed same day; hardened same day — see Change Log)
 **Basis:** [plans/publication-readiness-assessment.md](publication-readiness-assessment.md) (Phase 1 audit, executed and independently verified 2026-08-13) and [plans/phase2-execution-evidence.md](phase2-execution-evidence.md) (Phase 2 execution evidence bundle, 2026-08-13)
 **Scope:** Task cards for every gap the Phase 1 assessment classified as a publication blocker, MVP-completion item, or version-1.0 candidate. Each card gives objective, exact files, dependencies, required tests/evidence, and acceptance criteria, loosely following the structural pattern of Format Factory's `TC-FF6-IPYNB-*` task cards, adapted to a standalone libipynb ID scheme (`LIBIPYNB-<tier><n>`) since this plan lives in libipynb's own repo, not Format Factory's task-card system.

@@ -1,0 +1,163 @@
+# Prompt Registry — libipynb Supervisor
+# Lists all prompt assets with stable IDs, descriptions, inputs, outputs, and successor rules.
+# Location: .supervisor/prompts/prompt-registry.yaml
+#
+# There are no .supervisor/schemas/*.schema.json files and none should be created — libipynb
+# is a single-maintainer repo with a working plans/*.md governance system (taskcards, Gate
+# Contract, Evidence Contract, Repair Loop, Anti-Overclaim Rules). Every stage below produces
+# in-place edits to the relevant plans/*.md file, not a separate JSON/YAML artifact family.
+#
+# UPDATE 2026-08-24: the line above is now only partially true. The 2026-08-24
+# publication-readiness mission explicitly required a compact machine-readable state file;
+# plans/state.json now exists as a NEW, complementary layer -- narrative/evidence detail and
+# Taskcard Register history still live in plans/*.md as the paragraph above describes, but
+# per-task machine-readable status (ID, severity, status, dependencies, gate citations) now
+# also lives in plans/state.json. Amend both in place; neither replaces the other. See
+# plans/publication-readiness-plan-2026-08-24.md section M2 for the full reconciliation.
+
+version: "2.1"
+created: "2026-08-13"
+updated: "2026-08-24"
+
+prompts:
+  - id: PSL-PROMPT-1
+    name: prompt1-post-sprint-audit
+    file: .supervisor/prompts/prompt1-post-sprint-audit.md
+    description: "Independent evidence audit of recent work, using plans/*.md's own status vocabulary and Gate Contract"
+    stage: 1
+    mode: audit
+    inputs:
+      - "git status --short"
+      - "git diff"
+      - plans/remediation-plan.md
+      - plans/full-parity-plan.md
+      - any existing plans/*-execution-evidence.md
+    outputs:
+      - in-place edits to the governing plans/*.md file's Taskcard Register / Unresolved Work Register / Verification Matrix
+      - optional new plans/<topic>-execution-evidence.md bundle for large sessions
+      - this session's own chat response
+    successor_rules:
+      - condition: "every touched taskcard reaches completed_verified"
+        next: PSL-PROMPT-3
+      - condition: "a touched taskcard needs new/changed scope, dependencies, or gates"
+        next: PSL-PROMPT-2
+      - condition: "a taskcard is claimed_unproven or evidence is missing"
+        next: PSL-PROMPT-3
+      - condition: "the audit itself could not reach a conclusion from available evidence"
+        next: PSL-PROMPT-1
+    validation_rules:
+      - "every issue must have a root_cause, not just a symptom"
+      - "every status assigned must be one of remediation-plan.md §8's controlled values"
+      - "no claim may be accepted without a citation to a Gate G1/G2 command output or diff"
+
+  - id: PSL-PROMPT-2
+    name: prompt2-plan-hardening
+    file: .supervisor/prompts/prompt2-plan-hardening.md
+    description: "Harden a taskcard's scope/dependencies/gates in its governing plans/*.md file before execution"
+    stage: 2
+    mode: plan
+    inputs:
+      - plans/remediation-plan.md
+      - plans/full-parity-plan.md
+      - "git status --short"
+      - "git diff"
+      - PSL-PROMPT-1's chat output, if run first in this session
+    outputs:
+      - in-place edits to the governing plans/*.md file's taskcard fields (scope, dependencies, gates, acceptance criteria)
+      - this session's own chat response
+    successor_rules:
+      - condition: "plan_verdict == PLAN_HARDENED_READY_FOR_EXECUTION"
+        next: PSL-PROMPT-3
+      - condition: "plan_verdict starts with PLAN_NOT_READY"
+        next: PSL-PROMPT-2
+      - condition: "plan_verdict == BLOCKED_EXTERNAL"
+        next: null
+    validation_rules:
+      - "status field values must be exactly one of remediation-plan.md §8's controlled vocabulary"
+      - "every actionable gap must become a taskcard or an explicit lane-owned item, not a prose recommendation"
+
+  - id: PSL-PROMPT-3
+    name: prompt3-controlled-execution
+    file: .supervisor/prompts/prompt3-controlled-execution.md
+    description: "Controlled taskcard execution via the Repair Loop, gated by plans/*.md's Gate Contract"
+    stage: 3
+    mode: execution
+    inputs:
+      - the taskcard(s) selected from plans/remediation-plan.md or plans/full-parity-plan.md
+      - "git status --short"
+      - "git diff"
+    outputs:
+      - in-place edits to the governing plans/*.md file's Taskcard Register and Verification Matrix
+      - optional new plans/<topic>-execution-evidence.md bundle for large sessions
+      - this session's own chat response, not prose-only
+    successor_rules:
+      - condition: "all touched taskcards reached completed_verified"
+        next: PSL-PROMPT-4
+      - condition: "a touched taskcard is blocker on Gate G3 or G6"
+        next: null
+      - condition: "the plan itself needs hardening before execution can continue"
+        next: PSL-PROMPT-2
+    validation_rules:
+      - "final response must include a self-review (achieved / proves / open issues), not prose-only"
+      - "every touched taskcard must have a proposed status from the real vocabulary"
+      - "Gate G2 (independent review, a separate invocation) must be cited before completed_verified is assigned"
+
+  - id: PSL-PROMPT-4
+    name: prompt4-close-task
+    file: .supervisor/prompts/prompt4-close-task.md
+    description: "Governed task closure: review changes, commit, amend the governing plan file in place, report closure status"
+    stage: 4
+    mode: close
+    inputs:
+      - the governing plans/*.md file (re-read fresh immediately before editing)
+      - "git status --short"
+      - "git diff"
+    outputs:
+      - a commit (or logically separated commits)
+      - amended row(s) in the relevant plans/*.md Taskcard Register (no separate closure file)
+      - this session's own chat response
+    successor_rules:
+      - condition: "closure_status == CLOSED"
+        next: null
+      - condition: "closure_status == NOT_CLOSED"
+        next: PSL-PROMPT-2
+    validation_rules:
+      - "must not claim closure without verifying the final repo state"
+      - "must not leave uncommitted relevant changes behind"
+      - "must record files changed, commit hash(es), plan file+row updated, closure status"
+
+  - id: PSL-LOOP-CTRL
+    name: prompt-loop-controller
+    file: .supervisor/prompts/prompt-loop-controller.md
+    description: "Stage-sequencing guardrails: what a final state may never be"
+    stage: control
+    mode: control
+    inputs:
+      - this session's own PSL-PROMPT-1/2/3/4 chat output
+    outputs:
+      - a stated decision in the chat response (not a file)
+    successor_rules: []
+    validation_rules:
+      - "must never accept a taskcard status change with no Gate citation"
+      - "must never accept a prose-only final summary from PSL-PROMPT-3"
+
+# Pre-existing, retained prompts (used by PSL-PROMPT-3/PSL-LOOP-CTRL, not part of the numbered stage sequence)
+existing_prompts:
+  - id: LEGACY-ADVERSARIAL-REVIEW
+    file: .supervisor/prompts/adversarial-review.md
+    note: "Retained and rewired to libipynb's real Gates/Anti-Overclaim Rules. Used for Gate G2 independent review — must be a separate invocation from the one that did the implementation."
+  - id: LEGACY-APPROVAL-GATE
+    file: .supervisor/prompts/approval-gate-classifier.md
+    note: "Retained and rewired to Gate G3 (publish/tag/push) and Gate G6 (execution-surface-widening work)."
+  - id: LEGACY-MEMORY-SYNC
+    file: .supervisor/prompts/memory-sync.md
+    note: "Retained, shrunk. Updates memory/session_context.json and .supervisor/README.md's Session Handoff Log only — does not duplicate plans/*.md's own evidence trail."
+
+# Removed from this repo's registry (kept nowhere): evidence-review.md (superseded by
+# PSL-PROMPT-1), mega-train-template.md / next-sprint-generator.md / poc-gap-extractor.md
+# (product-factory concept with no libipynb equivalent — "what's next" is already answered
+# by plans/*.md's own Taskcard Register and blocker sections), project-adapter-template.md
+# (onboarding template for a *different future* project, not this repo's own operational
+# config — see the instantiated .supervisor/project-adapter.yaml instead), and
+# prompt-output-contracts.md (a schema registry for schemas that were never authored and
+# are not needed here).

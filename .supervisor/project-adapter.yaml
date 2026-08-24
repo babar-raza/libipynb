@@ -1,0 +1,57 @@
+# Instantiated project configuration for libipynb.
+# This file mirrors CONTRIBUTING.md and .gitlab-ci.yml. If it ever disagrees with either of
+# them, THEY win — update this file to match, not the other way round.
+
+project_name: "libipynb"
+
+authoritative_plans:
+  - plans/remediation-plan.md
+  - plans/full-parity-plan.md
+  - plans/production-hardening-plan.md   # added 2026-08-24: the actual current Q-tier
+    # governor since 2026-08-18/19 (LIBIPYNB-Q1-Q15b, incl. the two 2026-08-19 commits);
+    # this list was stale without it -- see plans/publication-readiness-plan-2026-08-24.md
+    # section M1 for the reconciliation record.
+  - plans/publication-readiness-plan-2026-08-24.md   # added 2026-08-24: governs the
+    # current publication-readiness engagement (LIBIPYNB-Q1, Q16-Q54).
+
+# Added 2026-08-24: a machine-readable complement to the plans/*.md narrative layer above,
+# not a replacement -- see plans/state.json's own "notes" field and
+# plans/publication-readiness-plan-2026-08-24.md section M2 for why prompt-registry.yaml's
+# older "no separate state file" guidance no longer applies without qualification.
+state_file: plans/state.json
+
+# Exact commands, copied verbatim from .gitlab-ci.yml (the CI-gating form — not
+# CONTRIBUTING.md's looser dev shorthand, which currently omits mypy's --strict flag).
+commands:
+  format_check: "ruff format --check src/ tests/"
+  lint: "ruff check src/ tests/"
+  typecheck: "mypy --strict src/libipynb/"
+  test_core: "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short"
+  test_property: "pytest tests/property/ -v --tb=short"
+  test_interop: "pytest tests/interoperability/ -v --tb=short"   # requires: pip install -e ".[test,reference]"
+  test_oracle: "pytest tests/oracle/ -v --tb=short"              # requires: pip install -e ".[oracle]"; importorskip-gated, skips cleanly if absent
+  coverage: "pytest tests/ --cov=libipynb --cov-report=term-missing"  # gate: fail_under = 85 (pyproject.toml [tool.coverage.report])
+  build_wheel: "python -m build --wheel"
+  build_sdist: "python -m build --sdist"
+  fuzz_example: "python fuzz/fuzz_parser.py -max_total_time=60"   # Linux-only (atheris has no Windows wheels); not wired into CI yet
+
+# Not a path blocklist — plans/*.md and CHANGELOG.md are actively edited in place by design
+# (see prompt2/prompt3/prompt4). The real constraint is on specific ACTIONS, gated in plans/*.md.
+gated_actions:
+  publish_or_tag: "requires a dated authorization in plans/remediation-plan.md §13 (Gate G3)"
+  widen_execution_surface: "requires a dated sign-off in plans/full-parity-plan.md §7 (Gate G6) before implementation starts, not just before shipping"
+  add_core_dependency: "requires Gate G7: extras-group only (never core [project.dependencies]), pinned version, license-compatible, tests/unit/test_import_boundary.py still passing"
+  source_external_fixture_content: "requires a dated maintainer (Babar Raza) decision recorded in tests/fixtures/PROVENANCE.md's Candidate shortlist table (Approve/Reject/Approve-with-substitution) before scripts/fetch_fixture.py --commit vendors, or before any vendored fixture is retracted -- same authority class as publish_or_tag (Gate G3), per production-hardening-plan.md's LIBIPYNB-Q12a precedent"
+
+# Amend/append in place; never wholesale-overwrite or restructure these.
+amend_in_place_only:
+  - plans/remediation-plan.md
+  - plans/full-parity-plan.md
+  - plans/production-hardening-plan.md   # added 2026-08-24, see authoritative_plans above
+  - plans/publication-readiness-plan-2026-08-24.md   # added 2026-08-24
+  - plans/state.json   # added 2026-08-24: re-read immediately before writing, same
+    # concurrency discipline as the plans/*.md files above (a real concurrent-edit
+    # collision already happened once on plans/full-parity-plan.md -- see its own
+    # sections 14/15 -- this file is not exempt from that risk just because it's new).
+  - CHANGELOG.md
+  - .supervisor/README.md   # Session Handoff Log section only
