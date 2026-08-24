@@ -649,9 +649,19 @@
       "depends_on": [
         "LIBIPYNB-Q19"
       ],
-      "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "owner": "implementer+separate_reviewer",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "pytest tests/unit/test_internal_paths.py tests/unit/test_obligation_attachments.py tests/unit/test_obligation_attachment_management.py tests/integration/test_obligation_export_resource_path_safety.py tests/integration/test_obligation_export_adapter.py -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "empirical probe first (this session's own Windows 11 build 10.0.26200): confirmed Path('CON').write_bytes(...) now succeeds as a genuine regular file on this specific build, then confirmed is_safe_resource_filename('CON') nonetheless returned True (a real gap relative to the function's own stated purpose, since this relaxation is not universal across the still-deployed Windows install base). Fixed is_safe_resource_filename() in _internal/paths.py to reject MS-DOS/Win32 reserved device names (CON/PRN/AUX/NUL/COM0-9/LPT0-9, case-insensitive, with/without extension) unconditionally. Negative control: new test confirmed to FAIL against the pre-fix implementation via git stash before the fix landed. Full core suite (tests/unit + tests/integration + tests/security, 1098 passed / 11 skipped / 0 failed) and both direct downstream consumers (model/attachments.py's _validate_new_name, adapters/export.py's _collect_resources -- 48 tests) re-run green post-fix. Q19's own existing TestSymlinkPolicy/TestPermissionPreservation/TestDurability classes in tests/security/test_atomic_writes.py already thoroughly cover per-platform symlink and permission-preservation behavior (including a genuine POSIX-vs-Windows RuntimeError-vs-OSError symlink-loop divergence) -- deliberately not duplicated here. A related caller-side concern (two attachment names differing only in case colliding on a case-insensitive filesystem such as Windows/macOS) was investigated and found to be genuinely out of this library's own scope: libipynb returns AncillaryResource objects but does not itself write them to disk anywhere in src/ -- confirmed by grep; no in-repo code path exists to test.",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; the added reserved-name check only narrows is_safe_resource_filename's accept set (never widens it), so reverting only re-permits already-latent Windows-reserved-name inputs, zero effect on any other input shape",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "1d57316a10fcef734fa73cbba36b7b664c036ed4",
+      "note": "Implementation 1d57316. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q42",
