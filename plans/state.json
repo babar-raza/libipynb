@@ -214,17 +214,26 @@
       "title": "Strict reader and validate() accept NaN/Infinity",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "parse_constant rejection in strict mode; recursive non-finite-float scan in validate().",
       "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
+      "repair_commit": "8452b942ce8c686495d87ef86328c2f6c373e5e8",
+      "review_lenses_applied": [
+        "combinatorial_cardinality",
+        "spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
       "oracle_tier_actually_executed": null,
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "d7ad2ef2a86c5f87a16effd42abb5e702b532f35",
+      "intermediate_repair_commit": "e0d7874f920c6f8d2bcdc3614ce84f0ece237c1e",
+      "note": "Implementation d7ad2ef; FIRST independent Taskcard-Gate-G2 review found 1 CRITICAL (find_non_finite_floats missed tuples entirely -- a live reproduction of the exact \"validate() valid, dumps() fails\" bug this taskcard exists to close) + 4 WARNING issues, repaired in e0d7874. Given the CRITICAL severity, a SECOND independent Agent review (not self-verification) was run specifically on the repair -- confirmed the tuple fix is fully, genuinely correct (independently constructed namedtuple/50k-deep-tuple/3-way-mixed-nesting cases beyond the implementer's own tests), and found one new WARNING (a self-referential structure hangs forever) plus minor items, repaired in 8452b94. That repair's own first attempt (a total-visited-node cap) was caught failing this session's own regression run (not by any reviewer) -- it silently reintroduced a many-minutes-long hang for a legitimate input class before finally raising, AND separately broke a genuine large notebook fixture in test_obligation_cell_editor.py. Root-caused to depth vs. node-count and fixed properly (depth-bounded, not node-count-bounded) in the same commit, per this project's own \"after two unsuccessful repair attempts, return to first principles\" rule. This is the most heavily adversarially-tested taskcard in this engagement so far -- 2 separate G2 reviews plus one self-caught regression, none of which were rubber stamps.",
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
     },
     {
       "id": "LIBIPYNB-Q19",
@@ -638,6 +647,25 @@
       "legacy_status_equivalent": "not_attempted",
       "blocker": "Requires explicit, dated maintainer authorization before any tag/push/publish.",
       "resume_condition": "Maintainer reviews the Q53 evidence report and the release-candidate commit, then explicitly authorizes publication."
+    },
+    {
+      "id": "LIBIPYNB-Q55",
+      "phase": 4,
+      "title": "security.limits.enforce_structure does not walk tuples (same blind spot Q18 fixed elsewhere)",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "enforce_structure only recurses through dict/list, not tuple -- confirmed by the LIBIPYNB-Q18 second-review Agent that a document nested 2000+ levels deep purely through tuples sails through enforce_structure with zero exception at the default max_nesting_depth=64, meaning max_entries/string-size resource accounting is also silently skipped for anything nested inside a tuple. Not a live instance of the Q18 bug class (enforce_structure is a resource-limit guard, not the finiteness scanner), but the same missed-container-type defect family, found live in a sibling security-relevant function during Q18's own review.",
+      "verification_command": "pytest tests/security/ -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "discovered_by": "LIBIPYNB-Q18 second-review Agent (independent G2 review of commit e0d7874), not this session's own implementation work"
     }
   ]
 }
