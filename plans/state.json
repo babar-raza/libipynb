@@ -895,18 +895,20 @@
       "title": "security.limits.enforce_structure does not walk tuples (same blind spot Q18 fixed elsewhere)",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
       "objective": "enforce_structure only recurses through dict/list, not tuple -- confirmed by the LIBIPYNB-Q18 second-review Agent that a document nested 2000+ levels deep purely through tuples sails through enforce_structure with zero exception at the default max_nesting_depth=64, meaning max_entries/string-size resource accounting is also silently skipped for anything nested inside a tuple. Not a live instance of the Q18 bug class (enforce_structure is a resource-limit guard, not the finiteness scanner), but the same missed-container-type defect family, found live in a sibling security-relevant function during Q18's own review.",
-      "verification_command": "pytest tests/security/ -v --tb=short",
+      "verification_command": "pytest tests/unit/test_obligation_security_limits.py tests/security/ -v --tb=short",
       "repair_commit": null,
       "review_lenses_applied": [],
-      "oracle_tier_actually_executed": null,
+      "oracle_tier_actually_executed": "Confirmed live, public-API-reachable (not just defense-in-depth): validate(value: NotebookDocument | Mapping[str, Any] | Source, ...) accepts a plain dict directly, and a tuple is a realistic shape there (unlike via JSON parsing, which never produces one). Empirically reproduced the bypass before fixing: validate() with max_nesting_depth=8 against a 2000-level-deep tuple-nested document returned zero errors (silently accepted); the same input's own downstream find_non_finite_floats call (which does walk tuples, with its own independent 1000-level backstop) raised an uncaught RecursionError instead of the intended clean IPYNB_RESOURCE_LIMIT diagnostic -- confirming enforce_structure's tuple gap broke the intended defense-in-depth ordering documented in finiteness.py's own docstring ('validate()/probe() both already run enforce_structure first, which bounds depth before this function ever runs'). Fixed: enforce_structure treats tuple identically to list for both depth and entry-count accounting. 4 new regression tests (tests/unit/test_obligation_security_limits.py, TestQ55TupleNestingIsNotAResourceLimitBlindSpot), 3 confirmed to fail against the pre-fix code via a negative control (temporarily reverted the isinstance check, reran, restored, confirmed byte-identical to the fix). Full core suite: 1156 passed, 11 skipped, 0 failed. ruff format/check and mypy --strict clean. See LIBIPYNB-Q60 for a distinct, narrower gap found during this investigation: find_non_finite_floats's own RecursionError still leaks past validate()'s exception handling if a caller explicitly sets max_nesting_depth above 1000 (find_non_finite_floats's own hard-coded backstop) -- out of this taskcard's own stated scope (an enforce_structure/tuple-walking fix, not a validate()-level exception-handling completeness fix), logged separately rather than fixed inline.",
       "mutation_baseline_checked": null,
-      "rollback": "revert single commit",
+      "rollback": "git revert 2b60a09; single commit, only narrows enforce_structure's accept set (never widens it) -- reverting only re-permits an already-latent tuple-nesting resource-limit bypass",
       "blocker": null,
       "resume_condition": null,
-      "discovered_by": "LIBIPYNB-Q18 second-review Agent (independent G2 review of commit e0d7874), not this session's own implementation work"
+      "implementation_commit": "2b60a0928084bd46e641b03e1e26ed67163814c7",
+      "discovered_by": "LIBIPYNB-Q18 second-review Agent (independent G2 review of commit e0d7874), not this session's own implementation work",
+      "note": "Implementation 2b60a09. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q56",
@@ -993,6 +995,27 @@
       "blocker": null,
       "resume_condition": null,
       "discovered_by": "LIBIPYNB-Q45's independent Taskcard-Gate-G2 review (a genuinely separate Agent), while confirming the taskcard's own claim that HtmlExporter/NbconvertExporter already had comprehensive corrupted/partial-failure coverage -- found this one real, unflagged gap; correctly scoped as a new backlog item rather than fixed inline, since it requires an implementation change (new validation logic), not just a test, and Q45 itself was a test-only diff"
+    },
+    {
+      "id": "LIBIPYNB-Q60",
+      "phase": 4,
+      "title": "validate() can still leak an uncaught RecursionError from find_non_finite_floats if max_nesting_depth is explicitly set above 1000",
+      "depends_on": [
+        "LIBIPYNB-Q55"
+      ],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "validation/validator.py's validate() calls enforce_structure() first (bounding depth per the caller's configured max_nesting_depth), then find_non_finite_floats() (which has its own independent, hard-coded _MAX_DEPTH=1000 backstop, documented in _internal/finiteness.py as existing specifically because 'the two current call sites (validate(), probe()) both already run enforce_structure first, which bounds depth before this function ever runs'). That ordering assumption breaks if a caller explicitly configures max_nesting_depth above 1000: enforce_structure no longer trips before find_non_finite_floats's own backstop does, and validate()'s except clauses (ResourceLimitError, UnicodeEncodeError) do not catch RecursionError -- so a document nested deeper than 1000 levels crashes validate() with an uncaught RecursionError instead of returning the intended structured ValidationReport with an IPYNB_RESOURCE_LIMIT (or similar) diagnostic. Reproduced directly: NotebookResourceLimits(max_nesting_depth=5000) against a 2000-level-deep document raises RecursionError out of validate() rather than returning a report. Narrower than LIBIPYNB-Q55 (only reachable with an explicit above-1000 override, not the default 64) and a distinct fix target (validate()'s own exception-handling completeness, not enforce_structure's container-type coverage) -- found while empirically verifying Q55's fix, deliberately not folded into that commit.",
+      "verification_command": "pytest tests/validation/ tests/unit/test_obligation_security_limits.py -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert; likely either an added except RecursionError clause in validate() or a probe() equivalent, plus a regression test -- isolated, no other behavior touched",
+      "blocker": null,
+      "resume_condition": null,
+      "discovered_by": "this session's own empirical verification of LIBIPYNB-Q55's fix (testing an edge case -- an explicit max_nesting_depth override above find_non_finite_floats's own hard-coded backstop -- not part of Q55's own stated scope)"
     }
   ]
 }
