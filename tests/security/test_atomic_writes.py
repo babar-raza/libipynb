@@ -52,12 +52,32 @@ class TestAtomicFileWrite:
         target = tmp_path / "output.ipynb"
         original = '{"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}\n'
         target.write_text(original, encoding="utf-8")
-        read_only_dir = tmp_path / "readonly"
-        read_only_dir.mkdir()
         nonexistent = tmp_path / "no_such_dir" / "output.ipynb"
         with pytest.raises(NotebookWriteError):
             dump({"not": "a valid notebook"}, nonexistent, profile="declared")
         assert target.read_text(encoding="utf-8") == original
+
+    @POSIX_ONLY
+    def test_write_failure_in_a_permission_denied_directory_is_a_clean_notebookwriteerror(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        """Second-review Gate G2 finding: the prior version of this file
+        created a read_only_dir fixture but never actually used it or
+        made it read-only -- the permission-denied-directory case (as
+        opposed to the already-covered missing-parent-directory case
+        above) was never genuinely exercised. root is exempt from POSIX
+        permission checks, so this test is meaningless (and would fail
+        for the wrong reason) when run as root."""
+        if os.geteuid() == 0:
+            pytest.skip("root is exempt from POSIX permission checks")
+        read_only_dir = tmp_path / "readonly"
+        read_only_dir.mkdir()
+        os.chmod(read_only_dir, 0o555)
+        try:
+            with pytest.raises(NotebookWriteError):
+                dump(minimal_doc, read_only_dir / "output.ipynb", profile="declared")
+        finally:
+            os.chmod(read_only_dir, 0o755)  # restore so tmp_path cleanup can remove it
 
     def test_stream_write_still_works(self, minimal_doc: object) -> None:
         buf = io.StringIO()
@@ -177,6 +197,49 @@ class TestSymlinkPolicy:
         assert (real_dir / "output.ipynb").exists()
         content = (real_dir / "output.ipynb").read_text(encoding="utf-8")
         assert '"nbformat": 4' in content
+
+    def test_a_broken_symlink_destination_is_healed_not_rejected(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        """A symlink whose target does not (yet) exist -- dump() must
+        create the target with a sensible new-file default, following the
+        same "write through the symlink" policy as any other symlink
+        destination, rather than treating a dangling symlink as an
+        error."""
+        nonexistent_target = tmp_path / "not_yet_created.ipynb"
+        link = tmp_path / "broken_link.ipynb"
+        os.symlink(nonexistent_target, link)
+        assert not nonexistent_target.exists()
+
+        dump(minimal_doc, link, profile="declared")
+
+        assert nonexistent_target.exists()
+        assert link.is_symlink()
+        content = nonexistent_target.read_text(encoding="utf-8")
+        assert '"nbformat": 4' in content
+
+    def test_a_symlink_loop_destination_fails_as_notebookwriteerror_not_a_raw_runtimeerror(
+        self, minimal_doc: object, tmp_path: Path
+    ) -> None:
+        """Second-review Gate G2 CRITICAL-adjacent finding: on CPython
+        3.11/3.12 specifically, Path.resolve() (strict=False) deliberately
+        raises RuntimeError -- not OSError -- for a symlink loop. Left
+        uncaught, that RuntimeError leaked straight past dump()'s
+        NotebookWriteError contract, on the project's own stated minimum
+        supported Python version, on POSIX -- undetectable from this
+        Windows development environment alone, where the same input
+        doesn't trip pathlib's loop guard the same way (the failure
+        instead surfaces later, correctly, at os.replace()). Whichever
+        internal mechanism actually fires on a given platform, dump()
+        itself must always raise NotebookWriteError here, never anything
+        else."""
+        a = tmp_path / "a.ipynb"
+        b = tmp_path / "b.ipynb"
+        os.symlink(b, a)
+        os.symlink(a, b)
+
+        with pytest.raises(NotebookWriteError):
+            dump(minimal_doc, a, profile="declared")
 
 
 class TestDurability:

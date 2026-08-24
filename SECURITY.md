@@ -107,6 +107,29 @@ This prevents partial writes from corrupting the target file if the process is
 interrupted or the disk fills up. The stream-write path (writing to a file-like
 object) is unchanged, as streams cannot support atomic semantics.
 
+Beyond atomicity, `dump()` also provides:
+
+- **Permission preservation** -- overwriting an existing file keeps its exact
+  mode; a new file gets the umask-aware default a plain `open(path, "w")`
+  would produce. Never `tempfile.mkstemp()`'s restrictive `0600` for either
+  case (a prior version silently turned an overwritten `0644` file into
+  `0600`).
+- **Durability** (POSIX only) -- the temp file's content is `fsync`ed before
+  the rename, and the containing directory is best-effort `fsync`ed after,
+  which is what actually makes the *rename itself* durable across a crash or
+  power loss, not merely the content. Windows has no equivalent
+  directory-fsync primitive; `os.replace()`'s own atomicity still holds
+  there, but no durability-across-power-loss claim is made on Windows beyond
+  what the OS/filesystem itself provides.
+- **Symlink policy** -- if the destination is (or is inside) a symlink,
+  `dump()` writes *through* it: the symlink itself survives and keeps
+  pointing at the (now updated) real file, matching the common "safe
+  overwrite" convention for a config-file-like target, rather than replacing
+  the symlink with a plain file. A destination symlink whose target does not
+  yet exist is healed (the target is created); a symlink loop at the
+  destination is rejected as a clean `NotebookWriteError`, never a raw
+  interpreter exception.
+
 ### Content Sanitization
 
 The `sanitize()` function detects active content in cell outputs -- scripts,

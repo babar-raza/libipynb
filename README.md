@@ -223,7 +223,7 @@ dependency boundary, and the execution trust model behind the APIs below.
 |---|---|
 | `load(source)` | Load a notebook from a file path, string, bytes, or stream |
 | `loads(text)` | Load a notebook from a JSON string |
-| `dump(doc, dest)` | Write a notebook to a file path or stream. Default `profile` (omitted/`None`) validates the *entire* document against the nbformat 4.5 schema on every call and requires the document already be declared 4.5 — call `upgrade()` first otherwise. Pass `profile="declared"` for a cheap passthrough that preserves the document's own declared version and skips re-validation. |
+| `dump(doc, dest)` | Write a notebook to a file path or stream. Default `profile` (omitted/`None`) validates the *entire* document against the nbformat 4.5 schema on every call and requires the document already be declared 4.5 — call `upgrade()` first otherwise. Pass `profile="declared"` for a cheap passthrough that preserves the document's own declared version and skips re-validation. For a path destination: atomic (temp-then-rename), preserves the destination's existing permissions, fsyncs for durability (POSIX), and writes *through* a symlink destination rather than replacing it — see [SECURITY.md](SECURITY.md#atomic-file-writes) for the full guarantee. |
 | `dumps(doc)` | Serialize a notebook to a JSON string (same profile behavior as `dump`) |
 | `probe(source)` | Detect whether a source is a valid `.ipynb` file |
 | `roundtrip(source, dest)` | Load and re-serialize with minimal diff |

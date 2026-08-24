@@ -183,6 +183,21 @@ def _fsync_directory_best_effort(directory: Path) -> None:
             os.close(dir_fd)
 
 
+def _resolve_destination(path: Path) -> Path:
+    """Resolve *path* through any symlinks (``strict=False``, so this also
+    works for a destination that does not exist yet), converting the
+    loop-detection ``RuntimeError`` CPython's own ``pathlib`` deliberately
+    raises for a symlink loop (confirmed present on 3.11 and 3.12; not
+    raised the same way on every platform/version -- see the call site's
+    own comment) into this module's ``NotebookWriteError`` contract, which
+    every other failure path in ``dump()`` reports through. A bare
+    ``RuntimeError`` would otherwise leak past that contract."""
+    try:
+        return path.resolve()
+    except RuntimeError as exc:
+        raise NotebookWriteError(f"cannot write notebook to {path}: {exc}") from exc
+
+
 def dump(
     document: NotebookDocument | Mapping[str, Any],
     destination: Destination,
@@ -238,8 +253,16 @@ def dump(
     # rather than replacing the symlink itself -- and so the temp file
     # lands on the same filesystem as the real destination, keeping
     # os.replace() atomic. strict=False (the default) also works
-    # correctly for a destination that does not exist yet.
-    real_path = path.resolve()
+    # correctly for a destination that does not exist yet. Routed through
+    # _resolve_destination() rather than called bare: on CPython 3.11 and
+    # 3.12 specifically (confirmed against the actual interpreter
+    # source), Path.resolve() deliberately raises RuntimeError -- not
+    # OSError -- for a symlink loop, even with strict=False; on Windows
+    # it doesn't raise at all for the same input (the failure instead
+    # surfaces later, correctly, at os.replace()). Left uncaught here,
+    # that RuntimeError would leak past every other failure path in this
+    # function, which all report through NotebookWriteError.
+    real_path = _resolve_destination(path)
     try:
         target_mode = _target_mode(real_path)
         fd, tmp = tempfile.mkstemp(dir=real_path.parent, suffix=".tmp")
