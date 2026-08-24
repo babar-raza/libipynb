@@ -20,11 +20,23 @@ cache:
 
 # ── Quality ──────────────────────────────────────────────────────────────────
 
+# LIBIPYNB-Q26: ruff/mypy pinned exact, not floating -- confirmed via a real
+# cross-version reproduction (a stale pre-installed ruff 0.15.22 found in an
+# unrelated local CI-emulation test) that ruff's DEFAULT enabled rule set
+# genuinely differs between minor versions (0.15.x enables E402 by default;
+# 0.16.x does not), with no explicit [tool.ruff.lint] select in
+# pyproject.toml to pin that selection down. An unpinned `pip install ruff`
+# means this gate's pass/fail is not just a function of the code, but of
+# whatever ruff happens to resolve as "latest" on a given day -- exactly the
+# kind of non-reproducibility this whole engagement exists to close. Pinned
+# to the exact versions every Gate-G1 command in this engagement was actually
+# verified against.
+
 ruff-format:
   stage: quality
   image: python:3.12-slim
   before_script:
-    - pip install ruff
+    - pip install ruff==0.16.2
   script:
     - ruff format --check src/ tests/
 
@@ -32,7 +44,7 @@ ruff-lint:
   stage: quality
   image: python:3.12-slim
   before_script:
-    - pip install ruff
+    - pip install ruff==0.16.2
   script:
     - ruff check src/ tests/
 
@@ -40,8 +52,18 @@ mypy:
   stage: quality
   image: python:3.12-slim
   before_script:
-    - pip install -e ".[test]"
-    - pip install mypy
+    # LIBIPYNB-Q56: `.[test]` alone is not enough -- adapters/jupyter_execute.py
+    # and adapters/export.py conditionally import nbclient/jupytext, which are
+    # only declared in the exec/export extras. In a genuinely fresh install
+    # (confirmed via a from-scratch python:3.12-slim container, not just this
+    # repo's own long-lived dev .venv which already had them from earlier
+    # work) mypy --strict reports import-not-found for both, since it has no
+    # way to resolve packages that were never installed. Installing exec+export
+    # too makes the type-checking environment match what mypy actually needs
+    # to check every file under src/libipynb/, not just the ones test-only
+    # deps happen to cover.
+    - pip install -e ".[test,exec,export]"
+    - pip install mypy==2.3.0
   script:
     - mypy --strict src/libipynb/
 

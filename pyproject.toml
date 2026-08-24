@@ -33,7 +33,16 @@ test = [
     "pytest-cov>=6.0",
     "pytest-timeout>=2.3",
     "hypothesis>=6.100",
-    "nbformat>=5.10",
+    # Exact-pinned, not a floor (LIBIPYNB-Q56): validation/schema.py's
+    # SCHEMA_SOURCE_VERSION and vendored schema digests are computed
+    # against nbformat 5.10.4 specifically -- a bare floor lets a fresh
+    # install resolve a newer nbformat (confirmed: 5.11.1 in a fresh
+    # python:3.12-slim container) and fail
+    # test_declared_source_version_matches_the_installed_oracle, which a
+    # dev .venv with 5.10.4 already installed from earlier work would
+    # never surface locally. Matches the `reference` extra's existing
+    # exact pin below.
+    "nbformat==5.10.4",
 ]
 # Linux-only: atheris has no Windows wheels and fails to build from source
 # there. See fuzz/README.md.
