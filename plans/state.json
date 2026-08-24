@@ -563,9 +563,19 @@
       "phase": 3,
       "title": "Papermill-style parameter injection",
       "depends_on": [],
-      "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "owner": "implementer+separate_reviewer",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "pytest tests/unit/test_parameter_injection.py tests/oracle/test_papermill_parity.py tests/unit/test_cli.py::TestRun -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "new src/libipynb/model/parameters.py (inject_parameters), NotebookDocument.inject_parameters(), CLI `libipynb run` subcommand, all committed at b9364d5. Oracle-verified against real installed papermill 2.7.0 (tests/oracle/test_papermill_parity.py, 13 tests): generated Python source matches papermill's own PythonTranslator byte-for-byte for scalars/None/negative-zero/NaN-Infinity/escaped-strings/unicode/empty-string/lists/dicts/nested/empty-containers, tag convention round-trips through real papermill's own parameterize_notebook(), and an explicit divergence (libipynb rejects unsupported parameter types; real papermill silently stringifies them) is proven real by running both. 26 direct unit tests (tests/unit/test_parameter_injection.py) plus 7 CLI tests (tests/unit/test_cli.py::TestRun). Re-run this session (2026-08-24, after a context compaction): all 46 tests (26+13+7) re-confirmed passing against current HEAD, not merely assumed intact from the original implementation session.",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert b9364d5; new module + CLI subcommand only, no existing behavior touched",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "b9364d5ca50e8e9ab6ce37bc8ac6cdec123558be",
+      "note": "Implementation b9364d5 (README/ARCHITECTURE.md doc updates in a015b87/6726bf5 for the separate LIBIPYNB-Q37 taskcard incidentally also filled a Q35 ARCHITECTURE.md gap -- see that taskcard's own note). A Taskcard-Gate-G2 independent review of this taskcard was launched in the session that authored b9364d5, but that session was interrupted by a context-window compaction before the review agent's findings were captured anywhere retrievable (no repair commit, no note referencing findings) -- per this engagement's evidence discipline, an unrecoverable review cannot be cited as having happened. Status corrected from a stale NOT_STARTED (state.json was never updated after b9364d5 landed) to IMPLEMENTED_UNVERIFIED, and a fresh independent review is being (re-)commissioned now."
     },
     {
       "id": "LIBIPYNB-Q36",
