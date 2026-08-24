@@ -44,10 +44,22 @@ class CellExecutionRecord:
     started_at: float | None
     finished_at: float | None
     #: LIBIPYNB-Q2: ``True`` when one or more of this cell's own outputs
-    #: were truncated because they exceeded
-    #: :attr:`~.options.ExecutionOptions.max_output_bytes`. Always
+    #: were truncated or had a binary representation omitted because they
+    #: exceeded :attr:`~.options.ExecutionOptions.max_output_bytes`. Always
     #: ``False`` when that option is ``None`` (the default).
     output_truncated: bool = False
+    #: LIBIPYNB-Q17: MIME type keys (e.g. ``"image/png"``) removed entirely
+    #: from an output's ``data`` bundle because they were base64-encoded
+    #: binary content that exceeded the size limit -- appending a textual
+    #: truncation marker to base64 data would corrupt it into invalid
+    #: base64 without raising, so an oversized binary representation is
+    #: dropped rather than truncated. Distinct from ``output_truncated``,
+    #: which is also ``True`` for ordinary marker-appended text truncation;
+    #: this field is the only signal that a binary representation was
+    #: *removed*, not shortened. Always empty when no binary representation
+    #: was oversized, including when ``output_truncated`` is ``True`` for a
+    #: purely textual reason.
+    omitted_mime_types: tuple[str, ...] = ()
     #: LIBIPYNB-Q2: ``True`` when this specific cell independently exceeded
     #: its own :attr:`~.options.ExecutionOptions.cell_timeout` budget,
     #: confirmed by this executor's own watchdog rather than solely

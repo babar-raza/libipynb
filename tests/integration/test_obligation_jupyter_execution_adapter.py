@@ -906,6 +906,206 @@ def test_max_output_bytes_truncates_only_the_oversized_output_not_downstream_cel
     assert after_record.output_truncated is False
 
 
+# ── LIBIPYNB-Q17: any()-short-circuit fix -- every oversized output, not ───
+# ── just the first, must be handled; binary MIME must be omitted, not ──────
+# ── corrupted, when oversized ───────────────────────────────────────────────
+
+
+def test_two_oversized_stream_outputs_in_one_cell_are_both_truncated(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """The exact regression this fix closes: _truncate_outputs_if_needed
+    previously used any(...) over a generator, which stops the moment the
+    first oversized output is found -- a cell producing two independently
+    oversized outputs (here: stdout and stderr, two separate stream output
+    dicts) previously left the second one completely untouched."""
+    document = _document(
+        [
+            _code(
+                "import sys\nsys.stdout.write('a' * 2000)\nsys.stderr.write('b' * 2000)\n",
+                "two-streams",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    assert record.output_truncated is True
+    stdout_output = next(o for o in record.outputs if o.get("name") == "stdout")
+    stderr_output = next(o for o in record.outputs if o.get("name") == "stderr")
+    assert len(stdout_output["text"].encode("utf-8")) <= 200
+    assert len(stderr_output["text"].encode("utf-8")) <= 200
+    # Both must actually have been shortened, not just the first one visited.
+    assert len(stdout_output["text"]) < 2000
+    assert len(stderr_output["text"]) < 2000
+
+
+def test_mixed_stream_display_data_and_execute_result_outputs_are_all_truncated(
+    executor: LocalJupyterExecutor,
+) -> None:
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "print('s' * 2000, end='')\n"
+                "display({'text/plain': 'd' * 2000}, raw=True)\n"
+                "'e' * 2000\n",
+                "mixed",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    assert record.output_truncated is True
+    by_type = {o["output_type"]: o for o in record.outputs}
+    assert set(by_type) == {"stream", "display_data", "execute_result"}
+    assert len(by_type["stream"]["text"].encode("utf-8")) <= 200
+    assert len(by_type["display_data"]["data"]["text/plain"].encode("utf-8")) <= 200
+    assert len(by_type["execute_result"]["data"]["text/plain"].encode("utf-8")) <= 200
+
+
+def test_multiple_oversized_mime_representations_in_one_output_are_all_truncated(
+    executor: LocalJupyterExecutor,
+) -> None:
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "display({'text/plain': 'p' * 2000, 'text/html': 'h' * 2000}, raw=True)\n",
+                "multi-mime",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    (output,) = record.outputs
+    assert len(output["data"]["text/plain"].encode("utf-8")) <= 200
+    assert len(output["data"]["text/html"].encode("utf-8")) <= 200
+
+
+def test_oversized_binary_mime_payload_is_omitted_not_corrupted(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """LIBIPYNB-Q17's second defect: appending a text truncation marker to
+    base64 content corrupts it into invalid base64 without raising. An
+    oversized binary representation must be removed entirely and reported
+    via omitted_mime_types, never truncated in place."""
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "display({'image/png': 'A' * 2000}, raw=True)\n",
+                "binary",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    assert record.output_truncated is True
+    assert record.omitted_mime_types == ("image/png",)
+    (output,) = record.outputs
+    assert "image/png" not in output["data"]
+
+
+def test_oversized_binary_and_text_mime_in_the_same_output_are_each_handled_correctly(
+    executor: LocalJupyterExecutor,
+) -> None:
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "display({'image/png': 'A' * 2000, 'text/plain': 'p' * 2000}, raw=True)\n",
+                "mixed-binary",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    (output,) = record.outputs
+    assert "image/png" not in output["data"]
+    assert record.omitted_mime_types == ("image/png",)
+    assert len(output["data"]["text/plain"].encode("utf-8")) <= 200
+
+
+def test_svg_mime_is_text_truncated_not_omitted(executor: LocalJupyterExecutor) -> None:
+    """image/svg+xml is literal XML text per the nbformat spec, not
+    base64 -- must be marker-truncated like any other text MIME type, not
+    treated as binary and removed."""
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "display({'image/svg+xml': '<svg>' + 'x' * 2000 + '</svg>'}, raw=True)\n",
+                "svg",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    assert record.omitted_mime_types == ()
+    (output,) = record.outputs
+    assert "image/svg+xml" in output["data"]
+    assert len(output["data"]["image/svg+xml"].encode("utf-8")) <= 200
+
+
+def test_unicode_output_is_truncated_at_a_utf8_byte_boundary(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """A naive byte-slice can land mid-codepoint on multi-byte UTF-8
+    content -- must decode cleanly (errors='ignore' on the cut boundary),
+    never raise UnicodeDecodeError."""
+    document = _document([_code("print('é' * 500, end='')", "unicode")])
+
+    result = executor.execute(document, options=_opts(max_output_bytes=201))
+
+    (record,) = result.cell_records
+    assert record.output_truncated is True
+    text = record.outputs[0]["text"]
+    assert isinstance(text, str)
+    text.encode("utf-8")  # must not raise
+
+
+def test_extremely_small_output_limit_does_not_crash(executor: LocalJupyterExecutor) -> None:
+    document = _document([_code("print('hello world')", "small-limit")])
+
+    result = executor.execute(document, options=_opts(max_output_bytes=1))
+
+    (record,) = result.cell_records
+    assert record.output_truncated is True
+    assert isinstance(record.outputs[0]["text"], str)
+
+
+def test_notebook_remains_schema_valid_after_truncation(executor: LocalJupyterExecutor) -> None:
+    from libipynb import validate
+
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "print('s' * 2000, end='')\n"
+                "display({'image/png': 'A' * 2000, 'text/plain': 'p' * 2000}, raw=True)\n",
+                "valid-after-truncation",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    report = validate(result.notebook.raw)
+    assert report.is_valid, [d.message for d in report]
+
+
 # ── LIBIPYNB-Q2: independent per-cell/total-notebook timeout watchdog ──────
 
 

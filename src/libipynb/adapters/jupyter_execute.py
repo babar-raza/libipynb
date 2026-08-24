@@ -94,6 +94,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
+from .._internal.text import truncate_utf8_text
 from ..errors import NotebookExecutionError
 from ..model.document import NotebookDocument
 
@@ -585,48 +586,85 @@ def _build_client(
     return client, nb_node, tracker
 
 
-def _truncate_text(text: str, max_bytes: int) -> str:
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text
-    marker = f"\n... [output truncated: exceeded {max_bytes} bytes]"
-    keep = max(0, max_bytes - len(marker.encode("utf-8")))
-    # errors="ignore" -- keep may land mid-codepoint at the byte boundary;
-    # dropping a partial trailing codepoint is preferable to raising here.
-    return encoded[:keep].decode("utf-8", errors="ignore") + marker
+#: MIME types nbformat represents as base64-encoded binary data, never
+#: literal text -- mirrors validation/rules.py's own established convention
+#: exactly (``mime_type.startswith("image/")``, with ``image/svg+xml``
+#: excluded since SVG is literal XML text per the nbformat spec, not
+#: base64), plus ``application/pdf``, the other common base64-shaped output
+#: MIME type nbformat notebooks carry. Anything not matched here is treated
+#: as literal text and marker-truncated rather than omitted.
+def _is_binary_mime_type(mime_type: str) -> bool:
+    folded = mime_type.casefold()
+    if folded == "application/pdf":
+        return True
+    return folded.startswith("image/") and folded != "image/svg+xml"
 
 
-def _truncate_one_output(output: dict[str, Any], max_bytes: int) -> bool:
+def _truncate_one_output(output: dict[str, Any], max_bytes: int) -> tuple[bool, tuple[str, ...]]:
+    """Truncate/omit *output*'s oversized payloads in place.
+
+    Returns ``(changed, omitted_mime_types)``: ``changed`` is True if any
+    text payload was truncated or any binary payload was omitted;
+    ``omitted_mime_types`` names every MIME key removed from ``output["data"]``
+    because it was binary-shaped and oversized -- LIBIPYNB-Q17: appending a
+    textual truncation marker to base64 content corrupts it into invalid
+    base64 without raising (the notebook stays syntactically valid JSON
+    while the image/PDF data silently becomes garbage), so an oversized
+    binary representation is removed entirely rather than truncated, and the
+    removal is reported structurally instead of just disappearing.
+    """
     changed = False
     text = output.get("text")
     if isinstance(text, str):
         if len(text.encode("utf-8")) > max_bytes:
-            output["text"] = _truncate_text(text, max_bytes)
+            output["text"] = truncate_utf8_text(text, max_bytes)
             changed = True
     elif isinstance(text, list) and all(isinstance(item, str) for item in text):
         joined = "".join(text)
         if len(joined.encode("utf-8")) > max_bytes:
-            output["text"] = [_truncate_text(joined, max_bytes)]
+            output["text"] = [truncate_utf8_text(joined, max_bytes)]
             changed = True
     data = output.get("data")
+    omitted: list[str] = []
     if isinstance(data, dict):
         for mime_type, payload in list(data.items()):
-            if isinstance(payload, str) and len(payload.encode("utf-8")) > max_bytes:
-                data[mime_type] = _truncate_text(payload, max_bytes)
-                changed = True
-    return changed
+            if not (isinstance(payload, str) and len(payload.encode("utf-8")) > max_bytes):
+                continue
+            if isinstance(mime_type, str) and _is_binary_mime_type(mime_type):
+                del data[mime_type]
+                omitted.append(mime_type)
+            else:
+                data[mime_type] = truncate_utf8_text(payload, max_bytes)
+            changed = True
+    return changed, tuple(omitted)
 
 
-def _truncate_outputs_if_needed(outputs: list[dict[str, Any]], max_bytes: int | None) -> bool:
-    """LIBIPYNB-Q2: truncate each output's own payload INDEPENDENTLY --
+def _truncate_outputs_if_needed(
+    outputs: list[dict[str, Any]], max_bytes: int | None
+) -> tuple[bool, tuple[str, ...]]:
+    """LIBIPYNB-Q2/Q17: truncate each output's own payload INDEPENDENTLY --
     never by slicing a combined byte stream across outputs/cells, which is
     the older subprocess engine's own confirmed bug (silently dropping
     every downstream cell's results once one cell's output pushed the
     shared stream past the byte cutoff). Truncating per-output here can
-    only ever affect the one oversized output it is applied to."""
+    only ever affect the one oversized output it is applied to.
+
+    LIBIPYNB-Q17: must visit every output unconditionally -- the previous
+    version used ``any(_truncate_one_output(...) for output in outputs)``,
+    which short-circuits the moment the first oversized output is found,
+    silently leaving every later oversized output in the same call
+    untouched. An explicit loop has no such short-circuit: every output is
+    always visited, regardless of what earlier ones returned.
+    """
     if max_bytes is None:
-        return False
-    return any(_truncate_one_output(output, max_bytes) for output in outputs)
+        return False, ()
+    changed = False
+    all_omitted: list[str] = []
+    for output in outputs:
+        output_changed, omitted = _truncate_one_output(output, max_bytes)
+        changed = changed or output_changed
+        all_omitted.extend(omitted)
+    return changed, tuple(all_omitted)
 
 
 def _finish(
@@ -764,7 +802,9 @@ def _finish(
         # cell's CellExecutionRecord (deep-copied from the same,
         # already-truncated new_outputs below) reflect the truncation
         # consistently.
-        output_truncated = _truncate_outputs_if_needed(new_outputs, options.max_output_bytes)
+        output_truncated, omitted_mime_types = _truncate_outputs_if_needed(
+            new_outputs, options.max_output_bytes
+        )
         new_execution_count = exec_cell.get("execution_count")
         orig_cell["outputs"] = new_outputs
         orig_cell["execution_count"] = new_execution_count
@@ -798,6 +838,7 @@ def _finish(
                 started_at=timing[0],
                 finished_at=timing[1],
                 output_truncated=output_truncated,
+                omitted_mime_types=omitted_mime_types,
                 timed_out=index in timed_out_cells,
             )
         )
