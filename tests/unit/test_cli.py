@@ -645,6 +645,265 @@ class TestExecute:
                     sys.modules.pop(name, None)
 
 
+def _write_parameterized_notebook(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "nbformat": 4,
+                "nbformat_minor": 5,
+                "metadata": {
+                    "kernelspec": {
+                        "name": "python3",
+                        "display_name": "Python 3",
+                        "language": "python",
+                    }
+                },
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "id": "params",
+                        "metadata": {"tags": ["parameters"]},
+                        "execution_count": None,
+                        "outputs": [],
+                        "source": "alpha = 0.1",
+                    },
+                    {
+                        "cell_type": "code",
+                        "id": "body",
+                        "metadata": {},
+                        "execution_count": None,
+                        "outputs": [],
+                        "source": "print(alpha)",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+class TestRun:
+    """LIBIPYNB-Q35: the `libipynb run` subcommand (parameter injection,
+    optionally followed by real-kernel execution). --no-execute paths
+    need neither the `exec` extra nor a kernel; the execute paths are
+    real-kernel, like TestExecute above -- skip cleanly if unavailable."""
+
+    def test_no_execute_injects_and_writes_without_running_anything(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "out.ipynb"
+        _write_parameterized_notebook(notebook)
+
+        assert (
+            main(
+                [
+                    "run",
+                    str(notebook),
+                    "-p",
+                    "alpha",
+                    "0.9",
+                    "-p",
+                    "label",
+                    "myrun",
+                    "--no-execute",
+                    "-o",
+                    str(dest),
+                ]
+            )
+            == 0
+        )
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["parameters"] == {"alpha": 0.9, "label": "myrun"}
+        assert ledger["parameters_cell_found"] is True
+        assert ledger["replaced_existing_injection"] is False
+        assert "succeeded" not in ledger  # no execution happened
+
+        written = json.loads(dest.read_text(encoding="utf-8"))
+        injected = written["cells"][ledger["injected_cell_index"]]
+        assert injected["metadata"]["tags"] == ["injected-parameters"]
+        assert injected["source"] == '# Parameters\nalpha = 0.9\nlabel = "myrun"\n'
+        # Source notebook itself is never mutated by the CLI command.
+        original = json.loads(notebook.read_text(encoding="utf-8"))
+        assert len(original["cells"]) == 2
+
+    def test_cli_parameter_type_inference_matches_papermill(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_parameterized_notebook(notebook)
+
+        assert (
+            main(
+                [
+                    "run",
+                    str(notebook),
+                    "-p",
+                    "a",
+                    "True",
+                    "-p",
+                    "b",
+                    "False",
+                    "-p",
+                    "c",
+                    "None",
+                    "-p",
+                    "d",
+                    "42",
+                    "-p",
+                    "e",
+                    "3.5",
+                    "-p",
+                    "f",
+                    "plain string",
+                    "--no-execute",
+                ]
+            )
+            == 0
+        )
+        ledger = json.loads(capsys.readouterr().err)
+        assert ledger["parameters"] == {
+            "a": True,
+            "b": False,
+            "c": None,
+            "d": 42,
+            "e": 3.5,
+            "f": "plain string",
+        }
+
+    def test_parameters_file_is_merged_and_overridable_by_dash_p(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        params_file = tmp_path / "params.json"
+        _write_parameterized_notebook(notebook)
+        params_file.write_text(json.dumps({"alpha": 0.2, "beta": "from-file"}), encoding="utf-8")
+
+        assert (
+            main(
+                [
+                    "run",
+                    str(notebook),
+                    "--parameters-file",
+                    str(params_file),
+                    "-p",
+                    "alpha",
+                    "0.7",
+                    "--no-execute",
+                ]
+            )
+            == 0
+        )
+        ledger = json.loads(capsys.readouterr().err)
+        # -p overrides the file's own alpha; beta (file-only) survives.
+        assert ledger["parameters"] == {"alpha": 0.7, "beta": "from-file"}
+
+    def test_replacing_an_existing_injection_is_reported(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        source = tmp_path / "nb.ipynb"
+        once_injected = tmp_path / "once.ipynb"
+        _write_parameterized_notebook(source)
+        assert (
+            main(["run", str(source), "-p", "alpha", "1", "--no-execute", "-o", str(once_injected)])
+            == 0
+        )
+        capsys.readouterr()
+
+        assert main(["run", str(once_injected), "-p", "alpha", "2", "--no-execute"]) == 0
+        ledger = json.loads(capsys.readouterr().err)
+        assert ledger["replaced_existing_injection"] is True
+
+    def test_non_python_notebook_is_rejected_structurally_not_a_raw_traceback(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """JSON parameters files can only ever carry this command's own
+        supported types (str/bool/int/float/None/list/dict), so
+        UnsupportedParameterTypeError isn't reachable through the CLI --
+        it's covered directly at the model.parameters unit-test level
+        instead. UnsupportedLanguageError, the other explicit-rejection
+        path, is reachable here for real."""
+        params_file = tmp_path / "params.json"
+        params_file.write_text(json.dumps({"alpha": 1}), encoding="utf-8")
+        non_python = tmp_path / "r-nb.ipynb"
+        non_python.write_text(
+            json.dumps(
+                {
+                    "nbformat": 4,
+                    "nbformat_minor": 5,
+                    "metadata": {
+                        "kernelspec": {"name": "ir", "display_name": "R", "language": "R"}
+                    },
+                    "cells": [
+                        {
+                            "cell_type": "code",
+                            "id": "params",
+                            "metadata": {"tags": ["parameters"]},
+                            "execution_count": None,
+                            "outputs": [],
+                            "source": "alpha <- 0.1",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert (
+            main(["run", str(non_python), "--parameters-file", str(params_file), "--no-execute"])
+            == 2
+        )
+        err = json.loads(capsys.readouterr().err)
+        assert "Python-only" in err["error"]
+
+    def test_run_refuses_without_acknowledgment_unless_no_execute(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_parameterized_notebook(notebook)
+
+        assert main(["run", str(notebook), "-p", "alpha", "1"]) == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "sandbox" in err["error"] or "acknowledge" in err["error"]
+
+    def test_run_executes_by_default_when_acknowledged(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        pytest.importorskip("nbclient", reason="nbclient (exec extra) is not installed")
+        jc_kernelspec = pytest.importorskip(
+            "jupyter_client.kernelspec", reason="jupyter_client (exec extra) is not installed"
+        )
+        if "python3" not in jc_kernelspec.find_kernel_specs():
+            pytest.skip("no ipykernel-provided 'python3' kernelspec is installed")
+
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "out.ipynb"
+        _write_parameterized_notebook(notebook)
+
+        assert (
+            main(
+                [
+                    "run",
+                    str(notebook),
+                    "-p",
+                    "alpha",
+                    "0.9",
+                    "--acknowledge-unsandboxed",
+                    "-o",
+                    str(dest),
+                ]
+            )
+            == 0
+        )
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["succeeded"] is True
+        assert ledger["parameters"] == {"alpha": 0.9}
+
+        written = json.loads(dest.read_text(encoding="utf-8"))
+        body_cell = written["cells"][-1]
+        assert body_cell["outputs"][0]["text"] == "0.9\n"
+
+
 class TestTopLevelExceptionHandling:
     """LIBIPYNB-Q4: every plain-CLI subcommand's ordinary bad-input path
     (missing file, malformed --target, etc.) must report a clean

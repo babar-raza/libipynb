@@ -84,7 +84,29 @@ afterward is recorded here instead.)
   test matrix (Linux full, Windows/macOS core subset), and a package job
   that builds and smoke-tests a real installed wheel -- alongside the
   existing internal GitLab CI, which continues to govern the GitLab mirror
-  unchanged
+  unchanged; plus `oracle.yml`/`fuzz.yml`/`staleness-check.yml`/
+  `release.yml`/`mutation.yml` (LIBIPYNB-Q27-Q31), all schedule-as-code
+  (closing the "the GitLab schedule was never actually created" gap the
+  same tiers had before) and independently verified via real local
+  execution (`act`), not just YAML review
+- **Mutation testing** (`mutmut`, LIBIPYNB-Q31) -- scoped to
+  `codec/writer.py` for now (a real, working baseline: 268 mutants, 186
+  killed, 61 survived, 75.3% score); a nightly CI job gates on a 70%
+  mutation-score floor
+- **Papermill-style parameter injection** (`inject_parameters()`,
+  `libipynb run`, LIBIPYNB-Q35) -- inserts a code cell assigning
+  parameters into a cell tagged `"parameters"`, matching real Papermill's
+  own tag convention and generated Python source exactly (oracle-verified
+  byte-for-byte for every supported value type: scalars, `None`,
+  non-finite floats, unicode/escaped strings, nested lists/dicts).
+  Python-only; raises `UnsupportedLanguageError`/
+  `UnsupportedParameterTypeError` for anything outside that scope rather
+  than guessing or silently stringifying the way real papermill's own
+  fallback does -- a deliberate, documented divergence. The CLI's `run`
+  subcommand injects and, by default, executes the result through the
+  real kernel engine (`--acknowledge-unsandboxed` required, same posture
+  as `execute`; `--no-execute` skips both that requirement and running
+  anything)
 
 ### Fixed
 

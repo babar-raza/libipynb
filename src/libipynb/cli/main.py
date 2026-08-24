@@ -392,6 +392,117 @@ def main(argv: list[str] | None = None) -> int:
         "'cells_with_omitted_mime_types' in the printed ledger. Default: unlimited.",
     )
 
+    # -- run (LIBIPYNB-Q35: Papermill-style parameter injection) ---------------
+    run_cmd = commands.add_parser(
+        "run",
+        help="Inject parameters into a notebook's tagged 'parameters' cell "
+        "(Papermill-compatible: same tag convention, same generated-source "
+        "form for Python -- oracle-verified against real papermill), then "
+        "execute it by default through a real local Jupyter kernel (requires "
+        "the 'exec' extra; pass --no-execute to skip and just write the "
+        "parameterized notebook). Python-only -- see "
+        "libipynb.model.parameters's module docs for why.",
+    )
+    run_cmd.add_argument("source", help="Path to the .ipynb file.")
+    run_cmd.add_argument(
+        "-o",
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Write the result to PATH instead of stdout.",
+    )
+    run_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow --output to overwrite the input notebook. Refused by default.",
+    )
+    run_cmd.add_argument(
+        "-p",
+        "--parameter",
+        dest="parameters",
+        nargs=2,
+        metavar=("NAME", "VALUE"),
+        action="append",
+        default=[],
+        help="A parameter as NAME VALUE (repeatable). VALUE is type-inferred exactly like "
+        "papermill's own -p flag: the literal strings 'True'/'False'/'None' become "
+        "bool/bool/None, an int- or float-shaped string becomes a number, anything else "
+        "stays a string.",
+    )
+    run_cmd.add_argument(
+        "--parameters-file",
+        metavar="PATH",
+        default=None,
+        help="Path to a JSON file of {name: value} parameters, merged before -p (which can "
+        "override individual keys). JSON, not YAML -- this project has no YAML dependency "
+        "(LIBIPYNB-Q12a removed the last one) and JSON already losslessly represents every "
+        "type this command supports.",
+    )
+    run_cmd.add_argument(
+        "--comment",
+        default="Parameters",
+        help="Comment text on the injected cell's first line (default: 'Parameters', "
+        "matching papermill's own default).",
+    )
+    run_cmd.add_argument(
+        "--no-execute",
+        action="store_true",
+        help="Only inject parameters and write the result -- do not execute. Does not "
+        "require the 'exec' extra or --acknowledge-unsandboxed.",
+    )
+    run_cmd.add_argument(
+        "--acknowledge-unsandboxed",
+        action="store_true",
+        help="Required unless --no-execute. Confirms you understand this runs arbitrary "
+        "notebook code with no sandbox.",
+    )
+    run_cmd.add_argument("--kernel", metavar="NAME", default=None, help="Kernel name to launch.")
+    run_cmd.add_argument(
+        "--cell-timeout",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="Per-cell wall-clock budget (default: 60). Pass a negative number to disable.",
+    )
+    run_cmd.add_argument(
+        "--kernel-startup-timeout",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="How long to wait for the kernel to report ready (default: 60).",
+    )
+    run_cmd.add_argument(
+        "--on-error",
+        choices=("stop", "continue"),
+        default="stop",
+        help="'stop' (default) halts remaining cells after the first cell error; "
+        "'continue' runs every cell regardless.",
+    )
+    run_cmd.add_argument(
+        "--no-interrupt-on-timeout",
+        action="store_true",
+        help="A per-cell timeout aborts the whole run immediately instead of interrupting "
+        "the kernel and reporting the timeout as that cell's own error.",
+    )
+    run_cmd.add_argument(
+        "--working-directory",
+        metavar="PATH",
+        default=None,
+        help="Directory the kernel process starts in. Default: the current directory.",
+    )
+    run_cmd.add_argument(
+        "--record-timing",
+        action="store_true",
+        help="Record per-cell start/idle timestamps into each executed cell's metadata.",
+    )
+    run_cmd.add_argument(
+        "--max-output-bytes",
+        type=int,
+        default=None,
+        metavar="BYTES",
+        help="Cap each cell's own output at BYTES (UTF-8). Default: unlimited.",
+    )
+
     # -- analytics -------------------------------------------------------------
     analytics_cmd = commands.add_parser(
         "analytics",
@@ -462,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_cli_command(_cmd_merge, args)
     if args.command == "execute":
         return _run_cli_command(_cmd_execute, args)
+    if args.command == "run":
+        return _run_cli_command(_cmd_run, args)
     if args.command == "analytics":
         return _run_cli_command(_cmd_analytics, args)
     if args.command == "trust":
@@ -1173,6 +1286,167 @@ def _cmd_execute(args: argparse.Namespace) -> int:
             else None
         ),
     }
+    if args.output:
+        dump(result.notebook, args.output, profile="declared")
+        ledger["output"] = args.output
+        print(json.dumps(ledger, sort_keys=True))
+    else:
+        print(json.dumps(ledger, sort_keys=True), file=sys.stderr)
+        dump(result.notebook, sys.stdout, profile="declared")
+    return 0 if result.succeeded else 1
+
+
+def _resolve_cli_parameter_type(value: str) -> bool | None | int | float | str:
+    """Matches papermill's own ``cli._resolve_type`` exactly (confirmed
+    directly against its source): the literal strings ``"True"``/
+    ``"False"``/``"None"`` become their Python values, an int- or
+    float-shaped string becomes a number, anything else stays a string.
+    A CLI value can never itself express a list/dict -- see
+    ``--parameters-file`` for those."""
+    if value == "True":
+        return True
+    if value == "False":
+        return False
+    if value == "None":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """LIBIPYNB-Q35: CLI exposure of Papermill-style parameter injection
+    (:mod:`libipynb.model.parameters`), optionally followed by real-kernel
+    execution (:mod:`libipynb.execution`, requires the `exec` extra --
+    imported lazily here, exactly like ``_cmd_execute``, so this command
+    keeps working for --no-execute users without it installed)."""
+    if (
+        args.output
+        and Path(args.source).resolve() == Path(args.output).resolve()
+        and not args.force
+    ):
+        print(
+            json.dumps(
+                {
+                    "error": "--output resolves to the same file as SOURCE; refusing to "
+                    "overwrite the original. Pass --force to confirm."
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    if not args.no_execute and not args.acknowledge_unsandboxed:
+        print(
+            json.dumps(
+                {"error": "--acknowledge-unsandboxed is required unless --no-execute is passed"}
+            ),
+            file=sys.stderr,
+        )
+        return 2
+
+    parameters: dict[str, Any] = {}
+    if args.parameters_file:
+        with open(args.parameters_file, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            print(
+                json.dumps({"error": "--parameters-file must contain a JSON object"}),
+                file=sys.stderr,
+            )
+            return 2
+        parameters.update(loaded)
+    for name, raw_value in args.parameters:
+        parameters[name] = _resolve_cli_parameter_type(raw_value)
+
+    document = load(args.source, mode="preservation")
+    from ..model.parameters import (
+        UnsupportedLanguageError,
+        UnsupportedParameterTypeError,
+        inject_parameters,
+    )
+
+    try:
+        injection = inject_parameters(document, parameters, comment=args.comment)
+    except (UnsupportedParameterTypeError, UnsupportedLanguageError) as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+
+    ledger: dict[str, Any] = {
+        "parameters": {p.name: p.value for p in injection.parameters},
+        "injected_cell_index": injection.injected_cell_index,
+        "replaced_existing_injection": injection.replaced_existing_injection,
+        "parameters_cell_found": injection.parameters_cell_found,
+    }
+
+    if args.no_execute:
+        if args.output:
+            dump(document, args.output, profile="declared")
+            ledger["output"] = args.output
+            print(json.dumps(ledger, sort_keys=True))
+        else:
+            print(json.dumps(ledger, sort_keys=True), file=sys.stderr)
+            dump(document, sys.stdout, profile="declared")
+        return 0
+
+    try:
+        from ..execution import ExecutionOptions, LocalJupyterExecutor
+        from ..execution.exceptions import MissingExecutionDependencyError
+    except ImportError as exc:  # pragma: no cover -- libipynb.execution itself has no hard import
+        print(
+            json.dumps({"error": f"run (without --no-execute) is unavailable: {exc}"}),
+            file=sys.stderr,
+        )
+        return 2
+
+    options = ExecutionOptions(
+        kernel_name=args.kernel,
+        working_directory=args.working_directory,
+        cell_timeout=args.cell_timeout if args.cell_timeout >= 0 else None,
+        kernel_startup_timeout=args.kernel_startup_timeout,
+        stop_on_error=args.on_error == "stop",
+        interrupt_on_timeout=not args.no_interrupt_on_timeout,
+        record_timing=args.record_timing,
+        max_output_bytes=args.max_output_bytes,
+        acknowledge_unsandboxed=args.acknowledge_unsandboxed,
+    )
+    try:
+        executor = LocalJupyterExecutor()
+        result = executor.execute(document, options=options)
+    except MissingExecutionDependencyError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+    except NotebookExecutionError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+
+    ledger.update(
+        {
+            "kernel": result.kernel_name,
+            "cell_count": len(result.cell_records),
+            "executed_count": sum(1 for r in result.cell_records if r.executed),
+            "succeeded": result.succeeded,
+            "completed": result.completed,
+            "stopped_early": result.stopped_early,
+            "timed_out": result.timed_out,
+            "timed_out_cell_index": result.timed_out_cell_index,
+            "kernel_launch_error": result.kernel_launch_error,
+            "kernel_death_error": result.kernel_death_error,
+            "first_error": (
+                {"ename": result.first_error.ename, "evalue": result.first_error.evalue}
+                if result.first_error is not None
+                else None
+            ),
+        }
+    )
     if args.output:
         dump(result.notebook, args.output, profile="declared")
         ledger["output"] = args.output

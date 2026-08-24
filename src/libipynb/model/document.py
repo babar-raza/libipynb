@@ -10,6 +10,7 @@ from .lifecycle import NotebookVersion, RecoveryAction
 
 if TYPE_CHECKING:
     from .cleanup import ChangeReport, CleanupPolicy
+    from .parameters import ParameterInjectionReport
 
 
 class MimeBundle:
@@ -371,6 +372,17 @@ class NotebookDocument:
         from .cleanup import cleanup
 
         return cleanup(self, policy=policy, dry_run=dry_run)
+
+    def inject_parameters(
+        self,
+        parameters: dict[str, Any],
+        *,
+        comment: str = "Parameters",
+        dry_run: bool = False,
+    ) -> ParameterInjectionReport:
+        from .parameters import inject_parameters
+
+        return inject_parameters(self, parameters, comment=comment, dry_run=dry_run)
 
     def to_dict(self) -> dict[str, Any]:
         """LIBIPYNB-Q9: deep-copied -- a shallow ``dict()`` copy leaves this

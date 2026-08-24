@@ -38,9 +38,13 @@ and nbformat 4.0--4.5 fidelity.
 - **Execution** -- two opt-in engines: a dependency-free subprocess adapter, and a
   real local Jupyter-kernel-protocol engine (`libipynb[exec]`) with rich outputs,
   sync/async APIs, and structured results (`libipynb.execution`)
-- **CLI** -- 12 commands (`probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
-  `normalize`, `convert`, `diff`, `merge`, `execute`, `analytics`, `trust`), all
-  with JSON output
+- **Parameters** -- Papermill-compatible parameter injection into a tagged
+  `parameters` cell (`inject_parameters()`/`libipynb run`) -- same tag
+  convention, same generated Python source, oracle-verified byte-for-byte
+  against real `papermill` for every supported value type
+- **CLI** -- 13 commands (`probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
+  `normalize`, `convert`, `diff`, `merge`, `execute`, `run`, `analytics`,
+  `trust`), all with JSON output
 - **Analytics** -- cell type histograms, output analysis, and execution error detection
 - **Trust** -- HMAC-based notebook trust and signature management
 - **Secret scanning** -- pattern-based detection of API keys, tokens, and credentials
@@ -267,6 +271,13 @@ dependency boundary, and the execution trust model behind the APIs below.
 - **`diff_notebooks()`** / **`merge_notebooks()`** -- structural diff and three-way merge
 - **`edit_cells()`** -- batch cell editing with query and operation objects
 - **`cleanup()`** -- normalize and strip notebook content
+- **`inject_parameters(doc, params)`** -- Papermill-style parameter injection into
+  a cell tagged `"parameters"` (`libipynb.model.parameters`). Python-only;
+  raises `UnsupportedLanguageError`/`UnsupportedParameterTypeError` rather than
+  guessing or silently stringifying an unrecognized value the way real
+  papermill's own fallback does -- see the module's docstring for the full
+  rationale. Returns a `ParameterInjectionReport`; `dry_run=True` previews the
+  placement without mutating anything
 
 ### `libipynb.validation` -- Validation
 
@@ -409,7 +420,7 @@ result = await LocalJupyterExecutor().execute_async(document, options=options)
 
 ## CLI
 
-libipynb installs a command-line tool with 12 subcommands:
+libipynb installs a command-line tool with 13 subcommands:
 
 ```bash
 # Probe whether a file is a valid .ipynb
@@ -466,6 +477,18 @@ libipynb diff --install-git
 # completed but a cell errored/timed out/the kernel died; exit 2 = usage
 # error (missing --acknowledge-unsandboxed, missing libipynb[exec], etc.)
 libipynb execute notebook.ipynb -o executed.ipynb --acknowledge-unsandboxed
+
+# Papermill-compatible parameter injection (same tag convention, same
+# generated Python source -- oracle-verified against real papermill) into
+# a cell tagged "parameters", then execute by default (same
+# --acknowledge-unsandboxed/--force/exit-code rules as `execute` above).
+# -p accepts repeated NAME VALUE pairs with papermill's own type
+# inference (True/False/None/int/float/string); --parameters-file reads a
+# JSON {name: value} object instead. --no-execute skips running it
+# (and the exec extra/--acknowledge-unsandboxed requirement) and just
+# writes the parameterized notebook.
+libipynb run notebook.ipynb -p alpha 0.9 -p name run-1 --acknowledge-unsandboxed -o out.ipynb
+libipynb run notebook.ipynb --parameters-file params.json --no-execute -o parameterized.ipynb
 
 # Report structural analytics: cell/output type histograms, execution
 # errors, average source length
