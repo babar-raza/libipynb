@@ -815,8 +815,17 @@
         "LIBIPYNB-Q26"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Build a real wheel from this working tree and install it into a fresh venv with no other project state present, then confirm it actually works: importable, console script runs, and a real CLI workflow succeeds against a real fixture -- not a source-tree simulation.",
+      "verification_command": "python -m build --wheel --sdist; python -m venv <scratch>/venv; <scratch>/venv/Scripts/pip install dist/libipynb-0.1.0-py3-none-any.whl; <scratch>/venv/Scripts/libipynb probe/validate/inspect tests/fixtures/corpus/data-science-pattern.ipynb",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "Built both artifacts from a clean git status (nothing uncommitted): python -m build --wheel --sdist -> dist/libipynb-0.1.0-py3-none-any.whl (196969 bytes, sha256 2eb698c11789298d725e13596131429a09ec39efdf0ba4331f9c586f3fbaca4) and dist/libipynb-0.1.0.tar.gz (188897 bytes, sha256 31c46e25c76c7460a7e29c0c9cc03a61588553ff15fffc81e4a5551bdc74b07). Created a fresh venv under the session scratchpad (no other project's dependencies present), installed only the wheel: pip resolved exactly the one declared runtime dependency (jsonschema>=4.23,<5, plus its own transitive deps attrs/jsonschema-specifications/referencing/rpds-py) -- no unexpected extra packages pulled in, no build-from-source step (pure wheel install). Verified: `python -c 'import libipynb; ...'` succeeds, `libipynb.__version__ == '0.1.0'`, core symbol imports (NotebookDocument/load/dump/loads/dumps/validate/diff_notebooks/merge_notebooks/upgrade) all resolve; `libipynb.exe --help` (the installed console script, not `python -m`) prints the full subcommand list; a real CLI workflow against a real fixture (tests/fixtures/corpus/data-science-pattern.ipynb) succeeds end-to-end: `probe` -> {'matched': true, 'profile': 'nbformat-4.4'}, `validate` -> {'diagnostics': [], 'valid': true} exit 0, `inspect` -> {'cell_count': 4, 'nbformat': 4, 'nbformat_minor': 4}. `pip show libipynb` confirms metadata (Home-page/License-Expression/Author-email match pyproject.toml, Requires: jsonschema only). site-packages/libipynb/py.typed present (preview of LIBIPYNB-Q51's own dedicated check, not a substitute for it).",
+      "mutation_baseline_checked": null,
+      "rollback": "N/A -- verification-only, no repo state changed; dist/ and the scratch venv are build artifacts, not tracked",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Verification-only taskcard per this plan's own Phase 5 categorization -- no separate Taskcard-Gate-G2 review required (matches LIBIPYNB-Q1/Q2/Q25's established 'infrastructure/verification, not a functional fix' exemption). Full command transcript reproduced above for LIBIPYNB-Q53's evidence report."
     },
     {
       "id": "LIBIPYNB-Q47",
