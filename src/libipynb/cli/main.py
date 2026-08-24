@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .._internal.immutable import deep_thaw
 from ..analytics import (
     attachment_size_summary,
     average_source_length,
@@ -1141,8 +1142,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                 "notebook_changes": [
                     {
                         "path": list(nc.path),
-                        "before": nc.before,
-                        "after": nc.after,
+                        # LIBIPYNB-Q43 round 3: nc.before/.after are now
+                        # deep_freeze-d (may hold MappingProxyType/tuple),
+                        # which json.dumps cannot serialize directly --
+                        # deep_thaw produces the plain dict/list this
+                        # output needs.
+                        "before": deep_thaw(nc.before),
+                        "after": deep_thaw(nc.after),
                     }
                     for nc in result.notebook_changes
                 ],
@@ -1391,7 +1397,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     ledger: dict[str, Any] = {
-        "parameters": {p.name: p.value for p in injection.parameters},
+        # LIBIPYNB-Q43 round 3: p.value is now deep_freeze-d (may hold
+        # MappingProxyType/tuple for a container-typed parameter), which
+        # json.dumps cannot serialize directly -- deep_thaw produces the
+        # plain dict/list this output needs.
+        "parameters": {p.name: deep_thaw(p.value) for p in injection.parameters},
         "injected_cell_index": injection.injected_cell_index,
         "replaced_existing_injection": injection.replaced_existing_injection,
         "parameters_cell_found": injection.parameters_cell_found,

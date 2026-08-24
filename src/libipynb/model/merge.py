@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from .._internal.immutable import deep_freeze, deep_thaw
 from .diff import CellChange, CellField, DiffPolicy, diff_notebooks
 from .document import NotebookDocument
 
@@ -73,8 +74,17 @@ class CellConflict:
     description: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "ours_value", deepcopy(self.ours_value))
-        object.__setattr__(self, "theirs_value", deepcopy(self.theirs_value))
+        # LIBIPYNB-Q43 Gate-G2 round-2 review finding: `deepcopy` only
+        # broke aliasing to the constructor's input, not later mutation of
+        # the field itself -- `conflict.ours_value["x"] = "evil"` silently
+        # corrupted every later read of `conflict.ours_value` on the SAME
+        # instance. `deep_freeze` is idempotent on an already-frozen value
+        # (as `ours_value`/`theirs_value` now sometimes are, when sourced
+        # from an already-`deep_freeze`-d `FieldChange.after` in
+        # `_reconcile_present_cell` below), so this is correct regardless
+        # of whether the caller passed a plain or already-frozen value.
+        object.__setattr__(self, "ours_value", deep_freeze(self.ours_value))
+        object.__setattr__(self, "theirs_value", deep_freeze(self.theirs_value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +170,12 @@ def _ordered_ids(*documents: NotebookDocument) -> list[str]:
 
 def _apply_field(cell: dict[str, Any], key: str, after: Any, after_present: bool) -> None:
     if after_present:
-        cell[key] = deepcopy(after)
+        # `after` is always a `FieldChange.after` value, which is now
+        # `deep_freeze`-d (LIBIPYNB-Q43 round 3) -- `deepcopy` cannot
+        # operate on a `MappingProxyType`. `deep_thaw` produces the
+        # genuinely fresh, ordinary, mutable dict/list `cell` (destined to
+        # become part of a plain notebook `.raw` tree) needs.
+        cell[key] = deep_thaw(after)
     else:
         cell.pop(key, None)
 

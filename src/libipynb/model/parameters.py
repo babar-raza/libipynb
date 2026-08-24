@@ -48,10 +48,10 @@ module's own git history for LIBIPYNB-Q35's review-repair commit):
 from __future__ import annotations
 
 import math
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from .._internal.immutable import deep_freeze
 from .document import NotebookDocument
 
 #: Matches Papermill's own tag convention exactly (confirmed directly
@@ -84,22 +84,32 @@ class UnsupportedLanguageError(ValueError):
 class InjectedParameter:
     """One name/value pair recorded as part of an injection.
 
-    LIBIPYNB-Q43 Gate-G2 review finding: ``value`` was not deep-copied,
-    so for a container-typed parameter (list/dict -- both explicitly
-    supported, see this module's docstring) it was the *same* object
-    ``inject_parameters`` had just written into
+    LIBIPYNB-Q43 Gate-G2 review finding (round 1): ``value`` was not
+    deep-copied, so for a container-typed parameter (list/dict -- both
+    explicitly supported, see this module's docstring) it was the *same*
+    object ``inject_parameters`` had just written into
     ``document.raw["metadata"]["papermill"]["parameters"]`` -- mutating
     a report field in place (``report.parameters[0].value.append(...)``)
     silently corrupted the live document's own recorded provenance, no
     private/underscore access needed. Matches this codebase's own
     established pattern elsewhere (``model.attachments.AttachmentChange``,
-    ``model.diff.FieldChange``, ``model.merge.CellConflict``, ...)."""
+    ``model.diff.FieldChange``, ``model.merge.CellConflict``, ...).
+
+    Gate-G2 review **round 2** finding: a plain ``deepcopy`` closed only
+    that one specific consequence (corrupting the live document) -- the
+    field itself was still an ordinary, directly mutable list/dict for
+    the lifetime of this otherwise-frozen instance, so
+    ``report.parameters[0].value.append(...)`` still silently corrupted
+    every LATER read of that same ``InjectedParameter``'s own ``value``,
+    which is the actual, broader "mutation-after-access" property this
+    taskcard audits. ``deep_freeze`` closes this for real, matching the
+    3 sibling classes named above (all fixed identically, same round)."""
 
     name: str
     value: Any
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "value", deepcopy(self.value))
+        object.__setattr__(self, "value", deep_freeze(self.value))
 
 
 @dataclass(frozen=True, slots=True)

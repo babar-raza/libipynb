@@ -516,3 +516,52 @@ def test_batched_edits_are_meaningfully_cheaper_than_the_same_edits_one_call_at_
         f"{edit_count} sequential single-call edits ({sequential_elapsed:.3f}s) on a "
         f"{cell_count}-cell notebook"
     )
+
+
+class TestQ43CellEditMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q43 Gate-G2 round-2 review finding: `CellEdit.before`/
+    `.after` and `CellQuery.metadata` had the identical gap `NotebookDiff.
+    _target_snapshot` was fixed for (see test_obligation_structure_diff.py)
+    -- `deepcopy` in `__post_init__` only broke aliasing to the
+    constructor's input, not later mutation of the field itself. Found
+    live during round 2's own investigation, not part of round 1's
+    original 4 findings."""
+
+    def test_remove_change_before_rejects_item_assignment(self) -> None:
+        document = _document()
+        report = edit_cells(document).remove("alpha")
+        change = report.changes[0]
+
+        with pytest.raises(TypeError):
+            change.before["metadata"]["tags"] = []  # type: ignore[index]
+        assert change.before["metadata"]["tags"] == ("setup", "remove")
+        assert change.after is None
+
+    def test_insert_change_after_rejects_item_assignment(self) -> None:
+        document = _document()
+        report = edit_cells(document).insert(
+            {
+                "cell_type": "markdown",
+                "id": "delta",
+                "metadata": {"tags": ["new"]},
+                "source": "New",
+            },
+            index=1,
+        )
+        change = report.changes[0]
+
+        with pytest.raises(TypeError):
+            change.after["metadata"]["tags"] = []  # type: ignore[index]
+        assert change.after["metadata"]["tags"] == ("new",)
+
+    def test_cell_query_metadata_rejects_item_assignment(self) -> None:
+        query = CellQuery(metadata={"slideshow": {"slide_type": "slide"}})
+
+        with pytest.raises(TypeError):
+            query.metadata["slideshow"] = {}  # type: ignore[index]
+        with pytest.raises(TypeError):
+            query.metadata["slideshow"]["slide_type"] = "TAMPERED"  # type: ignore[index]
+
+        document = _document()
+        (found,) = edit_cells(document).search(query)
+        assert found.metadata["slideshow"]["slide_type"] == "slide"

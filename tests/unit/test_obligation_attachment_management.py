@@ -223,3 +223,42 @@ def test_dry_run_report_matches_apply_without_mutating() -> None:
     assert preview.applied is False
     assert preview.would_change is True
     assert applied.applied is True
+
+
+class TestQ43AttachmentChangeMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q43 Gate-G2 round-2 review finding: `AttachmentChange.
+    before`/`.after` had the identical gap `NotebookDiff._target_snapshot`
+    was fixed for (see test_obligation_structure_diff.py) -- `deepcopy`
+    in `__post_init__` only broke aliasing to the constructor's input,
+    not later mutation of the field itself. Found live during round 2's
+    own investigation, not part of round 1's original 4 findings."""
+
+    def test_add_change_after_rejects_item_assignment(self) -> None:
+        document = _document("![new](attachment:new.json)")
+        document.cells[0]["attachments"] = {}
+
+        report = manage_attachments(document).add(
+            "markdown",
+            "new.json",
+            {"application/json": {"value": 1}},
+        )
+        change = report.changes[0]
+
+        with pytest.raises(TypeError):
+            change.after["application/json"] = {}  # type: ignore[index]
+        with pytest.raises(TypeError):
+            change.after["application/json"]["value"] = 999  # type: ignore[index]
+        assert change.after["application/json"]["value"] == 1
+
+    def test_remove_change_before_rejects_item_assignment_and_a_later_read_is_unaffected(
+        self,
+    ) -> None:
+        document = _document("no attachment reference")
+        report = manage_attachments(document).remove("markdown", "plot.png")
+        change = report.changes[0]
+
+        with pytest.raises(TypeError):
+            change.before["image/png"] = "TAMPERED"  # type: ignore[index]
+
+        assert change.before["image/png"] == "cGxvdA=="
+        assert change.after is None

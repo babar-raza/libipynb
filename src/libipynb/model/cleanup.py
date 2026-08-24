@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from .._internal.immutable import deep_freeze
 from .document import NotebookDocument
 
 
@@ -56,8 +56,11 @@ class Change:
     after: Any
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "before", deepcopy(self.before))
-        object.__setattr__(self, "after", deepcopy(self.after))
+        # LIBIPYNB-Q43 Gate-G2 round-2 review finding: `deepcopy` only
+        # broke aliasing to the constructor's input, not later mutation of
+        # the field itself -- see model.diff.FieldChange's identical fix.
+        object.__setattr__(self, "before", deep_freeze(self.before))
+        object.__setattr__(self, "after", deep_freeze(self.after))
 
 
 @dataclass(frozen=True, slots=True)

@@ -111,8 +111,16 @@ class FieldChange:
     source_hunks: tuple[DiffHunk, ...] | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "before", deepcopy(self.before))
-        object.__setattr__(self, "after", deepcopy(self.after))
+        # LIBIPYNB-Q43 Gate-G2 round-2 review finding: `deepcopy` here only
+        # broke aliasing to the constructor's input -- the field itself
+        # stayed an ordinary, directly mutable dict/list for the lifetime
+        # of this otherwise-frozen instance, so
+        # `change.before["x"] = "evil"` silently corrupted every later read
+        # of `change.before` on the SAME instance. `deep_freeze` closes
+        # this the same way it already does for `_raw`/`_target_snapshot`
+        # elsewhere in this module and `model.metadata`.
+        object.__setattr__(self, "before", deep_freeze(self.before))
+        object.__setattr__(self, "after", deep_freeze(self.after))
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,8 +132,9 @@ class NotebookFieldChange:
     after_present: bool = True
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "before", deepcopy(self.before))
-        object.__setattr__(self, "after", deepcopy(self.after))
+        # LIBIPYNB-Q43: see FieldChange.__post_init__ above -- identical gap.
+        object.__setattr__(self, "before", deep_freeze(self.before))
+        object.__setattr__(self, "after", deep_freeze(self.after))
 
 
 @dataclass(frozen=True, slots=True)

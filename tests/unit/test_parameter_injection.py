@@ -154,13 +154,21 @@ class TestProvenance:
     def test_mutating_a_container_typed_reported_value_does_not_corrupt_the_live_document(
         self,
     ) -> None:
-        """LIBIPYNB-Q43 Gate-G2 review finding: InjectedParameter.value
+        """LIBIPYNB-Q43 Gate-G2 review finding (round 1): InjectedParameter.value
         was not deep-copied, so for a container-typed parameter (list/
         dict -- both explicitly supported) it was the SAME object
         inject_parameters had just written into
         document.raw["metadata"]["papermill"]["parameters"] -- mutating
         a report field in place silently corrupted the live document's
-        own recorded provenance, no private/underscore access needed."""
+        own recorded provenance, no private/underscore access needed.
+
+        Round 2 finding: a plain ``deepcopy`` only closed that one
+        specific consequence -- ``value`` was still an ordinary, directly
+        mutable list for the lifetime of this ``InjectedParameter``
+        instance, so a caller mutating a previously-returned ``.value``
+        (e.g. ``.append(...)``) no longer even succeeds: the field is now
+        ``deep_freeze``-d, so the returned value is a genuinely immutable
+        ``tuple``, not a mutable ``list`` a caller could corrupt at all."""
         doc = _document(cells=[_code_cell("x = 1", tags=[PARAMETERS_TAG], cell_id="p")])
 
         report = inject_parameters(doc, {"data": [1, 2, 3]})
@@ -168,8 +176,31 @@ class TestProvenance:
         assert (
             report.parameters[0].value is not doc.raw["metadata"]["papermill"]["parameters"]["data"]
         )
-        report.parameters[0].value.append(999)
+        with pytest.raises(AttributeError):
+            report.parameters[0].value.append(999)  # type: ignore[union-attr]
         assert doc.raw["metadata"]["papermill"]["parameters"]["data"] == [1, 2, 3]
+
+    def test_mutating_a_container_typed_reported_value_does_not_change_later_reads(
+        self,
+    ) -> None:
+        """LIBIPYNB-Q43 Gate-G2 review finding (round 2): the actual,
+        broader "mutation-after-access" property this taskcard audits --
+        does an external mutation attempt on a previously-returned value
+        change what a LATER read of the SAME InjectedParameter's own
+        .value returns? Before this fix, a nested dict/list inside a
+        container-typed parameter was still directly, silently mutable
+        after being returned once."""
+        doc = _document(cells=[_code_cell("x = 1", tags=[PARAMETERS_TAG], cell_id="p")])
+
+        report = inject_parameters(doc, {"data": {"nested": [1, 2, 3]}})
+        parameter = report.parameters[0]
+
+        with pytest.raises(TypeError):
+            parameter.value["nested"] = "evil"  # type: ignore[index]
+        with pytest.raises(TypeError):
+            parameter.value["nested"][0] = "evil"  # type: ignore[index]
+
+        assert parameter.value == {"nested": (1, 2, 3)}
 
 
 class TestUnsupportedType:

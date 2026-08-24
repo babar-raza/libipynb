@@ -451,3 +451,75 @@ class TestQ43TargetSnapshotMutationAfterAccessDoesNotChangeWhatAPatchApplies:
 
         applied = patch.apply(base)
         assert applied.metadata.get("title") == "changed"
+
+
+class TestQ43FieldChangeMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q43 Gate-G2 round-2 review finding: `FieldChange.before`/
+    `.after` and `NotebookFieldChange.before`/`.after` had the identical
+    gap `_target_snapshot` above was fixed for -- `deepcopy` in
+    `__post_init__` only broke aliasing to the constructor's input, not
+    later mutation of the field itself, so `change.before["x"] = "evil"`
+    silently corrupted every later read of `change.before` on the SAME
+    instance. Found live during round 2's own investigation, not part of
+    round 1's original 4 findings -- the same taskcard's own "established
+    pattern" docstring (in model.parameters.InjectedParameter) cited
+    `FieldChange` as an already-correct reference implementation, which it
+    was not."""
+
+    def test_field_change_before_rejects_item_assignment(self) -> None:
+        base = _document()
+        target = _document()
+        target.raw["cells"][0]["metadata"]["tags"] = ["important", "extra"]
+        diff = diff_notebooks(base, target)
+        change = diff.cell_changes[0].field_changes[0]
+        assert change.field is CellField.METADATA
+
+        with pytest.raises(TypeError):
+            change.before["tags"] = []  # type: ignore[index]
+        with pytest.raises(TypeError):
+            change.before["tags"][0] = "TAMPERED"  # type: ignore[index]
+
+    def test_field_change_after_rejects_item_assignment(self) -> None:
+        base = _document()
+        target = _document()
+        target.raw["cells"][0]["metadata"]["tags"] = ["important", "extra"]
+        diff = diff_notebooks(base, target)
+        change = diff.cell_changes[0].field_changes[0]
+
+        with pytest.raises(TypeError):
+            change.after["tags"] = []  # type: ignore[index]
+
+    def test_mutating_field_change_before_does_not_change_a_later_read(self) -> None:
+        """The actual, broader property this taskcard audits: not just
+        "does item assignment raise", but "if a caller somehow obtained a
+        reference to something inside the frozen value, does mutating
+        THAT change what a later .before read returns" -- exercised here
+        via the one nested container that survives: attempting to build a
+        corrupted copy and comparing it never observably changes the
+        original."""
+        base = _document()
+        target = _document()
+        target.raw["cells"][0]["metadata"]["tags"] = ["important", "extra"]
+        diff = diff_notebooks(base, target)
+        change = diff.cell_changes[0].field_changes[0]
+
+        first_read = change.before
+        with pytest.raises(TypeError):
+            first_read["tags"] = "evil"  # type: ignore[index]
+
+        second_read = change.before
+        assert second_read == {"tags": ("important",), "execution": {"duration": 1}}
+        assert second_read == first_read
+
+    def test_notebook_field_change_before_and_after_reject_item_assignment(self) -> None:
+        base = _document()
+        target = _document()
+        target.raw["metadata"]["kernelspec"]["display_name"] = "Changed"
+        diff = diff_notebooks(base, target)
+        notebook_change = next(nc for nc in diff.notebook_changes if nc.path == ("metadata",))
+
+        with pytest.raises(TypeError):
+            notebook_change.before["kernelspec"]["display_name"] = "TAMPERED"  # type: ignore[index]
+        with pytest.raises(TypeError):
+            notebook_change.after["kernelspec"]["display_name"] = "TAMPERED"  # type: ignore[index]
+        assert notebook_change.after["kernelspec"]["display_name"] == "Changed"

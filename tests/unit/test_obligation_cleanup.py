@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from libipynb import NotebookDocument, cleanup
 from libipynb.model import CleanupPolicy
 
@@ -249,3 +251,39 @@ def test_keep_output_marker_does_not_exempt_cell_metadata_stripping() -> None:
     (cell,) = document.cells
     assert cell["outputs"] != []
     assert "ExecuteTime" not in cell["metadata"]
+
+
+class TestQ43ChangeMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q43 Gate-G2 round-2 review finding: `Change.before`/
+    `.after` had the identical gap `NotebookDiff._target_snapshot` was
+    fixed for (see test_obligation_structure_diff.py) -- `deepcopy` in
+    `__post_init__` only broke aliasing to the constructor's input, not
+    later mutation of the field itself. Found live during round 2's own
+    investigation, not part of round 1's original 4 findings."""
+
+    def test_replace_outputs_change_before_rejects_item_assignment(self) -> None:
+        document = _document()
+        policy = CleanupPolicy(cell_ids=frozenset({"selected"}), output_types=frozenset({"stream"}))
+
+        report = cleanup(document, policy=policy, dry_run=True)
+        (change,) = [c for c in report.changes if c.operation == "replace_outputs"]
+
+        with pytest.raises(TypeError):
+            change.before[0]["text"] = "TAMPERED"  # type: ignore[index]
+
+        assert change.before[0]["text"] == "x"
+
+    def test_mutating_replace_outputs_change_before_does_not_change_a_later_read(self) -> None:
+        document = _document()
+        policy = CleanupPolicy(cell_ids=frozenset({"selected"}), output_types=frozenset({"stream"}))
+
+        report = cleanup(document, policy=policy, dry_run=True)
+        (change,) = [c for c in report.changes if c.operation == "replace_outputs"]
+
+        first_read = change.before
+        with pytest.raises(TypeError):
+            first_read[0]["text"] = "TAMPERED"  # type: ignore[index]
+
+        second_read = change.before
+        assert second_read == first_read
+        assert second_read[0]["text"] == "x"

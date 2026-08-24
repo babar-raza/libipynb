@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from libipynb import (
     NotebookDocument,
     merge_notebooks,
@@ -726,3 +728,60 @@ def test_merge_never_picks_an_unrelated_cell_that_merely_resembles_the_base_cell
     for conflict in result.report.conflicts:
         assert conflict.ours_value.get("source") != unrelated_import_cell["source"]
         assert conflict.theirs_value.get("source") != unrelated_import_cell["source"]
+
+
+class TestQ43CellConflictMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q43 Gate-G2 round-2 review finding: `CellConflict.
+    ours_value`/`.theirs_value` had the identical gap `NotebookDiff.
+    _target_snapshot` was fixed for (see test_obligation_structure_diff.py)
+    -- `deepcopy` in `__post_init__` only broke aliasing to the
+    constructor's input, not later mutation of the field itself, so
+    `conflict.ours_value["x"] = "evil"` silently corrupted every later
+    read of `conflict.ours_value` on the SAME instance. Found live during
+    round 2's own investigation, not part of round 1's original 4
+    findings."""
+
+    def test_output_conflict_ours_and_theirs_value_reject_item_mutation(self) -> None:
+        base = _base()
+        ours = _clone(base)
+        theirs = _clone(base)
+        _find(ours, "alpha")["outputs"] = [
+            {"output_type": "stream", "name": "stdout", "text": "ours\n"}
+        ]
+        _find(theirs, "alpha")["outputs"] = [
+            {"output_type": "stream", "name": "stdout", "text": "theirs\n"}
+        ]
+
+        result = merge_notebooks(base, ours, theirs)
+        (conflict,) = result.report.conflicts_of(ConflictKind.OUTPUT)
+
+        with pytest.raises(AttributeError):
+            conflict.ours_value.append({})  # type: ignore[union-attr]
+        with pytest.raises(TypeError):
+            conflict.theirs_value[0]["text"] = "TAMPERED"  # type: ignore[index]
+
+        # Re-reading after the attempted mutations is unaffected.
+        assert conflict.ours_value[0]["text"] == "ours\n"
+        assert conflict.theirs_value[0]["text"] == "theirs\n"
+
+    def test_merged_document_stays_genuinely_mutable_after_a_field_change_is_applied(
+        self,
+    ) -> None:
+        """The other half of this fix: `_apply_field` writes a
+        `FieldChange.after` value (now `deep_freeze`-d) into the merged
+        cell dict via `deep_thaw`, not a raw assignment -- confirming the
+        merged document's own cells stay ordinary, freely mutable dicts,
+        not accidentally frozen ones."""
+        base = _base()
+        ours = _clone(base)
+        _find(ours, "alpha")["outputs"] = [
+            {"output_type": "stream", "name": "stdout", "text": "ours\n"}
+        ]
+
+        result = merge_notebooks(base, ours, _clone(base))
+
+        merged_alpha = _find(result.merged, "alpha")
+        # Would raise TypeError if the merge had accidentally left a
+        # frozen (MappingProxyType/tuple) value inside the merged cell.
+        merged_alpha["outputs"][0]["text"] = "mutated-freely"
+        assert merged_alpha["outputs"][0]["text"] == "mutated-freely"

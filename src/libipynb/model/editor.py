@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, cast
 
+from .._internal.immutable import deep_freeze
 from .document import Cell, NotebookDocument, cell_from_dict
 
 _CELL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -38,7 +39,13 @@ class CellQuery:
                 raise TypeError("metadata query must be a mapping")
             if not self.metadata:
                 raise ValueError("metadata query must contain at least one key")
-            object.__setattr__(self, "metadata", deepcopy(dict(self.metadata)))
+            # LIBIPYNB-Q43 Gate-G2 round-2 review finding: `deepcopy` only
+            # broke aliasing to the constructor's input, not later
+            # mutation of the field itself -- see FieldChange's identical
+            # fix in model.diff. `self.metadata` is already typed as
+            # `Mapping`, so freezing it in place is not an API-widening
+            # change here (unlike a `dict`-typed field would be).
+            object.__setattr__(self, "metadata", deep_freeze(dict(self.metadata)))
 
     @property
     def has_criteria(self) -> bool:
@@ -60,12 +67,20 @@ class CellEdit:
     cell_id: str
     before_index: int | None
     after_index: int | None
-    before: dict[str, Any] | None
-    after: dict[str, Any] | None
+    before: Mapping[str, Any] | None
+    after: Mapping[str, Any] | None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "before", deepcopy(self.before))
-        object.__setattr__(self, "after", deepcopy(self.after))
+        # LIBIPYNB-Q43 Gate-G2 round-2 review finding: `deepcopy` only
+        # broke aliasing to the constructor's input, not later mutation of
+        # the field itself -- see model.diff.FieldChange's identical fix.
+        # Widened from `dict[str, Any] | None` to `Mapping[str, Any] |
+        # None` to match what `deep_freeze` actually returns (a
+        # `MappingProxyType`, not a `dict`); every construction call site
+        # in this module still passes a plain `dict`, which is a valid
+        # `Mapping`, so this is not a behavior change for any caller.
+        object.__setattr__(self, "before", deep_freeze(self.before))
+        object.__setattr__(self, "after", deep_freeze(self.after))
 
 
 @dataclass(frozen=True, slots=True)
