@@ -510,14 +510,17 @@ class TestJupytextExporter:
     def test_an_invalid_format_string_against_the_real_tool_is_a_clean_notebookerror(
         self, jupytext_available: None
     ) -> None:
-        """LIBIPYNB-Q45: extends the "backend incomplete, not absent"
-        pattern (already proven for HtmlExporter/NbconvertExporter above)
-        to JupytextExporter -- installed-and-importable but given a bad
-        argument is a distinct, realistic failure mode from "not
-        installed at all". Uses the real, installed jupytext library
-        (not mocked): its own internal format-validation error must
-        surface as a structured NotebookError, not leak as a raw
-        exception out of jupytext's own internals."""
+        """LIBIPYNB-Q45 Gate-G2 review finding: NOT a "backend incomplete"
+        test despite this class's neighboring pattern -- a perfectly
+        healthy jupytext install rejects an invalid `fmt` identically
+        (confirmed directly: `jupytext.writes(node, fmt="...")` raises
+        `JupytextFormatError` regardless of install health). What this
+        genuinely proves: the adapter's `except Exception` wrapper
+        correctly catches a REAL exception type raised from jupytext's
+        own internals (distinct value from the stub-module test below,
+        which only proves a `RuntimeError` gets caught) -- its own
+        internal format-validation error must surface as a structured
+        NotebookError, not leak as a raw exception."""
         with pytest.raises(NotebookError, match="jupytext failed exporting") as excinfo:
             JupytextExporter(fmt="definitely-not-a-real-format").export(_document())
         assert excinfo.value.code == "export_tool_failed"
