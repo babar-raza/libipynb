@@ -800,7 +800,16 @@ def test_cell_execution_record_outputs_are_independently_mutable_from_the_notebo
     """Previously CellExecutionRecord.outputs shared mutable nested dict
     objects with result.notebook's own cell outputs -- mutating one
     silently corrupted the other despite CellExecutionRecord being
-    declared frozen=True."""
+    declared frozen=True.
+
+    LIBIPYNB-Q43 Gate-G2 round-3 review finding: breaking that aliasing
+    with a bare `copy.deepcopy` was not enough on its own -- the copy
+    itself was still a genuinely, directly mutable dict, so
+    `record.outputs[0]["x"] = "evil"` no longer corrupted
+    `result.notebook`, but still silently corrupted every later read of
+    the SAME `CellExecutionRecord.outputs` instance. `outputs` elements
+    are now `deep_freeze`-d, so a mutation attempt is rejected outright,
+    not merely contained."""
     document = _document([_code("print('hello')")])
 
     result = executor.execute(document, options=_opts())
@@ -808,9 +817,13 @@ def test_cell_execution_record_outputs_are_independently_mutable_from_the_notebo
     record_output = result.cell_records[0].outputs[0]
     notebook_output = result.notebook.cells[0]["outputs"][0]
     assert record_output is not notebook_output, "must not be the same object"
-    record_output["text"] = "MUTATED"
+    with pytest.raises(TypeError):
+        record_output["text"] = "MUTATED"  # type: ignore[index]
     assert notebook_output["text"] != "MUTATED", (
         "mutating CellExecutionRecord.outputs must not corrupt result.notebook"
+    )
+    assert result.cell_records[0].outputs[0]["text"] == notebook_output["text"], (
+        "a later read of the same instance's .outputs must be unaffected"
     )
 
 

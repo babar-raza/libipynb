@@ -6,6 +6,8 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from ._internal.immutable import deep_freeze
+
 
 class DiagnosticSeverity(StrEnum):
     INFO = "info"
@@ -43,7 +45,24 @@ class Diagnostic:
             raise ValueError("diagnostic code must not be empty")
         if not self.message.strip():
             raise ValueError("diagnostic message must not be empty")
-        object.__setattr__(self, "details", dict(self.details))
+        # LIBIPYNB-Q43 Gate-G2 round-3 review finding: `dict(self.details)`
+        # broke aliasing to the constructor's input but left `details`
+        # a genuinely, directly mutable plain dict for the lifetime of
+        # this otherwise-frozen instance -- the identical
+        # mutation-after-access gap this taskcard closes everywhere else,
+        # missed by round 3's own repair despite that same commit
+        # explicitly re-examining this exact field: reasoning that no
+        # in-repo caller constructs a non-empty `details=` overlooked that
+        # `Diagnostic` is a public, top-level-exported, documented
+        # dataclass any external caller can construct directly (see
+        # README.md's "typed Diagnostic objects"), not merely
+        # internal-reachability-gated. `details`'s declared value type is
+        # primitive-only (str/int/float/bool/None, no nested containers),
+        # so `deep_freeze` only needs to act at this one level here -- but
+        # doing exactly that, via the same shared helper everywhere else,
+        # is more consistent than special-casing a manual top-level-only
+        # freeze.
+        object.__setattr__(self, "details", deep_freeze(dict(self.details)))
 
 
 @dataclass(frozen=True, slots=True)

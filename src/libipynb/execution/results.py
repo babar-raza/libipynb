@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .._internal.immutable import deep_freeze
 from ..model.document import NotebookDocument
 
 
@@ -39,7 +41,7 @@ class CellExecutionRecord:
     executed: bool
     skipped: bool
     execution_count: int | None
-    outputs: tuple[dict[str, Any], ...]
+    outputs: tuple[Mapping[str, Any], ...]
     error: ExecutionCellError | None
     started_at: float | None
     finished_at: float | None
@@ -70,6 +72,23 @@ class CellExecutionRecord:
     #: name one cell. Always ``False`` when :attr:`~.options.
     #: ExecutionOptions.cell_timeout` is ``None``.
     timed_out: bool = False
+
+    def __post_init__(self) -> None:
+        # LIBIPYNB-Q43 Gate-G2 round-3 review finding: the outer tuple was
+        # already immutable, but each element was still a genuinely,
+        # directly mutable dict -- `record.outputs[0]["x"] = "evil"`
+        # silently corrupted every later read of the SAME instance's
+        # `.outputs`, the identical mutation-after-access gap this
+        # taskcard closes everywhere else. adapters/jupyter_execute.py's
+        # own `copy.deepcopy(output)` when constructing this tuple already
+        # breaks aliasing to `result.notebook`'s own cell outputs, but
+        # never froze the copy -- deepcopy-only was never enough, per this
+        # module's own already-established pattern. Not caught by either
+        # of round 3's own grep patterns (`deepcopy(self\.` and
+        # `object.__setattr__`): the deepcopy lives in a different file's
+        # factory function, and this class previously had no
+        # `__post_init__` at all.
+        object.__setattr__(self, "outputs", tuple(deep_freeze(o) for o in self.outputs))
 
     @property
     def succeeded(self) -> bool:
