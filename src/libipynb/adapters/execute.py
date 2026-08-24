@@ -20,10 +20,22 @@ executed as Python or silently skipped -- selection means choosing AND
 validating which interpreter runs the cells, not merely picking one.
 
 Scope of "timeouts": one overall wall-clock budget for the whole run, not a
-per-cell budget. `subprocess.run(..., timeout=...)` is the well-tested,
-cross-platform primitive this relies on; per-cell timeouts would need a
-persistent bidirectional protocol with its own tricky cross-platform
-readline-with-timeout problem, deliberately not attempted here.
+per-cell budget. Per-cell timeouts would need a persistent bidirectional
+protocol with its own tricky cross-platform readline-with-timeout problem,
+deliberately not attempted here.
+
+LIBIPYNB-Q44: the driver subprocess is run via a manual `Popen`, not
+`subprocess.run(..., timeout=...)` -- that convenience wrapper's own
+timeout-handling still blocks `communicate()` on the pipe reaching EOF
+after killing the child, which does not happen if the executed cell code
+spawned its own grandchild process without redirecting that grandchild's
+stdout (inheriting the driver's pipe handle is the default in that case).
+`_run_driver_subprocess` instead drains stdout on a background thread and
+writes stdin on another, so the main thread's `process.wait(timeout=...)`
+is never blocked by anything other process is doing; on timeout, it kills
+the whole process tree (not just the driver) via `os.killpg`/`taskkill
+/T`, since a child spawned by the cell code needs its own explicit
+cleanup, not just the driver's.
 
 State persists across cells within one execution (a later cell can use a
 name a previous cell defined), matching real notebook semantics -- all
@@ -407,11 +419,33 @@ def _run_driver_subprocess(
     reader_thread = threading.Thread(target=_reader, args=(process.stdout,), daemon=True)
     reader_thread.start()
 
-    try:
-        process.stdin.write(payload.encode("utf-8"))
-        process.stdin.close()
-    except OSError:
-        pass  # driver may already have exited/failed to launch fully
+    # LIBIPYNB-Q44 Gate G2 review finding (MAJOR): writing stdin
+    # synchronously on the main thread has exactly the same failure shape
+    # this whole fix exists to close on the read side. A payload larger
+    # than the OS pipe buffer (~64KB), combined with a driver that hasn't
+    # started reading stdin yet (slow interpreter startup, AV-scan-on-
+    # spawn, system load), blocks this write with zero timeout protection
+    # -- reproduced directly: a 2 MiB payload against a 5s-slow-starting
+    # driver made a `timeout=1` call take 5+ seconds and, worse, silently
+    # report `timed_out=False` despite blowing the budget 5x over. Payload
+    # size is fully caller-controlled (a large/many-cell notebook trivially
+    # exceeds 64KB). Writing on its own background thread, symmetric with
+    # the reader thread above, means the main thread can always reach
+    # `process.wait(timeout=timeout)` promptly regardless of payload size
+    # or child startup latency.
+    def _writer(stream: Any, data: bytes) -> None:
+        try:
+            stream.write(data)
+        except (OSError, ValueError):
+            pass
+        finally:
+            with contextlib.suppress(OSError):
+                stream.close()
+
+    writer_thread = threading.Thread(
+        target=_writer, args=(process.stdin, payload.encode("utf-8")), daemon=True
+    )
+    writer_thread.start()
 
     try:
         process.wait(timeout=timeout)

@@ -804,3 +804,50 @@ class TestTimeoutIsNotDefeatedByASpawnedGrandchild:
                 "driver subprocess, not processes the executed cell code "
                 "itself spawned (LIBIPYNB-Q44)"
             )
+
+
+# ── LIBIPYNB-Q44 Gate-G2 review finding (MAJOR): stdin write also unbounded ─
+#
+# The first fix moved stdout draining to a background thread but left
+# ``process.stdin.write(payload)`` synchronous on the main thread, before
+# ``process.wait(timeout=...)`` is ever reached -- the exact same failure
+# shape on the write side that the read side was just fixed for. A payload
+# larger than the OS pipe buffer (~64KB), combined with a driver that
+# hasn't started reading stdin yet (slow interpreter startup, antivirus
+# scan-on-spawn, system load), blocks that write with zero timeout
+# protection -- and worse, the run can come back reporting
+# ``timed_out=False`` even though it took far longer than requested,
+# since the hang happens before the timeout-measuring wait() call is even
+# reached. Reproduced directly (mirroring the independent Gate-G2 review's
+# own repro): a large payload against a driver replaced with one that
+# sleeps before touching stdin at all.
+
+
+class TestTimeoutIsNotDefeatedByALargeStdinPayload:
+    def test_execute_notebook_returns_promptly_even_with_a_slow_to_start_driver(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import libipynb.adapters.execute as execute_module
+
+        # Sleeps well past the requested timeout before reading stdin at
+        # all -- if the payload also exceeds the OS pipe buffer, a
+        # synchronous stdin write on the main thread would block for
+        # (most of) that sleep, regardless of `timeout`.
+        slow_start_driver = "import sys, time\ntime.sleep(5)\nsys.stdin.read()\n"
+        monkeypatch.setattr(execute_module, "_DRIVER_SCRIPT", slow_start_driver)
+
+        # One cell with a source large enough to exceed any realistic OS
+        # pipe buffer size once JSON-encoded as part of the request payload.
+        document = _document([_code("x = 1  # " + ("a" * (2 * 1024 * 1024)))])
+
+        t0 = time.monotonic()
+        report = execute_module.execute_notebook(document, timeout=1, acknowledge_unsandboxed=True)
+        elapsed = time.monotonic() - t0
+
+        assert report.timed_out is True
+        assert elapsed < 4.0, (
+            f"execute_notebook took {elapsed:.1f}s to return with timeout=1 -- "
+            "a large payload blocked the synchronous stdin write on the main "
+            "thread, defeating the timeout before process.wait() was even "
+            "reached (LIBIPYNB-Q44)"
+        )
