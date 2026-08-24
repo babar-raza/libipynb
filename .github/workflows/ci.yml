@@ -112,6 +112,28 @@ jobs:
         if: runner.os == 'Linux'
         run: pytest tests/property/ -v --tb=short
 
+  # ── Supply-chain audit ──────────────────────────────────────────────────
+  # LIBIPYNB-Q42: `pip-audit` against every extra this project ships
+  # (test+exec+export+oracle -- the fullest combination any single CI job
+  # already installs elsewhere in this file, so this audits the complete
+  # real dependency surface, not just the bare core). Findings are triaged
+  # explicitly, never silently ignored -- see this job's own `ignore-vuln`
+  # flags (if any are ever added) for the accepted-risk record, each
+  # requiring a comment citing the specific advisory and reasoning.
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package (full extras) + pip-audit
+        run: |
+          pip install -e ".[test,exec,export,oracle]"
+          pip install pip-audit
+      - name: pip-audit
+        run: pip-audit --progress-spinner=off
+
   # ── Package ──────────────────────────────────────────────────────────────
   # Mirrors .gitlab-ci.yml's package-wheel job: build a real wheel, install
   # it into a fresh venv (not the repo's own editable install), and confirm
