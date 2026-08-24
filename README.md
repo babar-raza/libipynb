@@ -32,9 +32,12 @@ and nbformat 4.0--4.5 fidelity.
   nbstripout-compatible default set and git clean-filter integration
   (`normalize --install`)
 - **Attachments** -- manage cell-level MIME attachments with reference validation
-- **Export adapters** -- convert notebooks to Markdown, Python scripts, HTML
-  (`HtmlExporter`, shells out to `nbconvert`, `libipynb[export]`), or to/from
-  Jupytext's paired text formats (`JupytextExporter`, `libipynb[export]`)
+- **Export adapters** -- convert notebooks to Markdown, Python scripts, any
+  format the real `nbconvert` CLI supports -- HTML, slides, PDF, WebPDF, ...
+  (`NbconvertExporter`, shells out to `nbconvert`, `libipynb[export]`; see
+  [Export formats](#export-formats) below for the PDF/slides caveat), or
+  to/from Jupytext's paired text formats (`JupytextExporter`,
+  `libipynb[export]`)
 - **Execution** -- two opt-in engines: a dependency-free subprocess adapter, and a
   real local Jupyter-kernel-protocol engine (`libipynb[exec]`) with rich outputs,
   sync/async APIs, and structured results (`libipynb.execution`)
@@ -299,17 +302,51 @@ dependency boundary, and the execution trust model behind the APIs below.
 
 - **`MarkdownExporter`** / **`PythonScriptExporter`** -- convert notebooks to
   Markdown or `.py` files
-- **`HtmlExporter`** -- one-directional export to self-contained HTML by
-  shelling out to the real `python -m nbconvert --to html --stdout`
-  (`libipynb[export]`) -- never imports `nbconvert` as a Python module, the
-  same "wrap the real tool without a Python import dependency" pattern
-  `execute_notebook()` and the git diff/merge driver integration also use.
+- **`NbconvertExporter(fmt=...)`** -- one-directional export to any format
+  the real `nbconvert` CLI supports (`html`, `slides`, `pdf`, `webpdf`,
+  `script`, `markdown`, `rst`, `asciidoc`, ...) by shelling out to
+  `python -m nbconvert --to <fmt>` (`libipynb[export]`) -- never imports
+  `nbconvert` as a Python module, the same "wrap the real tool without a
+  Python import dependency" pattern `execute_notebook()` and the git
+  diff/merge driver integration also use. Text formats are captured via
+  `--stdout` (`ExportResult.content` is `str`); `pdf`/`webpdf` cannot go
+  through `--stdout` (nbconvert's own text-codec writer corrupts binary
+  output there) and are instead written to a real file via `--output-dir`
+  and read back (`ExportResult.content` is `bytes`). `HtmlExporter` is a
+  thin, backward-compatible alias for `NbconvertExporter(fmt="html")`.
   Tested directly against the real installed tool, not mocked
-  (`tests/integration/test_obligation_html_jupytext_export.py`)
+  (`tests/integration/test_obligation_html_jupytext_export.py`) -- see
+  [Export formats](#export-formats) below for the `pdf`/`webpdf` runtime
+  requirement
 - **`JupytextExporter`** -- round-trips a notebook to/from Jupytext's paired
   text formats via the real `jupytext` library (`libipynb[export]`);
   unlike `HtmlExporter`, `jupytext` is imported directly since it is not on
   `test_import_boundary.py`'s forbidden list
+
+#### Export formats
+
+`NbconvertExporter` is deliberately adapter-only for every format,
+including `pdf`/`webpdf` (LIBIPYNB-Q37: a first-party PDF/slides renderer
+was evaluated and rejected -- building a LaTeX or Chromium-based renderer
+from scratch would be large, risky, and duplicate what `nbconvert` and its
+own backends already solve well; wrapping the real tool honestly is this
+project's established pattern everywhere else too, not a new exception).
+Two formats need more than `libipynb[export]` alone at *runtime* -- neither
+extra bundles them, matching real `nbconvert`'s own separate requirement:
+
+- **`pdf`** needs a working LaTeX toolchain (`xelatex` or `pdflatex` on
+  `PATH`) -- e.g. TeX Live or MiKTeX, installed separately.
+- **`webpdf`** needs a working Playwright/Chromium install
+  (`pip install playwright && playwright install chromium`).
+
+If neither is available, calling `NbconvertExporter(fmt="pdf")` (or
+`"webpdf"`) still raises a clean `NotebookError` (`code=
+"export_tool_failed"`), never an uncaught exception -- but, verified
+directly (this dev environment has neither installed): the message is
+nbconvert's own real subprocess stderr wrapped as-is, not a synthesized
+"please install X" hint, since nbconvert itself (not this adapter) is the
+one that knows the LaTeX/Chromium backend is missing.
+
 - **`execute_notebook()`** -- opt-in execution adapter with result tracking.
   **Still not a full sandbox**, but narrower than a bare subprocess: by
   default it runs in a fresh temporary working directory (`isolate_cwd`,

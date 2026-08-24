@@ -52,14 +52,24 @@ src/libipynb/
   `NotebookExecutor` protocol) for the real Jupyter-kernel-protocol engine
   implemented in `adapters/jupyter_execute.py::LocalJupyterExecutor`.
   `adapters/execute.py::execute_notebook` is the separate, dependency-free
-  subprocess execution adapter. `adapters/export.py` holds `HtmlExporter`
-  (shells out to `python -m nbconvert`) and `JupytextExporter` (imports
-  `jupytext` directly).
+  subprocess execution adapter. `adapters/export.py` holds
+  `NbconvertExporter` (shells out to `python -m nbconvert --to <fmt>` for
+  any format the real tool supports -- `html`/`slides` via `--stdout` as
+  text, `pdf`/`webpdf` via `--output-dir` + read-back as bytes, since
+  nbconvert's own `--stdout` corrupts binary output through a UTF-8 text
+  codec writer; `HtmlExporter` is a thin `fmt="html"` alias) and
+  `JupytextExporter` (imports `jupytext` directly). `pdf`/`webpdf` are
+  deliberately adapter-only, not a first-party renderer -- see
+  LIBIPYNB-Q37 in `plans/state.json` for that decision's full reasoning.
+- **`model/parameters.py`** -- Papermill-style parameter injection
+  (`inject_parameters`), Python-only. No I/O, no subprocess -- a pure
+  `NotebookDocument` transformation like `cleanup`/`edit_cells`, not an
+  `adapters/` member.
 - **`cli/`** -- `main.py` implements the `libipynb` command (probe, inspect,
   validate, sanitize scan, upgrade/downgrade, strip, git filter
   install/uninstall, diff, merge, git diff/merge driver install/uninstall,
-  execute, analytics, trust sign/verify/revoke). It is the one place in the
-  core package that shells out to `git`.
+  execute, run, analytics, trust sign/verify/revoke). It is the one place
+  in the core package that shells out to `git`.
 - **`_internal/`** -- shared, dependency-free helpers used across layers
   without creating cross-layer import cycles: `paths.py` (filename-safety
   check shared by `model/attachments.py` and `adapters/export.py`, living
@@ -110,11 +120,12 @@ Net result, stated plainly:
   behind the `exec` extra (`pip install libipynb[exec]`).
 - **`nbconvert`/`jupytext`** (export) are importable only from
   `adapters/export.py`, gated behind the `export` extra. `nbconvert` itself
-  is never imported as a Python module even there -- `HtmlExporter` shells
-  out to `python -m nbconvert` as a subprocess instead, so `nbconvert`'s
-  presence in `test_import_boundary.py`'s forbidden list is never actually
-  violated by `adapters/export.py`; only `jupytext` is imported directly
-  (it is not on the forbidden list).
+  is never imported as a Python module even there -- `NbconvertExporter`
+  (and its `HtmlExporter` alias) shells out to `python -m nbconvert` as a
+  subprocess instead, so `nbconvert`'s presence in
+  `test_import_boundary.py`'s forbidden list is never actually violated by
+  `adapters/export.py`; only `jupytext` is imported directly (it is not on
+  the forbidden list).
 - **`nbformat`/`nbdime`/`nbstripout`/`papermill`** (oracle/reference
   comparison) are used only from the test suite (`tests/oracle/`,
   `tests/interoperability/`, and other test-only modules), gated behind the
