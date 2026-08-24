@@ -316,17 +316,23 @@
       "title": "Oracle CI cannot provision its execution oracle",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Add ipykernel to exec extra; register kernelspec in the live .gitlab-ci.yml oracle job.",
       "verification_command": "pytest tests/oracle/ -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": null,
+      "repair_commit": "73a21a25e308d165c218aa610f6c6db1b0cd9b6d",
+      "review_lenses_applied": [
+        "cardinality_spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "real python:3.12-slim container matching .gitlab-ci.yml's image, .[test,oracle,exec] installed, kernelspec registered, pytest tests/oracle/ -v --tb=short -> 23 passed, 3 skipped (skips are unrelated real-world-corpus fixtures, LIBIPYNB-Q13c)",
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "02939eea5cb0f084b089f9cbc52dff2b731363a0",
+      "note": "Implementation 02939ee (ipykernel added to exec extra; .gitlab-ci.yml oracle-and-package job installs .[test,oracle,exec] and registers kernelspec python3). Independent Taskcard-Gate-G2 review independently re-ran every claimed command (ruff/mypy/pytest/Docker) from scratch and confirmed all matched exactly, including its own from-scratch Docker reproduction and a revert-the-fix negative control proving the two new tests are not vacuous. Zero CRITICAL findings; 4 findings total (2 MAJOR, 1 MINOR, 1 NIT), repaired in 73a21a2: (1) README.md's exec-install section was left stale post-fix -- repaired; (2) FORBIDDEN_TOP_LEVEL_MODULES in test_import_boundary.py did not include ipykernel -- repaired, closing a dormant gap in the existing safety net; (3) a real, separate, out-of-scope gap -- tests/integration/test_obligation_jupyter_execution_adapter.py's 67 real-kernel tests are never run with a provisioned kernel in any real CI job, and 3 fail under real container timing when they are -- tracked as LIBIPYNB-Q57 rather than folded into this taskcard or silently dropped; (4) NIT dependency-name-parsing fragility in one new test confirmed to fail safe and not live against current exec extra contents, no repair needed. Given zero CRITICAL findings, a second independent review round was not required per this engagement's established policy (Q19/Q21 precedent: escalate to a second round only when a CRITICAL surfaces)."
     },
     {
       "id": "LIBIPYNB-Q23",
@@ -702,6 +708,25 @@
       "blocker": null,
       "resume_condition": null,
       "discovered_by": "LIBIPYNB-Q21 second-review Agent (independent G2 review of commit 4bc1f5c), via a from-scratch Docker reproduction of the real CI image -- not this session own implementation work"
+    },
+    {
+      "id": "LIBIPYNB-Q57",
+      "phase": 4,
+      "title": "67 real-kernel tests in tests/integration/test_obligation_jupyter_execution_adapter.py are never run with a provisioned kernel in any real CI job, and 3 fail under real container timing when they are",
+      "depends_on": [],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "Discovered by LIBIPYNB-Q22's independent Taskcard-Gate-G2 review: this file's own docstring says it is 'not skipped by default: CI must install the exec extra plus ipykernel for this file to prove anything,' but no real CI job actually does that for it. test-py311/312/313 (the jobs that run tests/integration/) extend .python-base, whose before_script installs only .[test] -- no jupyter_client/nbclient at all, so this file's module-level pytest.importorskip trips unconditionally and all 67 tests collapse to a single skip. oracle-and-package (the only job LIBIPYNB-Q22 taught to provision a kernel) runs pytest tests/oracle/ tests/package/ -v --tb=short -- it never touches tests/integration/. The '1056 passed' local evidence cited throughout this engagement (LIBIPYNB-Q16-Q22) counts these 67 as real passes only because this dev .venv already has ipykernel and a registered python3 kernelspec from unrelated prior work -- nothing tracked in the repo provisions that, so real CI has no such state. When the reviewer provisioned exec+kernel in a fresh python:3.12-slim container matching the CI image and ran this file there, 3 of the 67 tests FAILED with container-timing-sensitive 'Timeout waiting for execute reply (1s)' errors (test_interrupt_on_timeout_true_reports_the_timeout_as_a_cell_error, test_concurrent_runs_on_separate_threads_do_not_interfere, test_multiple_independently_timed_out_cells_are_each_recorded) -- so wiring this suite into CI is not a risk-free follow-up; the timing assumptions themselves need investigation first.",
+      "verification_command": "docker run --rm -v <repo>:/work -w /work python:3.12-slim bash -c \"pip install -e '.[test,exec]' && python -m ipykernel install --user --name python3 && pytest tests/integration/test_obligation_jupyter_execution_adapter.py -v --tb=short\"",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "discovered_by": "LIBIPYNB-Q22 independent Taskcard-Gate-G2 review (of commit 02939ee), via a from-scratch Docker reproduction of the real CI image -- not this session own implementation work"
     }
   ]
 }
