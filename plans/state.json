@@ -564,18 +564,22 @@
       "title": "Papermill-style parameter injection",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "pytest tests/unit/test_parameter_injection.py tests/oracle/test_papermill_parity.py tests/unit/test_cli.py::TestRun -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "new src/libipynb/model/parameters.py (inject_parameters), NotebookDocument.inject_parameters(), CLI `libipynb run` subcommand, all committed at b9364d5. Oracle-verified against real installed papermill 2.7.0 (tests/oracle/test_papermill_parity.py, 13 tests): generated Python source matches papermill's own PythonTranslator byte-for-byte for scalars/None/negative-zero/NaN-Infinity/escaped-strings/unicode/empty-string/lists/dicts/nested/empty-containers, tag convention round-trips through real papermill's own parameterize_notebook(), and an explicit divergence (libipynb rejects unsupported parameter types; real papermill silently stringifies them) is proven real by running both. 26 direct unit tests (tests/unit/test_parameter_injection.py) plus 7 CLI tests (tests/unit/test_cli.py::TestRun). Re-run this session (2026-08-24, after a context compaction): all 46 tests (26+13+7) re-confirmed passing against current HEAD, not merely assumed intact from the original implementation session.",
+      "repair_commit": "eaa26637db35f59051edecbf31423134855f31d5",
+      "review_lenses_applied": [
+        "spec_conformance_line_by_line",
+        "combinatorial_cardinality",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "new src/libipynb/model/parameters.py (inject_parameters), NotebookDocument.inject_parameters(), CLI `libipynb run` subcommand, all committed at b9364d5. Oracle-verified against real installed papermill 2.7.0 (tests/oracle/test_papermill_parity.py). Two independent Taskcard-Gate-G2 review rounds (separate Agent each): round 1 found 3 MAJOR (README self-contradicted on whether the feature existed; comment='' produced different output than real papermill; a bare tuple value was silently coerced to a Python list literal instead of matching real papermill's actual str()-fallback stringification) and 2 MINOR (no-kernelspec-at-all behavior undocumented; missing test coverage for two correctly-implemented cell-placement edge cases) -- all 5 repaired in commit aaac5e2, each independently re-verified against real papermill via the reviewer's own separate scratch scripts (not trusting the new tests' own assertions), including hand-tracing the validation/translation symmetry for the tuple fix across both call sites. Round 2 found round 1's README fix was incomplete (a second, nearby self-contradicting paragraph survived, still claiming papermill 'is not yet compared this way') plus a NIT (a cell-placement test's assertion was satisfiable by two different behaviors in a 1-cell notebook); both repaired in commit eaa2663 (rewrote the paragraph to describe oracle verification generally rather than singling out two tools as if the other two were still pending; strengthened the test with an explicit cell-count assertion). Final sweep confirmed no remaining stale 'not yet implemented'/papermill contradictions anywhere in README.md. Full targeted suite (52 tests: 26 unit + 19 oracle including 4 new cases + 7 CLI) green after both repair rounds.",
       "mutation_baseline_checked": null,
-      "rollback": "git revert b9364d5; new module + CLI subcommand only, no existing behavior touched",
+      "rollback": "git revert eaa2663, then aaac5e2, then b9364d5, in that order (most recent first) to fully undo; reverting only the repairs while keeping b9364d5 would restore the review-found divergences/README contradiction without removing the feature",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "b9364d5ca50e8e9ab6ce37bc8ac6cdec123558be",
-      "note": "Implementation b9364d5 (README/ARCHITECTURE.md doc updates in a015b87/6726bf5 for the separate LIBIPYNB-Q37 taskcard incidentally also filled a Q35 ARCHITECTURE.md gap -- see that taskcard's own note). A Taskcard-Gate-G2 independent review of this taskcard was launched in the session that authored b9364d5, but that session was interrupted by a context-window compaction before the review agent's findings were captured anywhere retrievable (no repair commit, no note referencing findings) -- per this engagement's evidence discipline, an unrecoverable review cannot be cited as having happened. Status corrected from a stale NOT_STARTED (state.json was never updated after b9364d5 landed) to IMPLEMENTED_UNVERIFIED, and a fresh independent review is being (re-)commissioned now."
+      "note": "Implementation b9364d5. Status was corrected this session from a stale NOT_STARTED (state.json was never updated after b9364d5 landed, due to a prior session's context-window compaction losing an in-flight review's findings) to IMPLEMENTED_UNVERIFIED, then through 2 full review-and-repair rounds to VERIFIED. README/ARCHITECTURE.md doc updates in a015b87/6726bf5 (LIBIPYNB-Q37) incidentally also filled a Q35 ARCHITECTURE.md gap -- see that taskcard's own note."
     },
     {
       "id": "LIBIPYNB-Q36",
@@ -660,12 +664,16 @@
         "LIBIPYNB-Q19"
       ],
       "owner": "implementer+separate_reviewer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
-      "verification_command": "pytest tests/unit/test_internal_paths.py tests/unit/test_obligation_attachments.py tests/unit/test_obligation_attachment_management.py tests/integration/test_obligation_export_resource_path_safety.py tests/integration/test_obligation_export_adapter.py -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "empirical probe first (this session's own Windows 11 build 10.0.26200): confirmed Path('CON').write_bytes(...) now succeeds as a genuine regular file on this specific build, then confirmed is_safe_resource_filename('CON') nonetheless returned True (a real gap relative to the function's own stated purpose, since this relaxation is not universal across the still-deployed Windows install base). Fixed is_safe_resource_filename() in _internal/paths.py to reject MS-DOS/Win32 reserved device names (CON/PRN/AUX/NUL/COM0-9/LPT0-9, case-insensitive, with/without extension) unconditionally. Negative control: new test confirmed to FAIL against the pre-fix implementation via git stash before the fix landed. Full core suite (tests/unit + tests/integration + tests/security, 1098 passed / 11 skipped / 0 failed) and both direct downstream consumers (model/attachments.py's _validate_new_name, adapters/export.py's _collect_resources -- 48 tests) re-run green post-fix. Q19's own existing TestSymlinkPolicy/TestPermissionPreservation/TestDurability classes in tests/security/test_atomic_writes.py already thoroughly cover per-platform symlink and permission-preservation behavior (including a genuine POSIX-vs-Windows RuntimeError-vs-OSError symlink-loop divergence) -- deliberately not duplicated here. A related caller-side concern (two attachment names differing only in case colliding on a case-insensitive filesystem such as Windows/macOS) was investigated and found to be genuinely out of this library's own scope: libipynb returns AncillaryResource objects but does not itself write them to disk anywhere in src/ -- confirmed by grep; no in-repo code path exists to test.",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "pytest tests/unit/test_internal_paths.py tests/security/test_path_safety.py tests/unit/test_obligation_attachments.py tests/unit/test_obligation_attachment_management.py tests/integration/test_obligation_export_resource_path_safety.py tests/integration/test_obligation_export_adapter.py -v --tb=short",
+      "repair_commit": "24d5863fff2531910910239abbd4070a987ca60a",
+      "review_lenses_applied": [
+        "spec_conformance_line_by_line",
+        "test_infrastructure_honesty",
+        "resource_durability_failure_path"
+      ],
+      "oracle_tier_actually_executed": "empirical probe first (this session's own Windows 11 build 10.0.26200): confirmed Path('CON').write_bytes(...) now succeeds as a genuine regular file on this specific build, then confirmed is_safe_resource_filename('CON') nonetheless returned True. Fixed is_safe_resource_filename() in _internal/paths.py (commit 1d57316) to reject MS-DOS/Win32 reserved device names unconditionally. Negative control confirmed the new test fails pre-fix via git stash. Independent Taskcard-Gate-G2 review (separate Agent) independently fetched Microsoft's live 'Naming Files, Paths, and Namespaces' documentation and diffed it clause-by-clause against the implementation, independently reproduced the core empirical CON-write claim via native PowerShell (not just trusting the transcript), and hand-traced the pre-fix negative control and the refactored control-flow's regression-safety rather than trusting either claim. Verdict: zero CRITICAL/MAJOR findings, 'safe to mark VERIFIED as-is' explicitly stated, with 3 MINOR completeness gaps flagged (missing Unicode superscript-digit reserved variants COM¹/²/³ and LPT¹/²/³ -- genuinely Microsoft-documented and missed; missing trailing-space normalization on a dot-less stem; no end-to-end test through a real caller, only unit-level on is_safe_resource_filename directly). All 3 repaired in commit 24d5863 (not merely logged, per the review's own minimum bar) -- verified against Microsoft's documentation directly, plus a new end-to-end test in tests/security/test_path_safety.py exercising the check through MarkdownExporter().export(). Full targeted suite (tests/unit/test_internal_paths.py + tests/security/test_path_safety.py + both direct downstream consumers' own test files, 64 tests) re-run green post-repair. Q19's own existing TestSymlinkPolicy/TestPermissionPreservation/TestDurability classes in tests/security/test_atomic_writes.py already thoroughly cover per-platform symlink/permission behavior (including a genuine POSIX-vs-Windows RuntimeError-vs-OSError symlink-loop divergence) -- deliberately not duplicated here. A related caller-side concern (case-insensitive-filesystem collisions between two differently-cased attachment names) was investigated and found genuinely out of this library's own scope: libipynb returns AncillaryResource objects but never writes them to disk itself anywhere in src/ -- confirmed by grep, no in-repo code path exists to test.",
       "mutation_baseline_checked": null,
       "rollback": "git revert; the added reserved-name check only narrows is_safe_resource_filename's accept set (never widens it), so reverting only re-permits already-latent Windows-reserved-name inputs, zero effect on any other input shape",
       "blocker": null,
@@ -680,19 +688,22 @@
       "depends_on": [
         "LIBIPYNB-Q26"
       ],
-      "owner": "implementer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "actionlint .github/workflows/ci.yml && pip-audit --progress-spinner=off",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "actionlint clean; pip-audit run for real against this session's own dev .venv (test+exec+export+oracle already installed) -- 7 findings, all in pip itself (not a project dependency), zero in libipynb's actual dependency graph. A second, genuinely-fresh-install cross-check in a python:3.12-slim container was attempted but did not complete -- Docker's own daemon became unresponsive under this session's heavily-loaded shared host (a plain `docker ps` hung 2+ minutes), disclosed honestly rather than claimed as completed",
+      "repair_commit": "0d00f0b0e19d94808c5398e8ae27b4a3a87e5c60",
+      "review_lenses_applied": [
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "actionlint clean. Two independent Taskcard-Gate-G2 review rounds (separate Agent each). Round 1 found a CRITICAL (this taskcard's own verification evidence already showed pip-audit failing with 7 real findings, all in pip 24.3.1 itself -- the runner's preinstalled version -- contradicting the job's own inline policy that findings must be fixed/pinned/documented, never silently left unaddressed) plus a MAJOR (the job's comment claimed to audit 'every extra this project ships' but never installed the `fuzz` extra, leaving `atheris` completely unaudited) and a MINOR (unpinned pip-audit install). Repaired in commit 1288a8c: added a `pip install --upgrade pip` step before the audit (confirmed via a from-scratch disposable venv that this genuinely resolves all 7 findings -- pip 26.2.1, 'No known vulnerabilities found', exit 0 -- rather than suppressing them with --ignore-vuln); extended installed extras to include `fuzz`; pinned pip-audit==2.10.1. Round 2 independently re-ran the CRITICAL fix from scratch in a genuinely fresh disposable venv (not this repo's own long-lived .venv) and confirmed pip-audit exits 0 with zero findings after the exact CI step sequence; confirmed the fuzz-extra Linux-only marker resolves correctly (verified atheris correctly does NOT install on this Windows session, consistent with the marker, and that ubuntu-latest runners report sys_platform=='linux'); confirmed pip-audit==2.10.1 is a real, non-yanked, currently-latest release. Found one new MINOR in the repair itself: the updated comment claimed 'every extras group in pyproject.toml' but a 6th group, `reference`, isn't installed -- functionally inert (its sole dependency exactly duplicates a pin `test` already carries) but the wording was still inaccurate. Repaired in commit 0d00f0b (reworded to state precisely what is/isn't covered and why the gap is harmless). Docker fresh-install cross-check remains unattempted in this session (Docker daemon was unresponsive earlier in this engagement) -- not required, since both review rounds independently reproduced the CRITICAL fix's effectiveness via a genuinely fresh disposable venv, a different but equally valid form of from-scratch verification; LIBIPYNB-Q49 (Phase 5) will run a distinct clean-room pip-audit check regardless.",
       "mutation_baseline_checked": null,
-      "rollback": "git revert; delete the security-audit job, zero effect on other ci.yml jobs",
+      "rollback": "git revert 0d00f0b, then 1288a8c, then fed85ac, in that order; reverting only fed85ac removes the whole security-audit job (zero effect on other ci.yml jobs)",
       "blocker": null,
-      "resume_condition": "optional: re-attempt the fresh-container cross-check once Docker's daemon responds normally again, for additional confirmatory evidence (not required to close this taskcard -- the dev-venv result is already a real, direct pip-audit run, not a simulation)",
+      "resume_condition": null,
       "implementation_commit": "fed85acee5e232e3e155e7aa40e81b25c1a51135",
-      "note": "Implementation fed85ac. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
+      "note": "Implementation fed85ac, repaired through 2 full review-and-repair rounds to VERIFIED. Optional future evidence, not required to close this taskcard: a genuinely fresh-container (not just fresh-venv) cross-check once Docker is available."
     },
     {
       "id": "LIBIPYNB-Q43",
@@ -710,9 +721,19 @@
       "depends_on": [
         "LIBIPYNB-Q17"
       ],
-      "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "owner": "implementer+separate_reviewer",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "pytest tests/integration/test_obligation_execution_adapter.py -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "Started as planned re-verification of adapters/jupyter_execute.py's existing psutil-based kernel-cancellation leak tests (unaffected, already covered) plus extending equivalent leak coverage to adapters/execute.py's subprocess adapter (confirmed via grep: it had zero process-leak coverage). Writing that coverage surfaced a real, previously-unknown, more severe defect than a mere leak: a standalone diagnostic script proved execute_notebook's own `timeout` parameter is silently defeated (not just 'leaves an orphan after returning', but 'does not bound wall-clock time at all') whenever executed cell code spawns a subprocess without redirecting its own stdout -- subprocess.run(timeout=...)'s kill path blocks communicate() on pipe EOF, which a grandchild holding the pipe open prevents indefinitely. Reproduced directly: timeout=2 against a driver whose cell spawned a 60s grandchild made execute_notebook itself take 60.2s to return (raw diagnostic evidence, not assumed). Root-caused and fixed: replaced subprocess.run with Popen + a background reader thread (never blocks the main thread past the timeout) + explicit process-tree killing on timeout (os.killpg on POSIX after start_new_session=True; taskkill /F /T on Windows after CREATE_NEW_PROCESS_GROUP). Two new regression tests (TestTimeoutIsNotDefeatedByASpawnedGrandchild) confirmed to fail pre-fix (20.2s vs a <10s wall-clock bound; grandchild process survival via psutil), both pass post-fix in ~5s combined. One existing test updated to mock at the new driver-subprocess seam (the platform-specific byte/str decode quirk it guarded against is now structurally impossible to reintroduce -- single decode call, uniform across platforms and timeout/success paths). Full core suite (tests/unit + tests/integration + tests/security): 1104 passed, 11 skipped, 0 failed, re-run after a stream-ownership refinement (the reader thread closes its own stdout stream exclusively, avoiding a cross-thread close-while-reading race in the pathological case where a grandchild still holds the pipe open when execute_notebook returns).",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert f805326; reverts execute_notebook to its prior subprocess.run-based implementation and drops the two new regression tests -- no schema/data migration involved, but reverting reintroduces both the timeout-defeat and orphaned-process defects",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "f805326b5b63fb5543ba70b91e8006343761eba1",
+      "note": "Implementation f805326. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only. adapters/execute.py is the same file LIBIPYNB-Q16 (P0-A) touched, and Q16 is one of the 4 hot modules requiring a mutation baseline -- but tests/scripts/test_state_json_schema.py's HOT_MODULE_TASK_IDS check is scoped to specific task IDs (Q16/Q17/Q18/Q19), not to a file generally, so that mechanical requirement does not apply to this taskcard's own VERIFIED status."
     },
     {
       "id": "LIBIPYNB-Q45",
