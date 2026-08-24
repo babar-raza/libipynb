@@ -366,9 +366,23 @@
       "depends_on": [
         "LIBIPYNB-Q20"
       ],
-      "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "actionlint .github/workflows/ci.yml && act -j quality",
+      "repair_commit": "f7b93a90e1c90436a3db21daf35f8173c573c7bf",
+      "review_lenses_applied": [
+        "cardinality_spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "real local execution via actionlint + act (catthehacker/ubuntu:act-latest), not just static YAML review -- quality job genuinely passed end-to-end; test job matrix leg (python 3.13, an act-toolcache slot uncontaminated by other local runs) genuinely passed (981 passed, 27 skipped, property 7 passed)",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete .github/workflows/ci.yml, zero effect on .gitlab-ci.yml",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "a473661d25017440292dff613be5d34b5c2c6f8c",
+      "note": "Implementation a473661, alongside companion LIBIPYNB-Q56 fix (commit 2e324cc) discovered while building this taskcard's honest verification. Independent Taskcard-Gate-G2 review independently re-ran every claimed command from scratch, including reproducing the unusual act-toolcache-contamination claim itself (not taking it on faith) and confirming LIBIPYNB-Q57 genuinely predates this commit. Zero CRITICAL findings; 2 findings (1 MAJOR: README/plans/full-parity-plan.md's LIBIPYNB-P9 entry were left stale by the new Windows/macOS CI legs; 1 NIT: a misattributed comment citation), both repaired in f7b93a9. Given zero CRITICAL findings, a second independent review round was not required per this engagement's established policy."
     },
     {
       "id": "LIBIPYNB-Q27",
@@ -378,8 +392,18 @@
         "LIBIPYNB-Q22"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "actionlint .github/workflows/oracle.yml && act pull_request -j oracle-smoke",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "real local execution via actionlint + act -- oracle-smoke job genuinely passed (18 passed); the `if:` gating correctly excludes the `oracle` job from pull_request triggers (confirmed: act produced no job run at all for that combination); the oracle job's own install-exec-then-register-kernel-then-run pattern is the exact combination already verified end-to-end in LIBIPYNB-Q22 (not re-run here)",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete .github/workflows/oracle.yml",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "5506f7fa8aea96fb0ec974dd0e587ad080a78dce",
+      "note": "Implementation 5506f7f. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only (actionlint + real act execution of the pull_request-triggered oracle-smoke job). Owner field will change to implementer+separate_reviewer and status to VERIFIED once that review runs."
     },
     {
       "id": "LIBIPYNB-Q28",
@@ -387,8 +411,18 @@
       "title": ".github/workflows/fuzz.yml (schedule-as-code)",
       "depends_on": [],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "actionlint .github/workflows/fuzz.yml",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "actionlint clean; the install-then-invoke pattern verified directly in a real python:3.12-slim container (pip install .[fuzz]; python fuzz/fuzz_parser.py -max_total_time=10 -> 873,872 iterations, exit 0, no crashes) -- the full 4x120s workflow itself was not run via act (cost/time, pattern already confirmed structurally sound)",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete .github/workflows/fuzz.yml",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "aec47d5bd0b79ac8a60fa8ca026ef2b0d0ee12e2",
+      "note": "Implementation aec47d5. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q29",
@@ -399,8 +433,18 @@
         "LIBIPYNB-Q28"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "actionlint .github/workflows/staleness-check.yml",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "actionlint clean; the exact gh run list script logic run for real against the live public repo (github.com/babar-raza/libipynb, gh CLI genuinely authenticated with repo+workflow scope) -- caught and fixed a real bug in the first draft (unguarded `gh run list` under `set -e` aborted on a raw CLI error, HTTP 404, instead of the intended clean ::error:: message, since oracle.yml/fuzz.yml don't exist on the real default branch yet) before committing; final script's both paths (query-failure and success) verified together in one real run against that repo",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete .github/workflows/staleness-check.yml",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "9d8cea124ec2a21001bb272e30d2edaabb3b1b6c",
+      "note": "Implementation 9d8cea1. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only, though unusually thorough for self-verification (a real bug was caught and fixed against live GitHub API data before commit, not just YAML-linted)."
     },
     {
       "id": "LIBIPYNB-Q30",
@@ -413,8 +457,18 @@
         "LIBIPYNB-Q29"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "actionlint .github/workflows/release.yml",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "actionlint clean; deliberately NOT run via act at all (the publish/attest jobs mint real OIDC tokens and this session's gh CLI is genuinely authenticated against the real public repo -- not a risk worth taking for local verification). build job's new pieces beyond what Q26's already-verified package job covers (sdist, twine check, checksums) verified directly in a real python:3.12-slim container: build produced both wheel+sdist, twine check PASSED for both, sdist installed and imported correctly in a fresh venv, SHA256SUMS generated with real digests. publish/attest jobs are dormant by construction (no matching tag exists) and additionally gated on a GitHub Environment + PyPI Trusted Publisher entry neither of which has been configured -- correctly unverifiable and unverified pending that maintainer-side setup",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete .github/workflows/release.yml -- cannot cause an accidental publish, tag-triggered only and no tag exists",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "54a31d51c651f6e099b2cdc8cadff81f9f487520",
+      "note": "Implementation 54a31d5. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only. The publish/attest jobs' real end-to-end behavior cannot be verified at all until a real tag exists and PyPI Trusted Publishing is configured maintainer-side -- deliberately deferred to Phase 5 (Q46-Q54) rather than faked here."
     },
     {
       "id": "LIBIPYNB-Q31",
@@ -444,8 +498,17 @@
       "title": "CHANGELOG.md [Unreleased] section (M5 healed decision)",
       "depends_on": [],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "pytest tests/unit/test_doc_drift.py -v --tb=short",
+      "repair_commit": "21ae39847605c15560393e22fd42d1999989d8ec",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Implementation/only commit 21ae398: reconstructed by diffing every commit that touched CHANGELOG.md since the actual 0.1.0 release commit (1c774c9), restoring [0.1.0] to its exact original content and moving everything genuinely added/changed since into a new [Unreleased] section. Documentation-only, zero behavior risk (no test in this repo asserts on CHANGELOG.md's content, confirmed by grep); marked VERIFIED directly without a separate-Agent review, consistent with how LIBIPYNB-Q1/Q2 (also documentation/infrastructure-only, zero functional-code risk) were handled -- review_lenses_applied intentionally empty, matching that precedent. Single commit recorded in repair_commit, matching the Q1/Q2/Q3 convention for taskcards with no separate implementation-then-repair split."
     },
     {
       "id": "LIBIPYNB-Q34",
@@ -702,18 +765,24 @@
       "title": "Gate G1 evidence (mypy --strict, full test suite) is not reproducible in a genuinely fresh install",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Discovered by LIBIPYNB-Q21 second-review Agent via a real python:3.12-slim container matching .gitlab-ci.yml test-py312 exactly: (1) tests/unit/test_obligation_schema_digest_encoding.py::test_declared_source_version_matches_the_installed_oracle fails in a fresh install because core dependencies pins only nbformat>=5.10 with no ceiling -- a truly fresh resolve picks up whatever is newest (nbformat-5.11.1 in the reviewers container vs the hardcoded nbformat-5.10.4 assertion), while this session own dev .venv masked the gap by already having 5.10.4 pinned from earlier work. (2) mypy --strict shows import-not-found errors in a fresh [test]-only install for adapters/export.py (jupytext) and adapters/jupyter_execute.py (nbclient), neither covered by the test extra the CI mypy job installs -- again masked locally because this dev .venv happens to already have both packages installed. Every Gate G1 claim made throughout this whole engagement (LIBIPYNB-Q16-Q21) was accurate for this dev venv but has not been independently confirmed reproducible in a genuinely fresh environment for these two specific checks.",
       "verification_command": "docker run --rm python:3.12-slim: git archive HEAD | tar -x, pip install -e \".[test]\", mypy --strict src/libipynb (or the actual CI mypy extras), pytest -q",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": null,
+      "repair_commit": "f7b93a90e1c90436a3db21daf35f8173c573c7bf",
+      "review_lenses_applied": [
+        "cardinality_spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "independent review reproduced both root causes fresh in python:3.12-slim containers: nbformat pin -> .venv resolves exactly 5.10.4; mypy --strict with .[test,exec,export] and a cleared .mypy_cache -> Success: no issues found in 44 source files; negative control with .[test] only reproduced the exact pre-fix 4-error failure",
       "mutation_baseline_checked": null,
       "rollback": "revert single commit",
       "blocker": null,
       "resume_condition": null,
-      "discovered_by": "LIBIPYNB-Q21 second-review Agent (independent G2 review of commit 4bc1f5c), via a from-scratch Docker reproduction of the real CI image -- not this session own implementation work"
+      "implementation_commit": "2e324ccf62024e9d0993053a3132e72487a94fe9",
+      "discovered_by": "LIBIPYNB-Q21 second-review Agent (independent G2 review of commit 4bc1f5c), via a from-scratch Docker reproduction of the real CI image -- not this session own implementation work",
+      "note": "Implementation 2e324cc (nbformat==5.10.4 exact pin in the test extra; .gitlab-ci.yml mypy job installs .[test,exec,export]; ruff/mypy pinned to exact versions across all three .gitlab-ci.yml quality jobs after a related cross-version ruff default-rule-set divergence was found while validating LIBIPYNB-Q26). Reviewed jointly with LIBIPYNB-Q26 by the same independent Agent (see that entry for the shared review's full findings and repair f7b93a9); zero CRITICAL findings, both MAJOR/NIT findings were about the companion Q26 commit specifically, not this one -- no repair content was actually needed for Q56 itself, but the repair commit is shared."
     },
     {
       "id": "LIBIPYNB-Q57",
