@@ -113,6 +113,18 @@ fuzz:
 # versions CI will install have not been locally verified against this exact
 # image -- only whatever happens to be installed in this repo's own working
 # `.venv` has actually been run.
+#
+# LIBIPYNB-Q22 (P0-G): this job used to install only `.[test,oracle]` --
+# neither that nor `.[exec]` (jupyter_client/nbclient) included an actual
+# kernel implementation (ipykernel, now added to the `exec` extra) or
+# registered a kernelspec, so tests/oracle/test_nbclient_execution_parity.py
+# and tests/oracle/test_real_world_corpus_parity.py's kernel-comparison
+# tests permanently, silently skipped here (pytest.importorskip("nbclient")
+# never even got that far, since nbclient wasn't installed either) rather
+# than exercising what this job's own comment above claims -- "compares
+# libipynb's own output against the real, actually-installed reference
+# tools." Now installs `.[exec]` too and registers the kernelspec the
+# tests look for (`kernelspec.find_kernel_specs()` must contain "python3").
 
 oracle-and-package:
   stage: test
@@ -121,7 +133,8 @@ oracle-and-package:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
   needs: []
   before_script:
-    - pip install -e ".[test,oracle]"
+    - pip install -e ".[test,oracle,exec]"
+    - python -m ipykernel install --user --name python3 --display-name "Python 3 (libipynb CI)"
   script:
     - pytest tests/oracle/ tests/package/ -v --tb=short
 

@@ -41,7 +41,12 @@ fuzz = ["atheris>=2.3; sys_platform == 'linux'"]
 # Real Jupyter kernel-protocol execution (plans/full-parity-plan.md LIBIPYNB-P4).
 # Ships to end users who opt into engine="kernel"; never imported by core
 # src/libipynb code -- see tests/unit/test_import_boundary.py.
-exec = ["jupyter_client>=8.6", "nbclient>=0.10", "nbformat>=5.10"]
+# LIBIPYNB-Q22 (P0-G): ipykernel added -- jupyter_client/nbclient can launch
+# a kernel process, but without an actual kernel implementation installed
+# and registered (`python -m ipykernel install`), there is no kernel to
+# launch. `pip install libipynb[exec]` alone was previously incomplete for
+# this reason, not just a CI provisioning gap.
+exec = ["jupyter_client>=8.6", "nbclient>=0.10", "nbformat>=5.10", "ipykernel>=6.29"]
 # Test-only cross-tool oracle comparisons (plans/full-parity-plan.md Gate G8).
 # Never imported by src/libipynb; only by tests/oracle/.
 oracle = ["nbdime>=4.0", "nbconvert>=7.16", "papermill>=2.6", "nbstripout>=0.7"]

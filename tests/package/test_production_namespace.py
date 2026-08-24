@@ -169,6 +169,43 @@ def test_package_chassis_and_python_policy() -> None:
     assert 'requires-python = ">=3.11"' in pyproject
 
 
+def test_exec_extra_includes_an_actual_kernel_implementation() -> None:
+    """LIBIPYNB-Q22 (P0-G): jupyter_client/nbclient can launch a kernel
+    process, but without an actual kernel implementation installed
+    (ipykernel), there is no kernel to launch -- `pip install
+    libipynb[exec]` alone was incomplete for this reason, not just a CI
+    provisioning gap. Parsed via tomllib (stdlib, guaranteed available
+    given this project's own requires-python = ">=3.11" floor) rather
+    than a string-membership check, so this survives reformatting/
+    reordering of the extras table."""
+    import tomllib
+
+    with (ROOT / "pyproject.toml").open("rb") as f:
+        data = tomllib.load(f)
+    exec_extra = data["project"]["optional-dependencies"]["exec"]
+    names = {req.split(">")[0].split("=")[0].split("<")[0].strip() for req in exec_extra}
+    assert "ipykernel" in names, f"exec extra is missing ipykernel: {exec_extra}"
+
+
+def test_gitlab_ci_oracle_job_provisions_a_kernel_before_running_oracle_tests() -> None:
+    """LIBIPYNB-Q22 (P0-G): the oracle-and-package CI job must install the
+    exec extra (which now includes ipykernel) AND register a kernelspec --
+    installing ipykernel alone doesn't make it discoverable via
+    jupyter_client.kernelspec.find_kernel_specs(), which is what
+    tests/oracle/test_real_world_corpus_parity.py and the nbclient-based
+    oracle tests actually check for. A lightweight text-based check
+    (matching this file's own existing style for pyproject.toml checks
+    above) rather than a full YAML parse -- this only needs to prove the
+    two specific lines exist, not validate the whole pipeline schema."""
+    ci_config = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
+    oracle_job = ci_config.split("oracle-and-package:", 1)[1]
+    # Scoped to just this job's own block (stop at the next top-level job).
+    oracle_job = oracle_job.split("\n\n# ── Interoperability", 1)[0]
+    assert ".[test,oracle,exec]" in oracle_job
+    assert "ipykernel install" in oracle_job
+    assert "--name python3" in oracle_job  # must match what the oracle tests look up
+
+
 def test_repository_fixture_is_loadable() -> None:
     document = load(SAMPLE, mode="preservation")
     assert document.nbformat == 4
