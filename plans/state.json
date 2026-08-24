@@ -633,8 +633,18 @@
         "LIBIPYNB-Q36"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "pytest tests/unit/test_doc_drift.py -v --tb=short",
+      "repair_commit": "753b86b83adf1a947f725df2bc96d305d595cd0d",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "Verification-only taskcard (per plan §7: 'N/A -- verification-only taskcard', owner=implementer, no separate reviewer required, matching this engagement's established infrastructure-taskcard pattern). Manual checklist walkthrough per the plan's own 4-point spec: (1) CLI subcommand/flags -- `libipynb run --help` (13 flags) and `libipynb analytics --help` (--top-n) both fully wired, cross-checked against README's CLI examples section line-by-line, no gap found. (2) README section -- Parameters/Analytics feature bullets, API Overview entries, CLI examples all present for both (from Q35/Q36's own implementation work). (3) CHANGELOG [Unreleased] entry -- present for both (from Q35/Q36's own implementation work). (4) Top-level libipynb/__init__.py export decision -- inject_parameters is included, already documented as deliberate in ARCHITECTURE.md ('a pure NotebookDocument transformation... not an adapters/ member'); analytics.* is deliberately excluded, matching security.scan_for_secrets's own submodule-only precedent, but this specific rationale was undocumented -- the one real gap found, closed by adding it to ARCHITECTURE.md's analytics/ bullet. tests/unit/test_doc_drift.py's 3 mechanical command-name/count checks (pre-existing, LIBIPYNB-P6) confirmed still passing -- no command-name-level drift found at that level either.",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert 753b86b; documentation-only change",
+      "blocker": null,
+      "resume_condition": null,
+      "implementation_commit": "753b86b83adf1a947f725df2bc96d305d595cd0d",
+      "note": "Single-commit taskcard (implementer only, no separate reviewer required per plan). Verification found the CLI/README/CHANGELOG wiring for both Q35 and Q36 already complete from their own implementation work; the one real gap (undocumented analytics/ top-level-export-exclusion rationale) closed in the same commit."
     },
     {
       "id": "LIBIPYNB-Q39",
