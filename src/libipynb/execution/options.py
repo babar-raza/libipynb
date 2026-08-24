@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from .._internal.immutable import deep_freeze
 from .results import ExecutionEvent
 
 
@@ -100,7 +101,17 @@ class ExecutionOptions:
     #: environment unchanged -- there is no ``isolate_env``-equivalent
     #: filtering here; document this precisely rather than implying an
     #: isolation guarantee this executor does not provide).
-    extra_env: dict[str, str] | None = None
+    #:
+    #: LIBIPYNB-Q43 Gate-G2 review finding: not copied, so this aliased
+    #: whatever dict a caller passed in -- ``ExecutionOptions`` is meant
+    #: to be built once and reused (that is the whole point of freezing
+    #: it), so a caller mutating their own ``extra_env`` dict *after*
+    #: constructing the options object silently changed what a later
+    #: ``execute()`` call using the SAME options instance would see,
+    #: despite ``frozen=True``. Frozen (not just copied) in
+    #: ``__post_init__`` below via the same recursive helper
+    #: ``model.diff``/``model.metadata`` use, for the same reason.
+    extra_env: Mapping[str, str] | None = None
 
     #: Optional lifecycle callback, called synchronously with an
     #: :class:`~.results.ExecutionEvent` as the run progresses
@@ -152,3 +163,5 @@ class ExecutionOptions:
             raise ValueError("max_output_bytes must be positive or None")
         if self.total_timeout is not None and self.total_timeout <= 0:
             raise ValueError("total_timeout must be positive or None")
+        if self.extra_env is not None:
+            object.__setattr__(self, "extra_env", deep_freeze(dict(self.extra_env)))

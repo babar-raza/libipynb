@@ -6,12 +6,33 @@ import difflib
 import hashlib
 import json
 from bisect import bisect_left
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
+from .._internal.immutable import deep_freeze, deep_thaw
 from .document import NotebookDocument
+
+#: LIBIPYNB-Q43 Gate-G2 review finding: ``_target_snapshot`` was a bare,
+#: directly mutable ``dict`` field on ``NotebookPatch``/``NotebookDiff`` --
+#: both ``frozen=True``, but ``frozen`` only blocks *reassigning* the
+#: field, not mutating it in place, and their own ``__post_init__``
+#: deep-copies only ever guarded against *aliasing* the constructor's
+#: input, not later in-place mutation via the field itself
+#: (``diff._target_snapshot["x"] = "evil"``). Demonstrated live: mutating
+#: ``NotebookDiff._target_snapshot`` directly before calling ``to_patch()``
+#: silently changed what ``NotebookPatch.apply()`` actually wrote into the
+#: resulting document -- undermining the "preconditioned patch application"
+#: guarantee this module's own docstring claims. A single-level
+#: ``types.MappingProxyType`` wrap alone was tried and found insufficient
+#: (also demonstrated live): it only blocks the *top* level -- a notebook
+#: snapshot is a multi-level structure (``metadata`` dict, ``cells`` list
+#: of dicts, ...), and ``proxy["metadata"]`` still returned an unwrapped,
+#: fully mutable nested dict. ``_internal.immutable.deep_freeze`` recurses
+#: through every level.
+_freeze_snapshot = deep_freeze
 
 
 class CellField(str, Enum):
@@ -134,18 +155,18 @@ class NotebookPatch:
 
     base_fingerprint: str
     policy: DiffPolicy
-    _target_snapshot: dict[str, Any]
+    _target_snapshot: Mapping[str, Any]
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
             "_target_snapshot",
-            deepcopy(self._target_snapshot),
+            _freeze_snapshot(self._target_snapshot),
         )
 
     @property
     def target_snapshot(self) -> dict[str, Any]:
-        return deepcopy(self._target_snapshot)
+        return cast("dict[str, Any]", deep_thaw(self._target_snapshot))
 
     def apply(
         self,
@@ -161,7 +182,7 @@ class NotebookPatch:
                 f"expected {self.base_fingerprint}, got {actual}"
             )
 
-        target = deepcopy(self._target_snapshot)
+        target = deep_thaw(self._target_snapshot)
         _restore_ignored_values(document.raw, target, self.policy)
         return NotebookDocument(target)
 
@@ -174,18 +195,28 @@ class NotebookDiff:
     policy: DiffPolicy
     notebook_changes: tuple[NotebookFieldChange, ...]
     cell_changes: tuple[CellChange, ...]
-    _target_snapshot: dict[str, Any]
+    _target_snapshot: Mapping[str, Any]
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
             "_target_snapshot",
-            deepcopy(self._target_snapshot),
+            _freeze_snapshot(self._target_snapshot),
         )
 
     @property
     def has_changes(self) -> bool:
         return bool(self.notebook_changes or self.cell_changes)
+
+    @property
+    def target_snapshot(self) -> dict[str, Any]:
+        """LIBIPYNB-Q43: the safe, non-aliased way to read what
+        ``to_patch()`` would apply -- matches ``NotebookPatch``'s own
+        identically-named property. Reaching into ``_target_snapshot``
+        directly is no longer possible to corrupt (see
+        ``_freeze_snapshot``), but this is still the documented,
+        public way to read it."""
+        return cast("dict[str, Any]", deep_thaw(self._target_snapshot))
 
     def to_patch(self) -> NotebookPatch:
         return NotebookPatch(

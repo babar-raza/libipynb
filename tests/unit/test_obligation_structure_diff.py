@@ -369,3 +369,85 @@ def test_diff_reports_a_changed_id_less_cell_as_remove_and_add() -> None:
     assert len(diff.cell_changes) == 2
     kinds = {(change.added, change.removed) for change in diff.cell_changes}
     assert kinds == {(True, False), (False, True)}
+
+
+class TestQ43TargetSnapshotMutationAfterAccessDoesNotChangeWhatAPatchApplies:
+    """LIBIPYNB-Q43 Gate-G2 review finding: `_target_snapshot` was a bare,
+    directly mutable dict field on `NotebookDiff`/`NotebookPatch` -- both
+    `frozen=True`, but `frozen` only blocks *reassigning* the field, not
+    mutating it in place, and their own `__post_init__` deep-copies only
+    ever guarded against *aliasing* the constructor's input, not later
+    in-place mutation via the field itself. Demonstrated live: mutating
+    `NotebookDiff._target_snapshot` directly before calling `to_patch()`
+    silently changed what `NotebookPatch.apply()` actually wrote into the
+    resulting document -- undermining the "preconditioned patch
+    application" guarantee this module's own docstring claims. A
+    single-level `types.MappingProxyType` wrap alone was tried and found
+    insufficient (also demonstrated live during this same investigation):
+    it only blocks the *top* level -- a notebook snapshot is a
+    multi-level structure, and `proxy["metadata"]` still returned an
+    unwrapped, fully mutable nested dict."""
+
+    def test_diff_target_snapshot_top_level_rejects_item_assignment(self) -> None:
+        base = _document()
+        target = _document()
+        target.raw["metadata"]["title"] = "changed"
+        diff = diff_notebooks(base, target)
+
+        with pytest.raises(TypeError):
+            diff._target_snapshot["metadata"] = {}  # type: ignore[index]
+
+    def test_diff_target_snapshot_nested_dict_also_rejects_item_assignment(self) -> None:
+        """The exact gap a shallow MappingProxyType wrap would miss."""
+        base = _document()
+        target = _document()
+        target.raw["metadata"]["title"] = "changed"
+        diff = diff_notebooks(base, target)
+
+        with pytest.raises(TypeError):
+            diff._target_snapshot["metadata"]["title"] = "TAMPERED"  # type: ignore[index]
+
+    def test_mutating_the_frozen_field_does_not_change_what_to_patch_apply_produces(self) -> None:
+        base = _document()
+        target = _document()
+        target.raw["metadata"]["title"] = "original-title"
+        diff = diff_notebooks(base, target)
+
+        with pytest.raises(TypeError):
+            diff._target_snapshot["metadata"]["title"] = "TAMPERED"  # type: ignore[index]
+
+        patch = diff.to_patch()
+        applied = patch.apply(base)
+        assert applied.metadata.get("title") == "original-title"
+
+    def test_notebook_diff_has_a_safe_target_snapshot_property_matching_notebookpatch(
+        self,
+    ) -> None:
+        """NotebookPatch already had a deep-copying `target_snapshot`
+        property; NotebookDiff had no accessor at all, so the only way
+        to read the pending target was reaching into the private field
+        directly."""
+        base = _document()
+        target = _document()
+        target.raw["metadata"]["title"] = "changed"
+        diff = diff_notebooks(base, target)
+
+        snapshot = diff.target_snapshot
+        assert isinstance(snapshot, dict)
+        assert snapshot["metadata"]["title"] == "changed"
+
+        # Genuinely mutable and fully independent from the object's own state.
+        snapshot["metadata"]["title"] = "locally-mutated-copy-only"
+        assert diff.target_snapshot["metadata"]["title"] == "changed"
+
+    def test_notebook_patch_target_snapshot_property_is_also_deeply_immune(self) -> None:
+        base = _document()
+        target = _document()
+        target.raw["metadata"]["title"] = "changed"
+        patch = diff_notebooks(base, target).to_patch()
+
+        with pytest.raises(TypeError):
+            patch._target_snapshot["metadata"]["title"] = "TAMPERED"  # type: ignore[index]
+
+        applied = patch.apply(base)
+        assert applied.metadata.get("title") == "changed"

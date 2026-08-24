@@ -151,6 +151,26 @@ class TestProvenance:
 
         assert doc.raw["metadata"]["papermill"]["parameters"] == {"alpha": 0.9}
 
+    def test_mutating_a_container_typed_reported_value_does_not_corrupt_the_live_document(
+        self,
+    ) -> None:
+        """LIBIPYNB-Q43 Gate-G2 review finding: InjectedParameter.value
+        was not deep-copied, so for a container-typed parameter (list/
+        dict -- both explicitly supported) it was the SAME object
+        inject_parameters had just written into
+        document.raw["metadata"]["papermill"]["parameters"] -- mutating
+        a report field in place silently corrupted the live document's
+        own recorded provenance, no private/underscore access needed."""
+        doc = _document(cells=[_code_cell("x = 1", tags=[PARAMETERS_TAG], cell_id="p")])
+
+        report = inject_parameters(doc, {"data": [1, 2, 3]})
+
+        assert (
+            report.parameters[0].value is not doc.raw["metadata"]["papermill"]["parameters"]["data"]
+        )
+        report.parameters[0].value.append(999)
+        assert doc.raw["metadata"]["papermill"]["parameters"]["data"] == [1, 2, 3]
+
 
 class TestUnsupportedType:
     @pytest.mark.parametrize(

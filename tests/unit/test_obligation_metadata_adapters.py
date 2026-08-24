@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from pathlib import Path
 
@@ -308,3 +308,79 @@ def test_malformed_known_metadata_fails_explicitly(
 
     with pytest.raises(MetadataShapeError, match=message):
         access(document)
+
+
+class TestQ43RawFieldMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q43 Gate-G2 review finding: `_raw` was a bare, directly
+    mutable dict field on frozen=True dataclasses -- `frozen` only blocks
+    *reassigning* the field, not mutating it in place, and single-
+    underscore is a Python naming convention, not access control. Since
+    `extras`/`to_dict()` both re-read `self._raw` fresh on every call (no
+    caching), an in-place mutation of `_raw` changed what those methods
+    returned afterward -- directly contradicting this module's own
+    "Read-only typed metadata snapshots" docstring claim."""
+
+    def test_kernelspec_raw_field_rejects_item_assignment(self) -> None:
+        kspec = notebook_metadata(_document()).kernelspec
+        assert kspec is not None
+        before = kspec.to_dict()
+
+        with pytest.raises(TypeError):
+            kspec._raw["vendor_kernel"] = "TAMPERED"  # type: ignore[index]
+
+        assert kspec.to_dict() == before
+
+    def test_language_info_raw_field_rejects_item_assignment(self) -> None:
+        info = notebook_metadata(_document()).language_info
+        assert info is not None
+        before = info.to_dict()
+
+        with pytest.raises(TypeError):
+            info._raw["new_key"] = "INJECTED"  # type: ignore[index]
+
+        assert info.to_dict() == before
+
+    def test_language_info_codemirror_mode_rejects_item_assignment(self) -> None:
+        """A gap beyond `_raw` itself: `codemirror_mode` is a plain,
+        public, non-underscore field, but when object-shaped it was
+        exactly as directly mutable as `_raw` -- a plain dataclass field
+        always returns the same object reference on every access."""
+        info = notebook_metadata(_document()).language_info
+        assert info is not None
+        assert isinstance(info.codemirror_mode, Mapping)
+        assert info.codemirror_mode == {"name": "ipython", "version": 3}
+
+        with pytest.raises(TypeError):
+            info.codemirror_mode["name"] = "TAMPERED"  # type: ignore[index]
+
+    def test_author_raw_field_rejects_item_assignment(self) -> None:
+        authors = notebook_metadata(_document()).authors
+        assert authors is not None and authors
+        with pytest.raises(TypeError):
+            authors[0]._raw["name"] = "TAMPERED"  # type: ignore[index]
+
+    def test_jupyter_cell_metadata_raw_field_rejects_item_assignment(self) -> None:
+        document = _document()
+        jupyter = cell_metadata(document.cell_objects[0]).jupyter
+        assert jupyter is not None
+        with pytest.raises(TypeError):
+            jupyter._raw["source_hidden"] = "TAMPERED"  # type: ignore[index]
+
+    def test_slideshow_raw_field_rejects_item_assignment(self) -> None:
+        document = _document()
+        slideshow = cell_metadata(document.cell_objects[0]).slideshow
+        assert slideshow is not None
+        with pytest.raises(TypeError):
+            slideshow._raw["slide_type"] = "TAMPERED"  # type: ignore[index]
+
+    def test_to_dict_still_returns_a_genuinely_mutable_plain_dict(self) -> None:
+        """The fix must not leak the frozen internal representation out
+        through the public to_dict()/extras API -- callers still get an
+        ordinary, freely-mutable dict back, just isolated from the
+        object's own internal state."""
+        kspec = notebook_metadata(_document()).kernelspec
+        assert kspec is not None
+
+        result = kspec.to_dict()
+        result["name"] = "mutated-copy-only"  # must not raise
+        assert kspec.to_dict()["name"] == "python3"

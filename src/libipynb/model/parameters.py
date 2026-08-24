@@ -48,6 +48,7 @@ module's own git history for LIBIPYNB-Q35's review-repair commit):
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,10 +82,24 @@ class UnsupportedLanguageError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class InjectedParameter:
-    """One name/value pair recorded as part of an injection."""
+    """One name/value pair recorded as part of an injection.
+
+    LIBIPYNB-Q43 Gate-G2 review finding: ``value`` was not deep-copied,
+    so for a container-typed parameter (list/dict -- both explicitly
+    supported, see this module's docstring) it was the *same* object
+    ``inject_parameters`` had just written into
+    ``document.raw["metadata"]["papermill"]["parameters"]`` -- mutating
+    a report field in place (``report.parameters[0].value.append(...)``)
+    silently corrupted the live document's own recorded provenance, no
+    private/underscore access needed. Matches this codebase's own
+    established pattern elsewhere (``model.attachments.AttachmentChange``,
+    ``model.diff.FieldChange``, ``model.merge.CellConflict``, ...)."""
 
     name: str
     value: Any
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "value", deepcopy(self.value))
 
 
 @dataclass(frozen=True, slots=True)

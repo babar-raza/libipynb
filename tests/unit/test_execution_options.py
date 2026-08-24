@@ -55,3 +55,37 @@ def test_options_are_frozen() -> None:
     options = ExecutionOptions()
     with pytest.raises(AttributeError):
         options.stop_on_error = False  # type: ignore[misc]
+
+
+class TestQ43ExtraEnvIsNotAMutationAfterAccessLeak:
+    """LIBIPYNB-Q43 Gate-G2 review finding: extra_env was not copied at
+    all, so an ExecutionOptions instance aliased whatever dict the
+    caller passed in -- ExecutionOptions is meant to be built once and
+    reused (the whole point of freezing it), so a caller mutating their
+    own dict *after* construction silently changed what a later
+    execute() call using the same options instance would see, despite
+    frozen=True."""
+
+    def test_mutating_the_callers_own_dict_after_construction_does_not_leak_in(self) -> None:
+        my_env = {"TOKEN": "original"}
+        options = ExecutionOptions(acknowledge_unsandboxed=True, extra_env=my_env)
+
+        my_env["TOKEN"] = "MUTATED-AFTER-CONSTRUCTION"
+
+        assert dict(options.extra_env) == {"TOKEN": "original"}
+
+    def test_extra_env_is_not_the_same_object_as_the_callers_dict(self) -> None:
+        my_env = {"TOKEN": "original"}
+        options = ExecutionOptions(acknowledge_unsandboxed=True, extra_env=my_env)
+
+        assert options.extra_env is not my_env
+
+    def test_mutating_extra_env_directly_is_rejected(self) -> None:
+        options = ExecutionOptions(acknowledge_unsandboxed=True, extra_env={"TOKEN": "original"})
+
+        with pytest.raises(TypeError):
+            options.extra_env["TOKEN"] = "DIRECT-MUTATION"  # type: ignore[index]
+
+    def test_extra_env_none_stays_none(self) -> None:
+        options = ExecutionOptions(acknowledge_unsandboxed=True)
+        assert options.extra_env is None

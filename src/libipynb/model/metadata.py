@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from .document import Cell, NotebookDocument, NotebookOutput
@@ -64,12 +65,32 @@ def _extras(
     return deepcopy({key: item for key, item in value.items() if key not in known})
 
 
+def _freeze_raw(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    """LIBIPYNB-Q43 Gate-G2 review finding: ``_raw`` was a bare, directly
+    mutable ``dict`` field on a ``frozen=True`` dataclass -- ``frozen``
+    only blocks *reassigning* ``instance._raw``, not mutating it in
+    place (``instance._raw["x"] = 1``), and single-underscore is a
+    Python naming convention, not access control. Since ``extras``/
+    ``to_dict()`` both re-read ``self._raw`` fresh on every call (no
+    caching), an in-place mutation of ``_raw`` changed what those
+    methods returned afterward -- directly contradicting this module's
+    own "Read-only typed metadata snapshots" docstring claim.
+    ``MappingProxyType`` genuinely prevents item assignment (unlike a
+    ``__post_init__`` deep-copy alone, which only stops the dataclass
+    from *aliasing* the constructor's input -- the mutable dict it
+    copies into is itself still just as mutable)."""
+    return MappingProxyType(deepcopy(dict(value)))
+
+
 @dataclass(frozen=True, slots=True)
 class KernelSpecMetadata:
     name: str
     display_name: str
     language: str | None
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_raw", _freeze_raw(self._raw))
 
     @classmethod
     def from_value(cls, value: Any) -> KernelSpecMetadata:
@@ -89,7 +110,7 @@ class KernelSpecMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return deepcopy(dict(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,9 +119,18 @@ class LanguageInfoMetadata:
     version: str | None
     mimetype: str | None
     file_extension: str | None
-    codemirror_mode: str | dict[str, Any] | None
+    codemirror_mode: str | Mapping[str, Any] | None
     pygments_lexer: str | None
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_raw", _freeze_raw(self._raw))
+        # LIBIPYNB-Q43: same bare-mutable-field gap as `_raw` -- a plain
+        # dataclass field always returns the same object reference on
+        # every access, so an object-shaped codemirror_mode was directly
+        # mutable in place by any caller holding a reference.
+        if isinstance(self.codemirror_mode, dict):
+            object.__setattr__(self, "codemirror_mode", _freeze_raw(self.codemirror_mode))
 
     @classmethod
     def from_value(cls, value: Any) -> LanguageInfoMetadata:
@@ -143,7 +173,7 @@ class LanguageInfoMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return deepcopy(dict(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +188,10 @@ class AuthorMetadata:
     """
 
     name: str | None
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_raw", _freeze_raw(self._raw))
 
     @classmethod
     def from_value(cls, value: Any) -> AuthorMetadata:
@@ -173,7 +206,7 @@ class AuthorMetadata:
         return _extras(self._raw, frozenset({"name"}))
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return deepcopy(dict(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +216,10 @@ class JupyterCellMetadata:
 
     source_hidden: bool | None
     outputs_hidden: bool | None
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_raw", _freeze_raw(self._raw))
 
     @classmethod
     def from_value(cls, value: Any) -> JupyterCellMetadata:
@@ -202,13 +238,16 @@ class JupyterCellMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return deepcopy(dict(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
 class SlideshowMetadata:
     slide_type: str | None
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_raw", _freeze_raw(self._raw))
 
     @classmethod
     def from_value(cls, value: Any) -> SlideshowMetadata:
@@ -223,12 +262,15 @@ class SlideshowMetadata:
         return _extras(self._raw, frozenset({"slide_type"}))
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return deepcopy(dict(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionMetadata:
-    _raw: dict[str, Any]
+    _raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_raw", _freeze_raw(self._raw))
 
     @classmethod
     def from_value(cls, value: Any) -> ExecutionMetadata:
@@ -268,7 +310,7 @@ class ExecutionMetadata:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return deepcopy(self._raw)
+        return deepcopy(dict(self._raw))
 
 
 @dataclass(frozen=True, slots=True)
