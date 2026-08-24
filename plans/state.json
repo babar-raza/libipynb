@@ -651,8 +651,18 @@
         "LIBIPYNB-Q26"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "verification_command": "actionlint .github/workflows/ci.yml && pip-audit --progress-spinner=off",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "actionlint clean; pip-audit run for real against this session's own dev .venv (test+exec+export+oracle already installed) -- 7 findings, all in pip itself (not a project dependency), zero in libipynb's actual dependency graph. A second, genuinely-fresh-install cross-check in a python:3.12-slim container was attempted but did not complete -- Docker's own daemon became unresponsive under this session's heavily-loaded shared host (a plain `docker ps` hung 2+ minutes), disclosed honestly rather than claimed as completed",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert; delete the security-audit job, zero effect on other ci.yml jobs",
+      "blocker": null,
+      "resume_condition": "optional: re-attempt the fresh-container cross-check once Docker's daemon responds normally again, for additional confirmatory evidence (not required to close this taskcard -- the dev-venv result is already a real, direct pip-audit run, not a simulation)",
+      "implementation_commit": "fed85acee5e232e3e155e7aa40e81b25c1a51135",
+      "note": "Implementation fed85ac. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
     },
     {
       "id": "LIBIPYNB-Q43",
