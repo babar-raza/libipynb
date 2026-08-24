@@ -107,6 +107,14 @@ afterward is recorded here instead.)
   real kernel engine (`--acknowledge-unsandboxed` required, same posture
   as `execute`; `--no-execute` skips both that requirement and running
   anything)
+- **Analytics expansion** (LIBIPYNB-Q36) -- `largest_cells` (the N
+  outsized cells dragging up an average), `notebook_byte_size` and
+  `metadata_size_breakdown` (size/complexity, metadata bloat separated
+  from genuine content), `execution_errors` (per-cell error listing, not
+  just `has_execution_errors`'s single boolean), `output_size_histogram`
+  and `attachment_size_summary` (byte-size breakdowns a count-only
+  histogram can't reveal). All wired into the CLI's `analytics`
+  subcommand (new `--top-n` flag) and `libipynb.analytics`'s exports.
 
 ### Fixed
 
@@ -154,6 +162,30 @@ afterward is recorded here instead.)
   vendored schema digests are computed against) and the CI `mypy` job now
   installs the `exec`/`export` extras it actually needs to resolve every
   conditional import under `src/libipynb/`
+- **LIBIPYNB-Q41**: the shared filename-safety check used before writing
+  an attachment/resource to disk (`is_safe_resource_filename`) did not
+  reject Windows-reserved device names (`CON`, `PRN`, `AUX`, `NUL`,
+  `COM0`-`9`, `LPT0`-`9`, their Unicode superscript-digit variants, and
+  trailing-space forms) -- writeable on this session's own Windows build
+  but not universally across the still-deployed Windows install base
+- **LIBIPYNB-Q42**: `pip-audit` wired into CI (`security-audit` job,
+  auditing every extras group with real content) -- caught and fixed a
+  real finding during its own verification (7 known advisories in a
+  runner's preinstalled `pip`, resolved by upgrading pip before the audit
+  rather than suppressing the findings)
+- **LIBIPYNB-Q44**: `execute_notebook`'s `timeout` parameter -- the core
+  safety guarantee of an "opt-in execution adapter" for untrusted code --
+  was silently defeated whenever executed cell code spawned its own child
+  process without redirecting that child's stdout (the grandchild
+  inherits the driver's stdout pipe handle by default, so
+  `subprocess.run`'s post-kill drain blocks on pipe EOF until the
+  grandchild itself exits, regardless of the timeout). Reproduced
+  directly (`timeout=2` against a 60s-sleeping grandchild made
+  `execute_notebook` itself take over 60s to return) before fixing:
+  replaced `subprocess.run` with a background-thread-drained `Popen` plus
+  explicit process-tree killing on timeout, so wall-clock time is
+  actually bounded and the grandchild is actually terminated, not just
+  the direct driver process
 
 ### Changed
 

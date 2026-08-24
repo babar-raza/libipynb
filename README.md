@@ -48,7 +48,9 @@ and nbformat 4.0--4.5 fidelity.
 - **CLI** -- 13 commands (`probe`, `inspect`, `validate`, `sanitize`, `upgrade`,
   `normalize`, `convert`, `diff`, `merge`, `execute`, `run`, `analytics`,
   `trust`), all with JSON output
-- **Analytics** -- cell type histograms, output analysis, and execution error detection
+- **Analytics** -- cell/output type histograms, per-cell error listing, size/complexity
+  analysis (largest cells, total notebook byte size, metadata bloat), and output/attachment
+  byte-size breakdowns
 - **Trust** -- HMAC-based notebook trust and signature management
 - **Secret scanning** -- pattern-based detection of API keys, tokens, and credentials
   in cell source, outputs, and metadata (`libipynb.security.scan_for_secrets`)
@@ -454,6 +456,12 @@ result = await LocalJupyterExecutor().execute_async(document, options=options)
 - `output_type_histogram(doc)` -- count outputs by type
 - `has_execution_errors(doc)` -- check for error outputs
 - `average_source_length(doc)` -- mean source length across cells
+- `largest_cells(doc, top_n=5)` -- the `top_n` cells with the longest source, largest first
+- `notebook_byte_size(doc)` -- total notebook size in UTF-8 bytes (canonical JSON)
+- `metadata_size_breakdown(doc)` -- notebook-level vs. summed cell-level metadata size in bytes
+- `execution_errors(doc)` -- every error output, individually, with its cell index and `ename`/`evalue`
+- `output_size_histogram(doc)` -- total byte size of outputs per `output_type`, not just a count
+- `attachment_size_summary(doc)` -- count and total byte size of every cell attachment
 
 ## CLI
 
@@ -527,9 +535,11 @@ libipynb execute notebook.ipynb -o executed.ipynb --acknowledge-unsandboxed
 libipynb run notebook.ipynb -p alpha 0.9 -p name run-1 --acknowledge-unsandboxed -o out.ipynb
 libipynb run notebook.ipynb --parameters-file params.json --no-execute -o parameterized.ipynb
 
-# Report structural analytics: cell/output type histograms, execution
-# errors, average source length
-libipynb analytics notebook.ipynb
+# Report structural analytics: cell/output type histograms, per-cell
+# execution errors, size/complexity (largest cells, total byte size,
+# metadata bloat), output/attachment byte sizes. --top-n controls how
+# many of the largest cells "largest_cells" reports (default 5).
+libipynb analytics notebook.ipynb --top-n 10
 
 # Sign, verify, or revoke content-addressed trust using a persistent
 # (SQLite) HMAC store; the secret is read from an environment variable,

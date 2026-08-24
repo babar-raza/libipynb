@@ -240,13 +240,58 @@ class TestMerge:
 
 
 class TestAnalytics:
-    def test_reports_all_four_metrics(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_reports_all_metrics(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["analytics", str(VALID / "minimal.ipynb")]) == 0
         out = json.loads(capsys.readouterr().out)
         assert "cell_type_histogram" in out
         assert "output_type_histogram" in out
         assert "has_execution_errors" in out
         assert "average_source_length" in out
+        assert "execution_errors" in out
+        assert "largest_cells" in out
+        assert "notebook_byte_size" in out
+        assert "metadata_size_breakdown" in out
+        assert "output_size_histogram" in out
+        assert "attachment_size_summary" in out
+
+    def test_top_n_flag_controls_largest_cells_count(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["a", "bb", "ccc", "dddd"])
+
+        assert main(["analytics", str(notebook), "--top-n", "2"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert len(out["largest_cells"]) == 2
+
+    def test_non_positive_top_n_is_a_clean_cli_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["analytics", str(VALID / "minimal.ipynb"), "--top-n", "0"]) == 2
+        err = json.loads(capsys.readouterr().err)
+        assert "top_n" in err["error"]
+
+    def test_execution_errors_names_the_failing_cell(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        _write_notebook(notebook, sources=["1/0"])
+        raw = json.loads(notebook.read_text(encoding="utf-8"))
+        raw["cells"][0]["outputs"] = [
+            {
+                "output_type": "error",
+                "ename": "ZeroDivisionError",
+                "evalue": "division by zero",
+                "traceback": [],
+            }
+        ]
+        notebook.write_text(json.dumps(raw), encoding="utf-8")
+
+        assert main(["analytics", str(notebook)]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["execution_errors"] == [
+            {"cell_index": 0, "ename": "ZeroDivisionError", "evalue": "division by zero"}
+        ]
 
 
 class TestTrust:

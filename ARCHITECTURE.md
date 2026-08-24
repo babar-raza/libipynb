@@ -76,8 +76,10 @@ src/libipynb/
   here specifically so neither layer imports the other), `probe.py`
   (`ProbeResult`).
 - **`analytics/`** -- `notebook.py`: structural analytics (cell/output type
-  histograms, execution-error detection, average source length). No
-  third-party dependency.
+  histograms, execution-error detection and per-cell listing, average
+  source length, size/complexity analysis -- largest cells, total notebook
+  byte size, metadata bloat -- and output/attachment byte-size
+  breakdowns). No third-party dependency.
 
 `diagnostics.py` (shared `Diagnostic`/`ValidationResult` types) and
 `errors.py` (the exception hierarchy) sit at the top level since they're used

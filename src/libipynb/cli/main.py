@@ -14,9 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from ..analytics import (
+    attachment_size_summary,
     average_source_length,
     cell_type_histogram,
+    execution_errors,
     has_execution_errors,
+    largest_cells,
+    metadata_size_breakdown,
+    notebook_byte_size,
+    output_size_histogram,
     output_type_histogram,
 )
 from ..codec import dump, load, probe
@@ -507,9 +513,16 @@ def main(argv: list[str] | None = None) -> int:
     analytics_cmd = commands.add_parser(
         "analytics",
         help="Report structural analytics for a notebook (cell/output type histograms, "
-        "execution errors, average source length).",
+        "execution errors, average source length, size/complexity, attachment sizes).",
     )
     analytics_cmd.add_argument("source", help="Path to the .ipynb file.")
+    analytics_cmd.add_argument(
+        "--top-n",
+        type=int,
+        default=5,
+        metavar="N",
+        help="How many of the largest cells to report in 'largest_cells'. Default: 5.",
+    )
 
     # -- trust -------------------------------------------------------------------
     trust_cmd = commands.add_parser(
@@ -1466,6 +1479,12 @@ def _cmd_analytics(args: argparse.Namespace) -> int:
                 "output_type_histogram": output_type_histogram(document.raw),
                 "has_execution_errors": has_execution_errors(document.raw),
                 "average_source_length": average_source_length(document.raw),
+                "execution_errors": execution_errors(document.raw),
+                "largest_cells": largest_cells(document.raw, top_n=args.top_n),
+                "notebook_byte_size": notebook_byte_size(document.raw),
+                "metadata_size_breakdown": metadata_size_breakdown(document.raw),
+                "output_size_histogram": output_size_histogram(document.raw),
+                "attachment_size_summary": attachment_size_summary(document.raw),
             },
             sort_keys=True,
         )
