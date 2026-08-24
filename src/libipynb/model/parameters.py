@@ -6,26 +6,43 @@ metadata provenance location (``metadata.papermill.parameters``) both match
 real Papermill exactly -- confirmed by reading its actual source
 (``papermill/parameterize.py``, ``papermill/translators.py``) rather than
 assumed, so a notebook produced by either tool is a normal input to the
-other. Two deliberate, documented divergences from Papermill's own real
-behavior, not oversights:
+other. Three deliberate, documented divergences from Papermill's own real
+behavior, not oversights (a Gate-G2 independent review of this module found
+and closed two further UNDOCUMENTED divergences that existed alongside these
+-- ``comment=""`` and bare ``tuple`` values -- both now fixed to match real
+Papermill exactly instead, rather than added to this list; see this
+module's own git history for LIBIPYNB-Q35's review-repair commit):
 
 - **Python-only.** Real Papermill dispatches to a per-language
   ``Translator`` (R, Julia, Scala, ...); this module only implements the
-  Python one. Injecting into a notebook whose declared kernel language is
-  not Python (or unset) raises :class:`UnsupportedLanguageError` rather
+  Python one. Injecting into a notebook whose declared kernel language IS
+  SET and is not Python raises :class:`UnsupportedLanguageError` rather
   than silently guessing or defaulting to Python code that the kernel
   cannot actually run.
+- **A notebook with no declared kernel language at all is treated as
+  Python, not rejected.** Real Papermill's ``parameterize_notebook()``
+  calls ``nb_kernel_name()`` first, which raises ``ValueError`` for a
+  notebook with no ``metadata.kernelspec`` at all (confirmed directly
+  against real Papermill). This module instead proceeds as Python for an
+  under-specified notebook -- it is not a positive claim the notebook is
+  some *other* language, and this matches how :mod:`libipynb.adapters.
+  execute`'s own kernel resolution already treats an absent kernelspec
+  (falls through to a default rather than refusing) -- an existing
+  in-repo precedent this module follows for consistency rather than
+  adopting Papermill's stricter refusal.
 - **Explicit type rejection, not silent stringification.** Real
   Papermill's ``Translator.translate()`` falls through to
   ``translate_escaped_str`` -- i.e. ``str(val)`` wrapped in quotes -- for
   *any* value type it doesn't recognize (confirmed by reading
-  ``Translator.translate``). This module instead raises
-  :class:`UnsupportedParameterTypeError` for anything outside
-  ``str``/``bool``/``int``/``float``/``None``/``list``/``dict`` (of the
-  same, recursively) -- matching this project's established preference for
-  explicit, typed failure over silent best-effort coercion (the same
-  posture ``codec.reader``'s strict mode and ``security.limits`` already
-  take elsewhere in this codebase).
+  ``Translator.translate``; this includes a bare ``tuple``, which
+  Papermill does NOT special-case the way it does ``list``). This module
+  instead raises :class:`UnsupportedParameterTypeError` for anything
+  outside ``str``/``bool``/``int``/``float``/``None``/``list``/``dict``
+  (of the same, recursively -- ``tuple`` deliberately not included) --
+  matching this project's established preference for explicit, typed
+  failure over silent best-effort coercion (the same posture
+  ``codec.reader``'s strict mode and ``security.limits`` already take
+  elsewhere in this codebase).
 """
 
 from __future__ import annotations
@@ -86,7 +103,19 @@ class ParameterInjectionReport:
 def _validate_parameter_value(value: object, *, path: str) -> None:
     if isinstance(value, _SUPPORTED_SCALAR_TYPES):
         return
-    if isinstance(value, (list, tuple)):
+    # LIBIPYNB-Q35 Gate G2 review finding: a bare tuple was previously
+    # accepted here identically to a list -- but real papermill's
+    # Translator.translate() only special-cases isinstance(val, list); a
+    # tuple falls through to its generic str()-fallback path, producing a
+    # quoted string of the tuple's own repr (e.g. "(1, 2, 'three')"), not
+    # a Python list literal. Silently treating a tuple as a list here was
+    # an undocumented divergence from real papermill, not a deliberate
+    # one -- rejecting it explicitly instead is consistent with this
+    # module's own stated type list (str/bool/int/float/None/list/dict;
+    # tuple was never in it) and with its established "explicit rejection,
+    # not silent reinterpretation" posture for anything genuinely
+    # unsupported.
+    if isinstance(value, list):
         for index, item in enumerate(value):
             _validate_parameter_value(item, path=f"{path}[{index}]")
         return
@@ -134,7 +163,7 @@ def _translate_python_value(value: object) -> str:
         return repr(value)
     if isinstance(value, int):
         return repr(value)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list):
         return "[" + ", ".join(_translate_python_value(item) for item in value) + "]"
     if isinstance(value, dict):
         pairs = ", ".join(
@@ -146,7 +175,14 @@ def _translate_python_value(value: object) -> str:
 
 
 def _codify_python(parameters: dict[str, Any], *, comment: str) -> str:
-    lines = [f"# {comment}"] if comment else []
+    # Matches PythonTranslator.codify exactly (confirmed directly, via a
+    # Gate-G2 review's direct scratch comparison against real papermill):
+    # the comment line is ALWAYS emitted, even for comment="" -- real
+    # papermill's own `f'# {cmt_str}'.strip()` reduces an empty comment to
+    # a bare "#", not to no line at all. An earlier version of this
+    # function omitted the line entirely for a falsy comment, a real,
+    # previously-undocumented divergence from real papermill's output.
+    lines = [f"# {comment}".strip()]
     for name, value in parameters.items():
         lines.append(f"{name} = {_translate_python_value(value)}")
     return "\n".join(lines) + "\n"

@@ -10,6 +10,16 @@ libipynb bug, it's real papermill's own documented internal precondition)
 and compares its generated injected-cell source, byte for byte, against
 `libipynb.model.parameters.inject_parameters()`'s output for the same
 parameters.
+
+Environmental precondition (Gate-G2 review finding): real papermill's own
+`PythonTranslator.codify()` pipes its output through `black` if that
+package happens to be importable in the environment running it. `black`
+is not installed here and is not a papermill dependency, so this
+comparison is valid in this environment -- but the "byte-for-byte" parity
+these tests assert is contingent on that, not an unconditional guarantee.
+If `black` is ever added to this project's dev/test dependencies, these
+tests would start failing for a reason unrelated to any libipynb
+regression, not because parity was actually lost.
 """
 
 from __future__ import annotations
@@ -51,7 +61,9 @@ def _notebook_dict(*, cell_id: str = "params") -> dict[str, Any]:
     }
 
 
-def _real_papermill_injected_source(parameters: dict[str, Any]) -> str:
+def _real_papermill_injected_source(
+    parameters: dict[str, Any], *, comment: str = "Parameters"
+) -> str:
     from papermill.iorw import load_notebook_node
     from papermill.parameterize import parameterize_notebook
 
@@ -63,7 +75,7 @@ def _real_papermill_injected_source(parameters: dict[str, Any]) -> str:
     finally:
         os.unlink(path)
 
-    result = parameterize_notebook(nb, parameters)
+    result = parameterize_notebook(nb, parameters, comment=comment)
     injected = next(
         cell
         for cell in result.cells
@@ -73,9 +85,9 @@ def _real_papermill_injected_source(parameters: dict[str, Any]) -> str:
     return source
 
 
-def _libipynb_injected_source(parameters: dict[str, Any]) -> str:
+def _libipynb_injected_source(parameters: dict[str, Any], *, comment: str = "Parameters") -> str:
     document = loads(json.dumps(_notebook_dict()), mode="preservation")
-    report = inject_parameters(document, parameters)
+    report = inject_parameters(document, parameters, comment=comment)
     return report.source
 
 
@@ -137,6 +149,21 @@ class TestGeneratedSourceMatchesRealPapermill:
 
     def test_empty_parameters(self, papermill_available: None) -> None:
         assert _libipynb_injected_source({}) == _real_papermill_injected_source({})
+
+    def test_empty_comment(self, papermill_available: None) -> None:
+        """Gate-G2 review finding: an earlier version omitted the comment
+        line entirely for comment="", diverging from real papermill's own
+        `f'# {cmt_str}'.strip()`, which still emits a bare "#" line."""
+        params = {"alpha": 1}
+        assert _libipynb_injected_source(params, comment="") == _real_papermill_injected_source(
+            params, comment=""
+        )
+
+    def test_custom_comment(self, papermill_available: None) -> None:
+        params = {"alpha": 1}
+        assert _libipynb_injected_source(
+            params, comment="Custom label"
+        ) == _real_papermill_injected_source(params, comment="Custom label")
 
 
 class TestTagConventionMatchesRealPapermill:
@@ -201,3 +228,106 @@ class TestExplicitDivergencesFromRealPapermill:
             pass
         else:
             raise AssertionError("expected UnsupportedParameterTypeError")
+
+    def test_papermill_stringifies_a_bare_tuple_via_its_str_fallback_libipynb_rejects(
+        self, papermill_available: None
+    ) -> None:
+        """Gate-G2 review finding: an earlier version of this module
+        special-cased `isinstance(value, (list, tuple))` identically,
+        silently rendering a tuple as a Python list literal -- a different
+        value AND a different type than what real papermill actually
+        produces. Real papermill's `Translator.translate()` only
+        special-cases `isinstance(val, list)`; a bare tuple falls through
+        to the same str()-fallback path as any other unrecognized type."""
+        real_source = _real_papermill_injected_source({"point": (1, 2, "three")})
+        assert "(1, 2, 'three')" in real_source  # real papermill: str(tuple) fallback, quoted
+        assert "[1, 2" not in real_source  # confirms it is NOT rendered as a list
+
+        from libipynb.model.parameters import UnsupportedParameterTypeError
+
+        document = loads(json.dumps(_notebook_dict()), mode="preservation")
+        try:
+            inject_parameters(document, {"point": (1, 2, "three")})
+        except UnsupportedParameterTypeError:
+            pass
+        else:
+            raise AssertionError("expected UnsupportedParameterTypeError")
+
+
+class TestCellPlacementMatchesRealPapermill:
+    """LIBIPYNB-Q35 Gate G2 review finding: cell-placement edge cases were
+    implemented correctly (verified independently by the review) but had
+    no checked-in test coverage, unit or oracle."""
+
+    def test_only_the_first_of_multiple_parameters_tagged_cells_is_used(
+        self, papermill_available: None
+    ) -> None:
+        notebook = _notebook_dict()
+        notebook["cells"].insert(
+            1,
+            {
+                "cell_type": "code",
+                "id": "second_params",
+                "metadata": {"tags": [PARAMETERS_TAG]},
+                "execution_count": None,
+                "outputs": [],
+                "source": "pass",
+            },
+        )
+
+        from papermill.iorw import load_notebook_node
+        from papermill.parameterize import parameterize_notebook
+        from papermill.utils import find_first_tagged_cell_index
+
+        fd, path = tempfile.mkstemp(suffix=".ipynb")
+        try:
+            os.write(fd, json.dumps(notebook).encode("utf-8"))
+            os.close(fd)
+            nb = load_notebook_node(path)
+        finally:
+            os.unlink(path)
+        assert find_first_tagged_cell_index(nb, PARAMETERS_TAG) == 0
+        real_result = parameterize_notebook(nb, {"alpha": 1})
+        real_injected_index = next(
+            i
+            for i, cell in enumerate(real_result.cells)
+            if "injected-parameters" in cell.get("metadata", {}).get("tags", [])
+        )
+        assert real_injected_index == 1  # right after the FIRST parameters cell
+
+        document = loads(json.dumps(notebook), mode="preservation")
+        report = inject_parameters(document, {"alpha": 1})
+        assert report.injected_cell_index == 1
+
+    def test_re_injecting_without_a_parameters_cell_present_replaces_in_place(
+        self, papermill_available: None
+    ) -> None:
+        """A notebook already carrying only an injected-parameters cell
+        (the original parameters cell removed or never present) -- both
+        real papermill and libipynb must replace that cell at its own
+        index, not fall back to inserting at the top."""
+        notebook = _notebook_dict()
+        notebook["cells"][0]["metadata"]["tags"] = ["injected-parameters"]
+
+        from papermill.iorw import load_notebook_node
+        from papermill.parameterize import parameterize_notebook
+
+        fd, path = tempfile.mkstemp(suffix=".ipynb")
+        try:
+            os.write(fd, json.dumps(notebook).encode("utf-8"))
+            os.close(fd)
+            nb = load_notebook_node(path)
+        finally:
+            os.unlink(path)
+        real_result = parameterize_notebook(nb, {"alpha": 1})
+        real_injected_indices = [
+            i
+            for i, cell in enumerate(real_result.cells)
+            if "injected-parameters" in cell.get("metadata", {}).get("tags", [])
+        ]
+        assert real_injected_indices == [0]
+
+        document = loads(json.dumps(notebook), mode="preservation")
+        report = inject_parameters(document, {"alpha": 1})
+        assert report.injected_cell_index == 0
+        assert report.replaced_existing_injection is True

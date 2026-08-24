@@ -160,6 +160,7 @@ class TestUnsupportedType:
             {1, 2, 3},  # a set -- JSON/papermill have no set type
             b"bytes",
             complex(1, 2),
+            (1, 2, "three"),  # a tuple -- real papermill stringifies it; this rejects it
         ],
     )
     def test_rejects_a_top_level_unsupported_value(self, value: object) -> None:
@@ -233,10 +234,16 @@ class TestPythonSourceGeneration:
         report = inject_parameters(doc, {"alpha": 1}, comment="My Comment")
         assert report.source.startswith("# My Comment\n")
 
-    def test_empty_comment_omits_the_comment_line(self) -> None:
+    def test_empty_comment_still_emits_a_bare_comment_line_matching_real_papermill(self) -> None:
+        """Real papermill's PythonTranslator.codify() always calls
+        cls.comment(comment) unconditionally -- for an empty string,
+        `f'# {cmt_str}'.strip()` reduces to a bare "#", not to no comment
+        line at all. Verified directly against real papermill (Gate-G2
+        review finding): real papermill's own output for comment="" is
+        "#\\nalpha = 1\\n", not "alpha = 1\\n"."""
         doc = _document(cells=[_code_cell("x = 1", tags=[PARAMETERS_TAG], cell_id="p")])
         report = inject_parameters(doc, {"alpha": 1}, comment="")
-        assert report.source == "alpha = 1\n"
+        assert report.source == "#\nalpha = 1\n"
 
     def test_nan_and_infinity_are_valid_python_source_not_repr(self) -> None:
         doc = _document(cells=[_code_cell("x = 1", tags=[PARAMETERS_TAG], cell_id="p")])

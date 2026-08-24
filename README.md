@@ -77,17 +77,17 @@ installed and import-check when it is, per `plans/full-parity-plan.md` Gate G8.
 | Strip outputs for version control | `nbstripout` | ✅ | nbstripout-compatible default strip set, `--keep-output`/`--keep-count`/`--extra-keys`/`--keep-metadata-keys`, `[tool.libipynb.normalize]` config, and git clean-filter install/uninstall/status (fail-closed on filter failure, matching nbstripout's own default). **Oracle-verified** (`tests/oracle/test_nbstripout_parity.py`, real `nbstripout` installed): output/metadata/execution-count stripping matches byte-for-byte, with two documented, intentional divergences -- libipynb never rewrites cell IDs (nbstripout regenerates them by default) or the `source`/output-text serialization form (string vs. list-of-lines; both valid nbformat) |
 | Structural diff/merge | `nbdime` | ✅ | Cell-identity diff with line-level source hunks, three-way merge with explicit conflict reporting, git diff/merge driver integration (`diff --install-git`); no visual/web diff viewer yet. **Oracle-verified** (`tests/oracle/test_nbdime_parity.py`, real `nbdime` installed): no-conflict merges agree; on a genuine conflict, real `nbmerge`'s default strategy splices literal `<<<<<<<`/`=======`/`>>>>>>>` markers into cell source -- libipynb never does this, by design, now proven against the real tool rather than assumed. `nbmerge --merge-strategy use-base` reaches the same base-wins *value* as libipynb but resolves silently (exit 0, no conflict signal); libipynb always surfaces the conflict via `MergeReport` even when the resolved value matches |
 | Headless execution | `jupyter nbconvert --execute` | ✅ | Real Jupyter-kernel-protocol engine (`libipynb[exec]`, `libipynb.execution.LocalJupyterExecutor`, backed by `nbclient`) alongside the original dependency-free subprocess adapter (`libipynb.adapters.execute_notebook`) -- neither replaces the other. Rich outputs (`display_data`/`execute_result`/multi-MIME/`error`), sync and async APIs, per-cell timeouts with interrupt, skip-tagged cells, non-mutating-by-default write-back. **Oracle-verified** (`tests/oracle/test_nbclient_execution_parity.py`, real `nbconvert --execute` installed): deterministic cell outputs and execution-count sequencing agree exactly, once nbformat's own string-vs-list-of-lines text-serialization form is normalized (the same already-documented divergence found for `nbstripout`). Not language-restricted the way the subprocess adapter is, but only Python/`ipykernel` is actually tested here (no R/Julia kernel installed in this environment) -- see Gate G6 sign-off, `plans/full-parity-plan.md` §7 |
-| Parameterized pipelines | `papermill` | ⛔ | **Not yet implemented** -- see Roadmap |
+| Parameterized pipelines | `papermill` | ✅ | Papermill-compatible parameter injection (`inject_parameters()`/`libipynb run`) -- same `parameters`/`injected-parameters` tag convention, same generated Python source. **Oracle-verified** (`tests/oracle/test_papermill_parity.py`, real `papermill` installed): generated source matches byte-for-byte for every supported value type. Python-only, and explicitly rejects an unsupported parameter type rather than real papermill's silent stringify-fallback -- both documented, deliberate divergences; see `libipynb.model.parameters`'s module docstring for the full list |
 
 ### Roadmap
 
-Papermill-style parameter-cell injection (`plans/full-parity-plan.md` `P5a`-`P5c`)
-and multi-language kernel output-quirk handling (`P4a-2`) remain **not yet
-implemented** -- the execution engine's architecture does not block either
-(non-Python kernels already run through the same real kernel protocol; no
-language allowlist exists in `LocalJupyterExecutor` the way the subprocess
-adapter has one), but neither has dedicated work or a reproducible non-Python
-CI fixture yet. See that plan for the full design and current status.
+Multi-language kernel output-quirk handling (`plans/full-parity-plan.md`
+`P4a-2`) remains **not yet implemented** -- the execution engine's
+architecture does not block it (non-Python kernels already run through the
+same real kernel protocol; no language allowlist exists in
+`LocalJupyterExecutor` the way the subprocess adapter has one), but it has no
+dedicated work or a reproducible non-Python CI fixture yet. See that plan for
+the full design and current status.
 
 ### Security posture: notebook execution is not sandboxed
 
