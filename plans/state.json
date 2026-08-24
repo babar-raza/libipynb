@@ -160,17 +160,25 @@
       "title": "Subprocess execution truncates the combined stream before parsing",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Parse full raw_output before applying max_output_bytes as a per-cell budget; retrofit the test that codifies the bug.",
       "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
+      "repair_commit": "dc3e0d49abe8eacb6001ca7ca7392587ebc35009",
+      "review_lenses_applied": [
+        "combinatorial_cardinality",
+        "spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
       "oracle_tier_actually_executed": null,
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "daba624a6917f14b2d15c46623efd414ba755f1a",
+      "note": "Implementation daba624; independent Taskcard-Gate-G2 review (separate Agent) found 0 CRITICAL, 4 real WARNING issues (verdict ISSUES_FOUND) -- see repair commit dc3e0d4 message for the full list, each with its own new regression test, incl. a real negative-max_output_bytes content-fabrication bug the reviewer found by hand-tracing the algorithm, not just running tests. Disclosed limitation: the repair commit itself was self-verified (re-ran the full validated command set, 76 targeted + 763 broader passed), not re-reviewed by a second separate Agent invocation -- same deliberate velocity/thoroughness tradeoff recorded for LIBIPYNB-Q17.",
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
     },
     {
       "id": "LIBIPYNB-Q17",
