@@ -201,6 +201,26 @@ libipynb supports **nbformat 4.0 through 4.5**:
 Version detection is automatic. Notebooks without explicit version fields are handled
 gracefully with recovery actions recorded on the document.
 
+**nbformat 3 and earlier are not supported (LIBIPYNB-Q34, decision-gated
+investigation, not an oversight):** nbformat 4 replaced nbformat 3 as
+Jupyter's default notebook format in 2015 -- over a decade before this
+writing -- and every notebook produced by any actively maintained Jupyter
+installation since has been nbformat 4.x; a genuinely still-in-use v3
+notebook is now vanishingly rare. `nbformat` itself (this project's own
+schema/oracle reference) already ships and maintains the v1→v2→v3→v4
+upgrade chain for exactly this legacy case, so re-implementing it natively
+here would duplicate, not add, coverage. If you have an old v3 notebook,
+upgrade it once with the reference implementation before using libipynb:
+
+```python
+import nbformat
+nb = nbformat.read("old-notebook.ipynb", as_version=4)
+nbformat.write(nb, "old-notebook.ipynb")  # now nbformat 4.x, usable by libipynb
+```
+
+(`pip install nbformat` -- already a transitive dependency of this
+project's own `test`/`reference` extras, or install it standalone.)
+
 ## Platform support
 
 The internal GitLab mirror's CI (`.gitlab-ci.yml`) runs exclusively on Linux
