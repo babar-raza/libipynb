@@ -179,11 +179,11 @@
       "title": "Kernel-output truncation short-circuits and can corrupt binary MIME",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "IN_PROGRESS",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Fix any() short-circuit; omit (not corrupt) oversized binary MIME payloads.",
       "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
-      "repair_commit": null,
+      "repair_commit": "58d95f8794060f5e0937fb3331baf3cab6c64607",
       "review_lenses_applied": [
         "combinatorial_cardinality",
         "spec_conformance",
@@ -195,7 +195,9 @@
       "rollback": "git revert single commit",
       "blocker": null,
       "resume_condition": null,
-      "note": "Implementation commit bb325f7. Independent Taskcard-Gate-G2 review (separate Agent) found 4 real WARNING-level issues, 0 CRITICAL, verdict ISSUES_FOUND/repair_needed=true: (9) CLI ledger/README did not surface output_truncated/omitted_mime_types, (10) this state.json row was stale relative to the landed commit, (16) no test covered >=2 simultaneous binary-MIME omissions aggregating correctly, (21) truncate_utf8_text docstring claimed never-exceeds-max_bytes but the pre-repair implementation could exceed it by ~12 bytes for max_bytes below ~40-50. All 4 repaired in a follow-up commit (added --max-output-bytes CLI flag + ledger fields + README docs + multi-binary test + made the byte-bound genuinely hold for pathological small limits + a dedicated test file proving it). Status stays IN_PROGRESS, not VERIFIED, until the repair commit lands and this note is updated with its hash."
+      "note": "Implementation bb325f7; independent Taskcard-Gate-G2 review (separate Agent) found 0 CRITICAL, 4 real WARNING issues (verdict ISSUES_FOUND) -- see repair commit 58d95f8 message for the full list, each with its own new regression test. Disclosed limitation: the repair commit itself was self-verified (re-ran the full validated command set, 129 passed), not re-reviewed by a second separate Agent invocation -- a deliberate velocity/thoroughness tradeoff for WARNING-severity, mechanically-verifiable fixes, not silently equated with a second independent pass. Escalate to a second G2 pass if a future session has reason to doubt this repair specifically.",
+      "implementation_commit": "bb325f738ab28b63fc578c5a844a89f9f6a44f37",
+      "partial_evidence_note": "mutation_baseline_checked left null: LIBIPYNB-Q31 (mutation-testing pilot, Phase 2) has not landed yet. Temporary partial-evidence acceptance per plans/publication-readiness-plan-2026-08-24.md; revisit once Q31 lands."
     },
     {
       "id": "LIBIPYNB-Q18",
