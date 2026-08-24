@@ -381,6 +381,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Record per-cell start/idle timestamps into each executed cell's metadata.",
     )
+    execute_cmd.add_argument(
+        "--max-output-bytes",
+        type=int,
+        default=None,
+        metavar="BYTES",
+        help="Cap each cell's own output at BYTES (UTF-8). Oversized text is truncated with a "
+        "marker; oversized binary/base64 representations (e.g. image/png) are omitted "
+        "entirely rather than corrupted -- see 'cells_with_truncated_output'/"
+        "'cells_with_omitted_mime_types' in the printed ledger. Default: unlimited.",
+    )
 
     # -- analytics -------------------------------------------------------------
     analytics_cmd = commands.add_parser(
@@ -1116,6 +1126,7 @@ def _cmd_execute(args: argparse.Namespace) -> int:
         stop_on_error=args.on_error == "stop",
         interrupt_on_timeout=not args.no_interrupt_on_timeout,
         record_timing=args.record_timing,
+        max_output_bytes=args.max_output_bytes,
         acknowledge_unsandboxed=args.acknowledge_unsandboxed,
     )
 
@@ -1132,6 +1143,16 @@ def _cmd_execute(args: argparse.Namespace) -> int:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 
+    # LIBIPYNB-Q17 Gate G2 finding: output_truncated/omitted_mime_types were
+    # silently absent from this ledger -- a cell whose oversized image got
+    # dropped (not corrupted, since Q17's fix, but still removed) had zero
+    # CLI-visible signal that anything happened. Surfaced explicitly here so
+    # a user isn't left to discover a missing image only by re-opening the
+    # notebook and noticing it's gone.
+    cells_with_truncated_output = [r.index for r in result.cell_records if r.output_truncated]
+    cells_with_omitted_mime_types = {
+        r.index: list(r.omitted_mime_types) for r in result.cell_records if r.omitted_mime_types
+    }
     ledger = {
         "kernel": result.kernel_name,
         "cell_count": len(result.cell_records),
@@ -1143,6 +1164,9 @@ def _cmd_execute(args: argparse.Namespace) -> int:
         "timed_out_cell_index": result.timed_out_cell_index,
         "kernel_launch_error": result.kernel_launch_error,
         "kernel_death_error": result.kernel_death_error,
+        "output_truncated": bool(cells_with_truncated_output),
+        "cells_with_truncated_output": cells_with_truncated_output,
+        "cells_with_omitted_mime_types": cells_with_omitted_mime_types,
         "first_error": (
             {"ename": result.first_error.ename, "evalue": result.first_error.evalue}
             if result.first_error is not None

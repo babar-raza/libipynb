@@ -465,6 +465,54 @@ class TestExecute:
         original = json.loads(notebook.read_text(encoding="utf-8"))
         assert original["cells"][0]["outputs"] == []
 
+    def test_execute_max_output_bytes_surfaces_truncation_in_the_ledger(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """LIBIPYNB-Q17 Gate G2 finding: output_truncated/omitted_mime_types
+        were silently absent from the CLI ledger -- a user could lose an
+        oversized image with zero visible signal. --max-output-bytes itself
+        didn't exist as a CLI flag before this fix, so this is also the
+        first test proving the flag is wired through end-to-end, not just
+        that the ledger fields exist in isolation."""
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "executed.ipynb"
+        _write_notebook(notebook, sources=["print('x' * 2000)"])
+
+        assert (
+            main(
+                [
+                    "execute",
+                    str(notebook),
+                    "-o",
+                    str(dest),
+                    "--acknowledge-unsandboxed",
+                    "--max-output-bytes",
+                    "100",
+                ]
+            )
+            == 0
+        )
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["output_truncated"] is True
+        assert ledger["cells_with_truncated_output"] == [0]
+        assert ledger["cells_with_omitted_mime_types"] == {}
+
+        executed = json.loads(dest.read_text(encoding="utf-8"))
+        assert len(executed["cells"][0]["outputs"][0]["text"].encode("utf-8")) <= 100
+
+    def test_execute_without_max_output_bytes_never_truncates(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "executed.ipynb"
+        _write_notebook(notebook, sources=["print('short')"])
+
+        assert main(["execute", str(notebook), "-o", str(dest), "--acknowledge-unsandboxed"]) == 0
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["output_truncated"] is False
+        assert ledger["cells_with_truncated_output"] == []
+        assert ledger["cells_with_omitted_mime_types"] == {}
+
     def test_execute_succeeds_on_list_of_lines_source(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:

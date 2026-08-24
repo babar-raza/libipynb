@@ -121,8 +121,8 @@
       "title": "Static anti-pattern check for side-effecting any()/all()",
       "depends_on": [],
       "owner": "implementer",
-      "status": "IN_PROGRESS",
-      "legacy_status_equivalent": "partially_done",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "AST-walk src/libipynb/ for any()/all() wrapping a side-effecting call, same idiom as test_import_boundary.py.",
       "verification_command": "pytest tests/unit/test_no_short_circuiting_side_effects.py -v",
       "repair_commit": "e1eb47d60fb7325a9c572cab7ebeaf28d514292d",
@@ -131,8 +131,7 @@
       "mutation_baseline_checked": null,
       "rollback": "revert; additive test only",
       "blocker": null,
-      "resume_condition": null,
-      "note": "Checker built and calibrated (0 false positives on curated allowlist); its own real-sweep test is intentionally red until LIBIPYNB-Q17 rewrites the one real offender at jupyter_execute.py:629. Doubles as Q17s pre-fix failing regression test."
+      "resume_condition": null
     },
     {
       "id": "LIBIPYNB-Q25",
@@ -180,17 +179,23 @@
       "title": "Kernel-output truncation short-circuits and can corrupt binary MIME",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "IN_PROGRESS",
+      "legacy_status_equivalent": "completed_but_weakly_verified",
       "objective": "Fix any() short-circuit; omit (not corrupt) oversized binary MIME payloads.",
       "verification_command": "pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short",
       "repair_commit": null,
-      "review_lenses_applied": [],
+      "review_lenses_applied": [
+        "combinatorial_cardinality",
+        "spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
       "oracle_tier_actually_executed": null,
       "mutation_baseline_checked": null,
       "rollback": "git revert single commit",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "note": "Implementation commit bb325f7. Independent Taskcard-Gate-G2 review (separate Agent) found 4 real WARNING-level issues, 0 CRITICAL, verdict ISSUES_FOUND/repair_needed=true: (9) CLI ledger/README did not surface output_truncated/omitted_mime_types, (10) this state.json row was stale relative to the landed commit, (16) no test covered >=2 simultaneous binary-MIME omissions aggregating correctly, (21) truncate_utf8_text docstring claimed never-exceeds-max_bytes but the pre-repair implementation could exceed it by ~12 bytes for max_bytes below ~40-50. All 4 repaired in a follow-up commit (added --max-output-bytes CLI flag + ledger fields + README docs + multi-binary test + made the byte-bound genuinely hold for pathological small limits + a dedicated test file proving it). Status stays IN_PROGRESS, not VERIFIED, until the repair commit lands and this note is updated with its hash."
     },
     {
       "id": "LIBIPYNB-Q18",

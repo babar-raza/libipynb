@@ -345,7 +345,12 @@ result = await LocalJupyterExecutor().execute_async(document, options=options)
 - **`CellExecutionRecord`** -- per-cell diagnostic: `outputs` (nbformat-schema
   output dicts -- `stream`/`display_data`/`execute_result`/`error`),
   `execution_count`, `error` (`ExecutionCellError`: `ename`/`evalue`/
-  `traceback`), `executed`/`skipped`, `started_at`/`finished_at`
+  `traceback`), `executed`/`skipped`, `started_at`/`finished_at`,
+  `output_truncated` (`True` when `max_output_bytes` shortened or omitted
+  something in this cell's own outputs), `omitted_mime_types` (MIME type
+  keys, e.g. `"image/png"`, removed entirely -- not corrupted -- because a
+  base64-encoded binary representation exceeded `max_output_bytes`; distinct
+  from ordinary text truncation, which keeps a shortened value in place)
 - **`NotebookExecutor`** -- the backend-neutral `Protocol` both `execute()`/
   `execute_async()` satisfy; a future non-local backend (container, VM,
   remote service) could implement this same contract without any change to

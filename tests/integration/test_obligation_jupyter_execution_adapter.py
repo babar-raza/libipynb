@@ -1036,6 +1036,32 @@ def test_oversized_binary_and_text_mime_in_the_same_output_are_each_handled_corr
     assert len(output["data"]["text/plain"].encode("utf-8")) <= 200
 
 
+def test_multiple_oversized_binary_mime_representations_are_all_omitted_and_aggregated(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """LIBIPYNB-Q17 Gate G2 finding: the single-binary-omission tests above
+    don't exercise omitted_mime_types aggregating across >=2 omissions in
+    the same cell -- exactly the cardinality class this whole taskcard
+    exists to stop missing."""
+    document = _document(
+        [
+            _code(
+                "from IPython.display import display\n"
+                "display({'image/png': 'A' * 2000, 'application/pdf': 'B' * 2000}, raw=True)\n",
+                "two-binary",
+            )
+        ]
+    )
+
+    result = executor.execute(document, options=_opts(max_output_bytes=200))
+
+    (record,) = result.cell_records
+    assert set(record.omitted_mime_types) == {"image/png", "application/pdf"}
+    (output,) = record.outputs
+    assert "image/png" not in output["data"]
+    assert "application/pdf" not in output["data"]
+
+
 def test_svg_mime_is_text_truncated_not_omitted(executor: LocalJupyterExecutor) -> None:
     """image/svg+xml is literal XML text per the nbformat spec, not
     base64 -- must be marker-truncated like any other text MIME type, not
