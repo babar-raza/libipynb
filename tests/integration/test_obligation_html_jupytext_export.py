@@ -506,3 +506,39 @@ class TestJupytextExporter:
         with pytest.raises(NotebookError, match="jupytext package") as excinfo:
             JupytextExporter().export(_document())
         assert excinfo.value.code == "export_tool_unavailable"
+
+    def test_an_invalid_format_string_against_the_real_tool_is_a_clean_notebookerror(
+        self, jupytext_available: None
+    ) -> None:
+        """LIBIPYNB-Q45: extends the "backend incomplete, not absent"
+        pattern (already proven for HtmlExporter/NbconvertExporter above)
+        to JupytextExporter -- installed-and-importable but given a bad
+        argument is a distinct, realistic failure mode from "not
+        installed at all". Uses the real, installed jupytext library
+        (not mocked): its own internal format-validation error must
+        surface as a structured NotebookError, not leak as a raw
+        exception out of jupytext's own internals."""
+        with pytest.raises(NotebookError, match="jupytext failed exporting") as excinfo:
+            JupytextExporter(fmt="definitely-not-a-real-format").export(_document())
+        assert excinfo.value.code == "export_tool_failed"
+
+    def test_a_corrupted_jupytext_install_raising_internally_is_wrapped_not_leaked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A distinct failure mode from an invalid `fmt` argument: the
+        installed jupytext package itself is broken (e.g. a partial
+        install missing an internal submodule) and raises on the very
+        first call, regardless of what was asked of it -- deterministic
+        via a stub module, not dependent on genuinely corrupting a real
+        install to test this."""
+        fake_jupytext = types.ModuleType("jupytext")
+
+        def _raise_internal_error(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("simulated corrupted jupytext install")
+
+        fake_jupytext.reads = _raise_internal_error  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "jupytext", fake_jupytext)
+
+        with pytest.raises(NotebookError, match="simulated corrupted jupytext install") as excinfo:
+            JupytextExporter().export(_document())
+        assert excinfo.value.code == "export_tool_failed"
