@@ -1,0 +1,142 @@
+name: Release
+
+# Tag-triggered only. Never runs on a push/PR -- there is no tag matching
+# this pattern in this repository as of this workflow's own authoring, so
+# it is dormant by construction, not by a conditional that could drift.
+# Never triggered by this engagement; publishing requires the maintainer
+# to actually create and push a matching tag, a deliberate, separate act
+# this workflow file cannot cause on its own.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Re-runs the same gates ci.yml enforces on every push/PR, against the
+  # tagged commit specifically. Deliberately NOT a `needs:`/dependency on
+  # ci.yml's own run: a tag can be pushed against a commit that never had
+  # its own ci.yml run pass (e.g. tagging an older commit, or a
+  # force-pushed branch tip) -- publishing must not assume ci.yml already
+  # vouched for this exact SHA. Self-contained rather than a
+  # `workflow_call` reference to ci.yml, to avoid coupling this dormant,
+  # rarely-touched release path to ci.yml's own evolution.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff (pinned -- see LIBIPYNB-Q26's ci.yml for why)
+        run: pip install ruff==0.16.2
+      - run: ruff format --check src/ tests/
+      - run: ruff check src/ tests/
+      - name: Install package + mypy
+        run: |
+          pip install -e ".[test,exec,export]"
+          pip install mypy==2.3.0
+      - run: mypy --strict src/libipynb/
+      - name: Full test suite (core + property)
+        run: |
+          pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short
+          pytest tests/property/ -v --tb=short
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel and sdist
+        run: |
+          pip install build twine
+          python -m build
+      - name: twine check
+        run: twine check dist/*
+      - name: Clean-room wheel install smoke test
+        run: |
+          python -m venv wheel-venv
+          wheel-venv/bin/pip install dist/libipynb-*.whl
+          wheel-venv/bin/python -c "from libipynb import NotebookDocument, load, validate, NotebookError; print('wheel import OK')"
+          wheel-venv/bin/python -c "import libipynb, pathlib; p = pathlib.Path(libipynb.__file__).resolve(); assert 'site-packages' in str(p), f'not from site-packages: {p}'"
+          wheel-venv/bin/libipynb --help
+      - name: Clean-room sdist install smoke test
+        run: |
+          python -m venv sdist-venv
+          sdist-venv/bin/pip install dist/libipynb-*.tar.gz
+          sdist-venv/bin/python -c "from libipynb import NotebookDocument, load, validate, NotebookError; print('sdist import OK')"
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+          retention-days: 90
+
+  # Publishes via PyPI Trusted Publishing (OIDC) -- no long-lived PyPI API
+  # token stored as a repo secret. Requires one-time setup this workflow
+  # file cannot itself perform: (1) a GitHub Environment named "pypi" in
+  # this repo's own Settings > Environments, and (2) a matching Trusted
+  # Publisher entry on PyPI's project page (pypi.org, once the project
+  # exists there) naming this repo/workflow/environment. Until both exist,
+  # this job will fail at the publish step -- correctly, since it should
+  # not be able to publish without that explicit, separate authorization
+  # trail on both platforms. Neither has been configured by this
+  # engagement; that is a maintainer action, not something authoring this
+  # YAML performs or should perform.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+      - name: Remove checksums file (not a distributable package artifact)
+        run: rm -f dist/SHA256SUMS
+      # Pinned to an exact commit SHA (dc37677b2e1c63e2034f94d8a5b11f265b73ba33,
+      # the release/v1 branch tip as of this workflow's authoring), not a
+      # floating tag/branch ref -- this is a third-party action holding
+      # `id-token: write` (mints a short-lived PyPI publish credential via
+      # OIDC), the exact class of elevated-permission step where pinning to
+      # a mutable ref would let an upstream compromise silently change what
+      # this job does on the next scheduled... except this workflow is
+      # tag-triggered, not scheduled, so a pin also keeps behavior identical
+      # across whatever gap exists between different release tags.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+
+  # Generates GitHub build-provenance attestations for the published
+  # artifacts (SLSA-style: cryptographic proof these files were built by
+  # this exact workflow run from this exact commit) -- verifiable later via
+  # `gh attestation verify`. Independent of the publish job (does not gate
+  # or block it) so a provenance-generation hiccup can never prevent an
+  # otherwise-good release from publishing.
+  attest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+      - name: Remove checksums file (attest the package artifacts only)
+        run: rm -f dist/SHA256SUMS
+      # Pinned for the same id-token: write reason as the publish job above.
+      - uses: actions/attest-build-provenance@92c65d2898f1f53cfdc910b962cecff86e7f8fcc # v1
+        with:
+          subject-path: "dist/*"
