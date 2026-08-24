@@ -73,7 +73,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum * > SHA256SUMS
+          sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
@@ -82,16 +82,26 @@ jobs:
           retention-days: 90
 
   # Publishes via PyPI Trusted Publishing (OIDC) -- no long-lived PyPI API
-  # token stored as a repo secret. Requires one-time setup this workflow
-  # file cannot itself perform: (1) a GitHub Environment named "pypi" in
-  # this repo's own Settings > Environments, and (2) a matching Trusted
-  # Publisher entry on PyPI's project page (pypi.org, once the project
-  # exists there) naming this repo/workflow/environment. Until both exist,
-  # this job will fail at the publish step -- correctly, since it should
-  # not be able to publish without that explicit, separate authorization
-  # trail on both platforms. Neither has been configured by this
-  # engagement; that is a maintainer action, not something authoring this
-  # YAML performs or should perform.
+  # token stored as a repo secret.
+  #
+  # LIBIPYNB-Q30 independent review, finding 3: `environment: pypi` does
+  # NOT gate this job the way an earlier version of this comment claimed.
+  # Per GitHub's own documented behavior, referencing an environment that
+  # doesn't yet exist AUTO-CREATES it on first run, with no protection
+  # rules or secrets -- GitHub does not fail or block the job on a missing
+  # environment. The maintainer must proactively create the "pypi"
+  # environment (Settings > Environments) AND add protection rules (e.g.
+  # required reviewers) to it BEFORE ever pushing a release tag, or the
+  # first tag push will auto-vivify an unprotected environment and this
+  # job will proceed straight to the publish step. The real, independent
+  # enforcement boundary is PyPI's own Trusted Publisher registration
+  # (pypi.org, once this project exists there, naming this exact
+  # repo/workflow/environment) -- checked during the OIDC handshake inside
+  # pypa/gh-action-pypi-publish itself. Until that PyPI-side entry exists,
+  # publishing fails there, but the GitHub environment reference alone is
+  # not a safety gate. Neither has been configured by this engagement;
+  # both are maintainer actions, not something authoring this YAML
+  # performs or should perform.
   publish:
     needs: build
     runs-on: ubuntu-latest
