@@ -26,6 +26,19 @@ dependencies = [
     "jsonschema>=4.23,<5",
 ]
 
+# LIBIPYNB-Q32: previously deliberately omitted (commit 49c8466,
+# LIBIPYNB-Q12a) because "no public host exists yet for this project" --
+# confirmed via `git remote get-url origin` and `gh repo view
+# babar-raza/libipynb` that a real, live, public GitHub repo now exists at
+# this exact URL, so that condition no longer holds. No internal GitLab
+# URL here -- see the same commit's own reasoning for why that was
+# removed in the first place.
+[project.urls]
+Homepage = "https://github.com/babar-raza/libipynb"
+Repository = "https://github.com/babar-raza/libipynb"
+Issues = "https://github.com/babar-raza/libipynb/issues"
+Changelog = "https://github.com/babar-raza/libipynb/blob/master/CHANGELOG.md"
+
 [project.optional-dependencies]
 reference = ["nbformat==5.10.4"]
 test = [
