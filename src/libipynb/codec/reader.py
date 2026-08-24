@@ -10,6 +10,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, NoReturn, TextIO
 
+from .._internal.finiteness import find_non_finite_floats
 from .._internal.probe import ProbeResult
 from ..errors import NotebookParseError
 from ..model import NotebookDocument, NotebookVersion, RecoveryAction
@@ -151,6 +152,24 @@ def _recover_missing(
         actions.append(RecoveryAction(code, path, message))
 
 
+def _reject_non_finite_constant(constant: str) -> float:
+    """LIBIPYNB-Q18 (P0-C): json.loads' default ``parse_constant`` silently
+    accepts the non-standard ``NaN``/``Infinity``/``-Infinity`` tokens --
+    legal Python floats, not legal JSON, and rejected by this project's own
+    writer (``allow_nan=False``). Strict mode fails fast at parse time
+    instead of accepting a document that would later fail unrecoverably at
+    ``dumps()``; preservation/recovery mode intentionally keep the existing
+    tolerant parse (their own lossless/tolerant contract), relying instead
+    on :func:`libipynb.validation.rules.validate_model`'s recursive scan
+    (``_internal.finiteness.find_non_finite_floats``) to catch it downstream
+    regardless of how the document was loaded."""
+    _raise_parse(
+        "IPYNB_NON_FINITE_NUMBER",
+        f"strict mode rejects non-finite JSON constant {constant!r} -- "
+        "NaN/Infinity/-Infinity are not valid JSON and cannot be serialized",
+    )
+
+
 def _parse(text: str, *, mode: str, limits: ResourceLimits) -> NotebookDocument:
     if mode not in {"strict", "preservation", "recovery"}:
         raise ValueError("mode must be 'strict', 'preservation', or 'recovery'")
@@ -161,6 +180,7 @@ def _parse(text: str, *, mode: str, limits: ResourceLimits) -> NotebookDocument:
             object_pairs_hook=bounded_object_pairs_hook(
                 limits, mode=mode, duplicate_keys=duplicate_keys
             ),
+            parse_constant=_reject_non_finite_constant if mode == "strict" else None,
         )
     except json.JSONDecodeError as exc:
         raise NotebookParseError(
@@ -481,6 +501,23 @@ def probe(source: Source, *, limits: ResourceLimits | None = None) -> ProbeResul
         document = load(source, mode="preservation", limits=limits)
     except Exception as exc:  # noqa: BLE001
         return ProbeResult(False, 0.0, "ipynb", reason=str(exc))
+    # LIBIPYNB-Q18 (P0-C): preservation mode's own JSON parse intentionally
+    # still tolerates NaN/Infinity/-Infinity (unlike strict mode -- see
+    # reader.py's _reject_non_finite_constant), so a non-finite-constant-
+    # carrying document would otherwise reach here and get reported as a
+    # matched, valid-looking IPYNB despite being unable to round-trip
+    # through dumps(). Checked explicitly rather than silently passed
+    # through, matching "probe() must not report such content as a valid
+    # IPYNB" regardless of load mode.
+    non_finite = next(iter(find_non_finite_floats(document.raw)), None)
+    if non_finite is not None:
+        return ProbeResult(
+            False,
+            0.0,
+            "ipynb",
+            reason=f"notebook contains a non-finite JSON constant at {non_finite!r} "
+            "(NaN/Infinity/-Infinity are not valid JSON and cannot be serialized)",
+        )
     confidence = 1.0 if document.nbformat == 4 else 0.5
     return ProbeResult(
         True,

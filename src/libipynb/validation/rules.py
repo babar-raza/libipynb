@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
+from .._internal.finiteness import find_non_finite_floats
 from ..codec.reader import CELL_ID_PATTERN
 from ..diagnostics import Diagnostic, SourceLocation
 from ..diagnostics import DiagnosticSeverity as Severity
@@ -460,6 +461,27 @@ def validate_model(
     profile: SelectedProfile,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
+    # LIBIPYNB-Q18 (P0-C): NaN/Infinity/-Infinity are legal Python floats
+    # (json.loads accepts them by default) but not legal JSON, and this
+    # project's own writer correctly rejects them (allow_nan=False) -- so a
+    # document that reaches this point with one anywhere in it (notebook
+    # metadata, cell metadata, output metadata, MIME data, or nested inside
+    # any of those) is not actually valid regardless of what schema/profile
+    # checks below say, and would fail unrecoverably at dumps() if not
+    # caught here. Covers BOTH a strict-mode-loaded document (reader.py's
+    # own parse_constant hook already rejects it earlier, so this is
+    # defense in depth there) and an already-constructed mapping handed to
+    # validate() directly, which never goes through the JSON-text reader at
+    # all.
+    for path in find_non_finite_floats(model):
+        diagnostics.append(
+            diagnostic(
+                "IPYNB_NON_FINITE_NUMBER",
+                "non-finite float (NaN/Infinity/-Infinity) is not valid JSON and "
+                "cannot be serialized",
+                path,
+            )
+        )
     if profile.allow_forward:
         for key in model:
             if key not in KNOWN_TOP_LEVEL:
