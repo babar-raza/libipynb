@@ -510,8 +510,17 @@
       "title": "[project.urls] in pyproject.toml",
       "depends_on": [],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "python -m build --wheel; inspect dist-info/METADATA for Project-URL lines and absence of the internal GitLab hostname",
+      "repair_commit": "7204a0ac93d51ba00eb71539cea763bf72adaded",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "built a real wheel and inspected its actual dist-info/METADATA content directly (not just the source pyproject.toml) -- confirmed all 4 Project-URL lines present and correct, and confirmed via direct string search that no internal GitLab hostname/path (gitlab.recruitize.ai, sialkot) leaked in, distinguishing that from the unrelated, harmless bare word \"GitLab\" appearing once in README.md's own prose",
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Confirmed the precondition that blocked this in LIBIPYNB-Q12a (\"no public host exists yet\") no longer holds, via git remote get-url origin and gh repo view babar-raza/libipynb against the real GitHub repo -- not assumed or guessed."
     },
     {
       "id": "LIBIPYNB-Q33",
