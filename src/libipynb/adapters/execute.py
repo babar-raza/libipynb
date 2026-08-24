@@ -369,6 +369,16 @@ def execute_notebook(
         )
     if on_error not in ("stop", "continue"):
         raise ValueError("on_error must be 'stop' or 'continue'")
+    if max_output_bytes is not None and max_output_bytes < 0:
+        # LIBIPYNB-Q16 Gate G2 finding: an unvalidated negative value
+        # reached truncate_utf8_text's fallback-marker slice
+        # (_FALLBACK_MARKER[:max_bytes]), where Python's negative-index
+        # slicing means "all but the last N bytes" rather than "first N
+        # bytes" -- silently fabricating a "..." marker onto cells whose
+        # own stdout was empty and untouched. Matches the sibling engine's
+        # equally strict ExecutionOptions.max_output_bytes validation
+        # (execution/options.py) rather than leaving this one unchecked.
+        raise ValueError("max_output_bytes must be non-negative or None")
     if max_memory_bytes is not None and sys.platform == "win32":
         raise NotebookExecutionError(
             "max_memory_bytes cannot be enforced on Windows (no RLIMIT_AS-"

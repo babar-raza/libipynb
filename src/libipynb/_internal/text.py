@@ -21,7 +21,19 @@ def truncate_utf8_text(text: str, max_bytes: int) -> str:
     bytes total (marker included, verified down to ``max_bytes == 0``), and
     never raises on a cut that lands mid-codepoint at the byte boundary (the
     partial trailing codepoint is dropped rather than corrupting the string
-    or raising)."""
+    or raising).
+
+    LIBIPYNB-Q16 Gate G2 finding: *max_bytes* is clamped to zero here as a
+    defense-in-depth backstop against a negative value reaching the
+    fallback marker's slice (``_FALLBACK_MARKER[:max_bytes]``), where
+    Python's negative-index slicing means "all but the last N bytes," not
+    "first N bytes" -- silently fabricating marker content instead of
+    returning nothing. Callers (``adapters/execute.py``) additionally
+    reject a negative ``max_output_bytes`` up front so this never actually
+    fires in practice; this clamp exists so the guarantee holds even if a
+    future caller forgets to.
+    """
+    max_bytes = max(0, max_bytes)
     encoded = text.encode("utf-8")
     if len(encoded) <= max_bytes:
         return text

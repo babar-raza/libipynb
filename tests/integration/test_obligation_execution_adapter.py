@@ -187,6 +187,18 @@ def test_invalid_on_error_value_is_rejected() -> None:
         execute_notebook(document, timeout=10, on_error="ignore", acknowledge_unsandboxed=True)
 
 
+def test_negative_max_output_bytes_is_rejected_before_running_anything() -> None:
+    """LIBIPYNB-Q16 Gate G2 finding: an unvalidated negative value used to
+    reach truncate_utf8_text's fallback-marker slice, where Python's
+    negative-index slicing fabricated marker content onto cells whose
+    stdout was empty and untouched. Rejected up front instead, matching the
+    sibling engine's equally strict ExecutionOptions.max_output_bytes."""
+    document = _document([_code("print('should never run')")])
+
+    with pytest.raises(ValueError, match="max_output_bytes"):
+        execute_notebook(document, timeout=10, acknowledge_unsandboxed=True, max_output_bytes=-1)
+
+
 # ── Timeouts ─────────────────────────────────────────────────────────────────
 
 

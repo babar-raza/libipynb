@@ -52,6 +52,18 @@ def test_zero_max_bytes_returns_an_empty_string() -> None:
     assert truncate_utf8_text("anything", 0) == ""
 
 
+def test_a_negative_max_bytes_is_clamped_to_zero_not_fabricated_content() -> None:
+    """LIBIPYNB-Q16 Gate G2 finding: before this clamp, a negative max_bytes
+    reached `_FALLBACK_MARKER[:max_bytes]` -- Python's negative-index slice
+    semantics ("all but the last N bytes") produced fabricated marker
+    content (`'...'`) instead of an empty result, even for text that fit
+    comfortably or was itself empty. Callers (adapters/execute.py) also
+    reject a negative max_output_bytes up front; this is the independent
+    backstop at the shared-utility level."""
+    assert truncate_utf8_text("anything", -5) == ""
+    assert truncate_utf8_text("", -5) == ""
+
+
 def test_a_comfortably_large_max_bytes_still_uses_the_full_explanatory_marker() -> None:
     """Only pathologically small limits should fall back to the minimal
     ASCII marker -- a realistic limit (the library's own 10 MiB default is

@@ -279,13 +279,21 @@ dependency boundary, and the execution trust model behind the APIs below.
   default it runs in a fresh temporary working directory (`isolate_cwd`,
   cleaned up after), with a minimal environment instead of the caller's
   full one (`isolate_env`, extend via `extra_env`), and captured output is
-  capped at 10 MiB (`max_output_bytes`). A memory limit (`max_memory_bytes`)
-  is enforced on POSIX only -- requesting one on Windows raises rather than
-  silently running unlimited. CPU-time limiting and network-access denial
-  are **not** implemented. Never called by `load`/`validate`/`diff`/
-  `upgrade`/`save` -- it is the sole, explicit entry point into code
-  execution, requires `acknowledge_unsandboxed=True`, and should only be
-  pointed at notebooks you already trust to execute.
+  capped at 10 MiB (`max_output_bytes`) -- a *cumulative* budget shared
+  across the whole run's cells (not per-cell independent, unlike
+  `LocalJupyterExecutor`'s identically-named option below): once the
+  running total is reached, each subsequent cell's own stdout is shortened
+  to whatever remains and flagged via that cell's own
+  `CellExecutionResult.stdout_truncated`; `ExecutionReport.output_truncated`
+  is `True` iff any cell's was. Every cell always gets an explicit result
+  -- one oversized cell never erases an unrelated later cell's own,
+  already-complete output. A memory limit (`max_memory_bytes`) is enforced
+  on POSIX only -- requesting one on Windows raises rather than silently
+  running unlimited. CPU-time limiting and network-access denial are
+  **not** implemented. Never called by `load`/`validate`/`diff`/`upgrade`/
+  `save` -- it is the sole, explicit entry point into code execution,
+  requires `acknowledge_unsandboxed=True`, and should only be pointed at
+  notebooks you already trust to execute.
 
 ### `libipynb.execution` -- Real Jupyter-Kernel Execution (`libipynb[exec]`)
 
