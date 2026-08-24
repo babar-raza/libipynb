@@ -654,19 +654,23 @@
         "LIBIPYNB-Q16",
         "LIBIPYNB-Q17"
       ],
-      "owner": "implementer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "owner": "implementer+separate_reviewer",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "pytest tests/property/ -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "10 Hypothesis properties across both truncation functions, self-verified with a genuine negative control: reproduced the OLD any()-short-circuit implementation inline and confirmed the property test correctly fails against it (Hypothesis found a 2-output counterexample immediately), proving these tests would have caught the real P0-B bug, not just passing coincidentally post-fix",
+      "repair_commit": "9dc6e5f05d605e2712ccaa1048a711cc46806e08",
+      "review_lenses_applied": [
+        "combinatorial_cardinality",
+        "test_infrastructure_honesty",
+        "tests_pass_overclaim"
+      ],
+      "oracle_tier_actually_executed": "10 Hypothesis properties across both truncation functions, self-verified with a genuine negative control: reproduced the OLD any()-short-circuit implementation inline and confirmed the property test correctly fails against it (Hypothesis found a 2-output counterexample immediately), proving these tests would have caught the real P0-B bug, not just passing coincidentally post-fix. Independent Taskcard-Gate-G2 review (separate Agent): independently located and read the actual pre-fix P0-A (daba624^) and P0-B (bb325f7^) commits from git history directly (not trusted from the summary); built its own standalone scratch reproduction using the test file's own Hypothesis strategies verbatim against 2 different reconstructions of the old buggy code -- a verbatim full pre-fix file revert (which failed the property via a different, already-separately-fixed confound bug -- marker-overhead at max_bytes=0, a 1-output counterexample) and an isolated single-variable reconstruction (old any()-driven loop wrapped around the current, already-fixed _truncate_one_output), which reproduced the claimed 2-output counterexample exactly, confirming the negative-control claim is genuinely true, just more precisely describable as isolating the any()-short-circuit variable specifically rather than a literal full-file revert. Confirmed the property tests import and test the real production functions directly (no logic reimplementation), confirmed zero assume() calls silently filtering the 2+-item cardinality that matters, confirmed all list strategies genuinely explore min_size=0 through max_size=15, confirmed tests/property/ is genuinely wired into CI (ci.yml line 113, runs every push/PR on all 3 Linux Python-version legs) not schedule-gated or dead. Reran pytest tests/property/test_property_output_truncation.py 3x fresh with .hypothesis cache cleared -- 10 passed, no flakiness; mypy --strict src/libipynb/ clean (46 files); ruff format/check clean; full tests/unit tests/integration tests/security tests/property run: 1224 passed, 11 skipped, 0 failed. Verdict: CLEAN, 0 open findings, 0 critical findings, repair_needed=false (2 INFO-level observations recorded, neither blocking: a correctly-scoped boundary note that property tests for _apply_output_budget cannot by construction detect a reintroduction of P0-A's original raw-stdout-byte-slicing mechanism since that code lives upstream of the function under test -- already covered by a separate existing regression test; and the negative-control methodology precision note above).",
       "mutation_baseline_checked": null,
-      "rollback": "git revert; delete the new test file, zero production-code risk",
+      "rollback": "git revert 9dc6e5f; delete the new test file, zero production-code risk",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "9dc6e5f05d605e2712ccaa1048a711cc46806e08",
-      "note": "Implementation 9dc6e5f. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
+      "note": "Implementation 9dc6e5f, self-verified with a genuine negative control. Independent Taskcard-Gate-G2 review (separate Agent) independently re-derived the negative-control claim from the actual historical bug commits via its own standalone reproduction, found it genuinely true, and returned a CLEAN verdict with zero CRITICAL/MAJOR findings -- VERIFIED after a single review round, per this engagement's rule that a clean round suffices."
     },
     {
       "id": "LIBIPYNB-Q40",
