@@ -100,6 +100,53 @@ def test_export_result_contains_content_and_resources() -> None:
     assert result.metadata == {"k": 1}
 
 
+class TestQ61ExportResultMetadataMutationAfterAccessDoesNotChangeLaterReads:
+    """LIBIPYNB-Q61 (LIBIPYNB-Q43 follow-up): ExportResult.metadata had the
+    identical mutation-after-access gap LIBIPYNB-Q43 fixed 12 times over
+    elsewhere in this codebase -- a plain, directly mutable dict with no
+    __post_init__ at all, so `result.metadata["x"] = "evil"` silently
+    corrupted every later read of the SAME instance. Left unprotected
+    under a deliberate, documented prior decision (LIBIPYNB-Q11a) citing
+    a real technical concern -- a mappingproxy is not json.dumps()-able --
+    that this fix resolves via deep_freeze/deep_thaw, the same pattern
+    already used elsewhere in this codebase to solve exactly this
+    conflict for CLI JSON output."""
+
+    def test_metadata_rejects_item_assignment(self) -> None:
+        result = ExportResult(content="hello", resources=(), metadata={"nested": {"a": 1}})
+
+        with pytest.raises(TypeError):
+            result.metadata["nested"] = {}  # type: ignore[index]
+        with pytest.raises(TypeError):
+            result.metadata["nested"]["a"] = 999  # type: ignore[index]
+
+    def test_mutating_metadata_does_not_change_a_later_read(self) -> None:
+        result = ExportResult(content="hello", resources=(), metadata={"a": 1, "b": "safe"})
+
+        first_read = result.metadata
+        with pytest.raises(TypeError):
+            first_read["a"] = "EVIL_MUTATED"  # type: ignore[index]
+
+        second_read = result.metadata
+        assert second_read == {"a": 1, "b": "safe"}
+        assert second_read == first_read
+
+    def test_metadata_is_not_aliased_to_the_callers_own_dict(self) -> None:
+        source = {"a": 1}
+        result = ExportResult(content="hello", resources=(), metadata=source)
+
+        source["a"] = "mutated-after-construction"
+
+        assert result.metadata["a"] == 1
+
+    def test_default_empty_metadata_is_also_frozen(self) -> None:
+        result = ExportResult(content="hello")
+
+        assert result.metadata == {}
+        with pytest.raises(TypeError):
+            result.metadata["new"] = "evil"  # type: ignore[index]
+
+
 def test_ancillary_resource_carries_filename_mime_data_and_path() -> None:
     resource = AncillaryResource(
         filename="img.png",

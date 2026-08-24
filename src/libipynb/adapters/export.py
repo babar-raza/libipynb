@@ -13,10 +13,12 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from .._internal.immutable import deep_freeze
 from .._internal.paths import is_safe_resource_filename as _is_safe_resource_filename
 from ..errors import NotebookError
 from ..model.document import NotebookDocument, cell_from_dict
@@ -50,12 +52,18 @@ class AncillaryResource:
 class ExportResult:
     """Main output plus any ancillary resources collected during export.
 
-    LIBIPYNB-Q11a: ``metadata`` is an ordinary mutable ``dict``, not wrapped
-    in ``types.MappingProxyType`` -- no corruption bug has ever been
-    demonstrated against it (contrast with the typed model's deep-copy leaks
-    fixed under LIBIPYNB-Q9), and a ``mappingproxy`` is not
-    ``json.dumps()``-able, which would be a foot-gun for any future CLI
-    export subcommand that serializes this metadata directly.
+    LIBIPYNB-Q61 (LIBIPYNB-Q43 follow-up): ``metadata`` was previously an
+    ordinary mutable ``dict``, not wrapped in ``types.MappingProxyType``
+    (LIBIPYNB-Q11a's original reasoning: no corruption bug had been
+    demonstrated against it, and a bare ``mappingproxy`` is not
+    ``json.dumps()``-able, a foot-gun for any future CLI export subcommand
+    serializing this metadata directly). Now ``deep_freeze``-d in
+    ``__post_init__``, matching every other result-object field this
+    codebase protects against mutation-after-access (LIBIPYNB-Q43) -- the
+    ``json.dumps()`` concern is resolved the same way it already is for
+    ``model.diff``/``model.parameters``' own CLI JSON output: thaw with
+    ``deep_thaw`` immediately before serializing, never serialize the
+    frozen field directly.
 
     LIBIPYNB-Q15b: ``content`` is ``str | bytes``, not ``str`` alone --
     a real design decision, not a mechanical widening. PDF output
@@ -75,7 +83,10 @@ class ExportResult:
 
     content: str | bytes
     resources: tuple[AncillaryResource, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", deep_freeze(dict(self.metadata)))
 
 
 @runtime_checkable
