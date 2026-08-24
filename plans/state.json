@@ -516,8 +516,17 @@
       "title": "v3->v4 legacy notebook import (decision-gated)",
       "depends_on": [],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "verification_command": "pytest tests/unit/test_doc_drift.py -v --tb=short (no drift check exists for this specific decision beyond README consistency)",
+      "repair_commit": "c566e1d04f265bd77cc4852fae8a367669a3105e",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "git revert single commit",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "DECISION: EXCLUDE native v3 import, per the mission's own explicit 'unless evidence justifies inclusion' default posture. Investigation performed before deciding, not skipped: (1) confirmed directly against the installed nbformat==5.10.4 package that nbformat 4 has been Jupyter's default format since 2015 (over a decade before this writing) -- nbformat.current_nbformat == 4; (2) confirmed nbformat itself still ships and maintains the full v1->v2->v3->v4 upgrade chain (nbformat.v3.upgrade, nbformat.read(as_version=4)) specifically for this legacy case; (3) empirically verified the escape hatch actually works, not just assumed: constructed a real, structurally-plausible nbformat v3 document (worksheets/cells/prompt_number-shaped, the genuine legacy schema, not a guess) and confirmed nbformat.reads(src, as_version=4) correctly auto-upgrades it to nbformat 4.5 with cells translated correctly. Given (a) any actively-maintained v3 notebook would already have been auto-upgraded by Jupyter itself over the last decade, making genuine new v3 input vanishingly rare, and (b) the reference implementation this project already treats as its own schema/oracle authority (nbformat) already solves this exact problem and is a natural, low-friction escape hatch, re-implementing v3 parsing natively here would duplicate an already-solved, low-value problem rather than add real capability. Documented in README.md's 'Supported Versions' section (new paragraph + a working code example) rather than left as a silent gap."
     },
     {
       "id": "LIBIPYNB-Q35",
