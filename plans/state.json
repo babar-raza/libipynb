@@ -936,8 +936,17 @@
         "LIBIPYNB-Q46"
       ],
       "owner": "implementer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted"
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
+      "objective": "Prove `git diff`/`git merge`/`git add` actually invoke the INSTALLED libipynb wheel's driver/filter, via real git operations in a genuine scratch repository -- not a unit-test simulation (tests/unit/test_cli_git_diff_merge_drivers.py already covers this in-process via main() against the source tree; this exercises the real subprocess-invoked, installed-package path end to end).",
+      "verification_command": "libipynb diff --install-git; git diff <changed notebook>; libipynb merge scenario via a real divergent 2-branch git merge; libipynb normalize --install; git add <notebook with outputs>",
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": "Fresh scratch git repo (session scratchpad, disposable), driver installed via the LIBIPYNB-Q46 clean-room venv's own `libipynb.exe diff --install-git` -- confirmed the registered git config command (`git config --get diff.libipynb.command`) references that SAME venv's python.exe via `sys.executable`, proving any invocation genuinely runs the installed wheel, not this repo's source tree. (1) Real `git diff` on a real committed-then-modified notebook.ipynb produced libipynb's structured cell-level diff output (`@@ cell a modified @@` / `-x = 1` / `+x = 2`), not git's default textual/binary diff -- proving the diff driver genuinely fired. (2) A genuine divergent 3-way merge (two branches independently editing the SAME cell differently from a shared base, not a trivial fast-forward -- the first attempt at this WAS an accidental fast-forward that never invoked the driver at all, caught and corrected before treating it as evidence): `git merge master` from the feature branch produced `libipynb: 1 conflict(s) in notebook.ipynb (unresolved fields kept the common ancestor's value -- resolve manually)` / `CONFLICT (content): Merge conflict in notebook.ipynb` / exit 1, with the resulting file correctly keeping the base's original value for the conflicted cell and zero `<<<<<<<`/`>>>>>>>` marker splicing (grep confirmed), `git status` correctly reporting `UU` -- exactly matching this project's own documented 'never hide conflicts inside executable source, never silently pick a side' merge-driver contract, now proven through git's real merge machinery, not just merge_notebooks() called directly. (3) Clean filter: `libipynb.exe normalize --install` registered `filter.libipynb.clean`/`.required`; `git add` on a notebook containing real outputs/execution_count invoked it -- the WORKING TREE file was left completely untouched (outputs/execution_count still present when read directly), but `git cat-file -p :notebook.ipynb` (what git actually staged) shows both stripped, exactly matching git's clean-filter contract (transforms only what's stored, never the working copy) and this project's own `normalize --install`-vs-manual-invocation distinction. All 3 drivers cleanly uninstalled afterward via `--uninstall-git`/`--uninstall`.",
+      "mutation_baseline_checked": null,
+      "rollback": "N/A -- verification-only; the scratch git repo is disposable session-scratchpad state, never tracked by this repo",
+      "blocker": null,
+      "resume_condition": null,
+      "note": "Verification-only taskcard, no separate Taskcard-Gate-G2 review required. The genuinely divergent (non-fast-forward) merge scenario was deliberately constructed after an initial attempt accidentally produced a trivial fast-forward that never exercised the merge driver at all -- caught by inspecting the merge output before accepting it as evidence, not assumed."
     },
     {
       "id": "LIBIPYNB-Q53",
