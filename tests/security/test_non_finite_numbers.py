@@ -283,7 +283,12 @@ class TestValidateRejectsNonFiniteConstants:
         as fully valid, and dumps() then raised NotebookWriteError. A tuple
         is a realistic shape here specifically because validate() accepts
         an already-constructed Python mapping directly -- not only JSON
-        text, which can never itself produce a tuple."""
+        text, which can never itself produce a tuple.
+
+        Second-review Gate G2 finding: this test originally only asserted
+        `any(...)` matched, which would still pass even if the reported
+        path were subtly wrong (e.g. an off-by-one tuple index) -- now
+        asserts the exact reported path too."""
         report = validate(
             {
                 "nbformat": 4,
@@ -293,7 +298,9 @@ class TestValidateRejectsNonFiniteConstants:
             }
         )
         assert report.is_valid is False
-        assert any(d.code == "IPYNB_NON_FINITE_NUMBER" for d in report.errors)
+        non_finite = [d for d in report.errors if d.code == "IPYNB_NON_FINITE_NUMBER"]
+        assert len(non_finite) == 1
+        assert non_finite[0].location.path == ("metadata", "custom", 1)
 
     def test_a_deeply_nested_structure_does_not_raise_recursion_error(self) -> None:
         """LIBIPYNB-Q18 Gate G2 finding: the original scanner used Python-
