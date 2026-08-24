@@ -53,6 +53,27 @@ def test_windows_reserved_device_names_are_unsafe() -> None:
         assert is_safe_resource_filename(reserved) is False, reserved
 
 
+def test_windows_reserved_superscript_digit_variants_are_unsafe() -> None:
+    """Gate-G2 review finding on LIBIPYNB-Q41: Microsoft's own current
+    "Naming Files, Paths, and Namespaces" documentation lists COM¹/COM²/
+    COM³ and LPT¹/LPT²/LPT³ (Unicode superscript digits, not ASCII "1"/
+    "2"/"3") as reserved alongside the ASCII-digit forms -- an initial
+    version of this check only covered the ASCII forms, missing these."""
+    for reserved in ("COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"):
+        assert is_safe_resource_filename(reserved) is False, reserved
+        assert is_safe_resource_filename(f"{reserved}.txt") is False, reserved
+
+
+def test_windows_reserved_names_with_a_trailing_space_are_unsafe() -> None:
+    """Gate-G2 review finding on LIBIPYNB-Q41: Win32's CreateFile strips
+    trailing dots/spaces from the final path component before resolving
+    it, so "CON " names the same reserved device as "CON" -- an initial
+    version of this check only stripped a trailing "." (via the
+    dot-split), not a trailing space with no dot present at all."""
+    for reserved in ("CON ", "con ", "NUL  "):
+        assert is_safe_resource_filename(reserved) is False, reserved
+
+
 def test_names_merely_starting_with_a_reserved_stem_are_safe() -> None:
     """A reserved name is matched by its exact stem up to the first "." --
     not as a substring/prefix. "CONFIG" and "CONSOLE.txt" both write fine

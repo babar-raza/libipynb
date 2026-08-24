@@ -146,3 +146,27 @@ def test_safe_attachment_name_accepted() -> None:
     assert any("chart" in n for n in resource_names), (
         f"Expected 'chart.png' in exported resources, got: {resource_names}"
     )
+
+
+# ---------------------------------------------------------------------------
+# LIBIPYNB-Q41: Windows-reserved-device-name rejection through the real
+# export pipeline (Gate-G2 review finding: prior coverage of this was
+# unit-level only, on is_safe_resource_filename directly -- never through
+# a real caller end-to-end).
+# ---------------------------------------------------------------------------
+
+
+def test_attachment_named_after_a_windows_reserved_device_is_skipped_on_export() -> None:
+    """An attachment named "CON.png" is not a path-traversal shape, so it
+    would pass every OTHER check in _collect_resources -- confirming it is
+    still excluded end-to-end, not just at the unit level, is the point of
+    this test."""
+    doc = _notebook_with_attachment("CON.png")
+    exporter = MarkdownExporter()
+
+    result = exporter.export(doc)
+
+    resource_names = [r.filename for r in result.resources]
+    assert "CON.png" not in resource_names, (
+        f"a Windows-reserved-device-named attachment leaked through export: {resource_names}"
+    )
