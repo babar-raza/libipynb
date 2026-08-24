@@ -341,17 +341,23 @@
       "title": "PDF backend detection is a false positive",
       "depends_on": [],
       "owner": "implementer+separate_reviewer",
-      "status": "NOT_STARTED",
-      "legacy_status_equivalent": "not_attempted",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "objective": "Minimal functional LaTeX probe instead of shutil.which()-only.",
       "verification_command": "pytest tests/integration/test_obligation_html_jupytext_export.py -v",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": null,
+      "repair_commit": "c10854ed5647885cfeb9cca543608d05076bef18",
+      "review_lenses_applied": [
+        "cardinality_spec_conformance",
+        "resource_durability_failure_path",
+        "test_infrastructure_honesty"
+      ],
+      "oracle_tier_actually_executed": "reviewer's own follow-up empirical test against a real TeX Live install (leplusorg/latex Docker image, real xelatex) confirmed the probe's happy-path and broken-compile-path detection both work correctly against genuine LaTeX output, not just mocks",
       "mutation_baseline_checked": null,
-      "rollback": "git revert single commit",
+      "rollback": "git revert; two commits (47b99c3, c10854e)",
       "blocker": null,
-      "resume_condition": null
+      "resume_condition": null,
+      "implementation_commit": "47b99c3e455360e05090550376d5409d17bac28b",
+      "note": "Implementation 47b99c3 (functional compile probe replacing shutil.which()-only detection). Independent Taskcard-Gate-G2 review independently re-ran every claimed command and confirmed all matched exactly, including a negative control (reproduced the OLD fixture's exact logic and confirmed it would NOT have skipped on a present-but-broken binary). Zero CRITICAL findings; 4 findings (1 MAJOR, 1 MINOR, 1 MINOR-INFO, 1 NIT-no-repair-needed), repaired in c10854e: (1) MAJOR -- the probe's playwright branch was unprobed AND the wrong signal for the LaTeX-only fmt=\"pdf\" test it gates (confirmed via nbconvert's actual PDFExporter source -- LatexExporter-based, never touches playwright); removed entirely, scoped explicitly to LaTeX, playwright/webpdf probing deferred to LIBIPYNB-Q37; (2) MINOR -- no test exercised the `or pdflatex` fallback; added; (3) MINOR-INFO -- TemporaryDirectory() default cleanup could raise on a narrow Windows lock edge case; added ignore_cleanup_errors=True; (4) NIT -- timeout=30 risk needed no repair, downgraded to INFO after the reviewer's own follow-up empirical TeX Live test showed real compiles run ~30x under budget. Given zero CRITICAL findings, a second independent review round was not required per this engagement's established policy (Q19/Q21 precedent)."
     },
     {
       "id": "LIBIPYNB-Q26",
