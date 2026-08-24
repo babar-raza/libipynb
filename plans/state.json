@@ -753,18 +753,21 @@
         "LIBIPYNB-Q23"
       ],
       "owner": "implementer+separate_reviewer",
-      "status": "IMPLEMENTED_UNVERIFIED",
-      "legacy_status_equivalent": "completed_but_weakly_verified",
+      "status": "VERIFIED",
+      "legacy_status_equivalent": "completed_verified",
       "verification_command": "pytest tests/integration/test_obligation_html_jupytext_export.py -v --tb=short",
-      "repair_commit": null,
-      "review_lenses_applied": [],
-      "oracle_tier_actually_executed": "Investigated scope first before writing anything: HtmlExporter/NbconvertExporter already have comprehensive corrupted/partial coverage (missing interpreter, uninstalled module, non-zero exit, timeout, missing output file after reported success) and the PDF backend probe already covers present-but-broken LaTeX (LIBIPYNB-Q23's own original scope) -- confirmed by reading the existing test file in full, nothing to add there. Papermill is not a subprocess-shelled adapter in this codebase at all -- confirmed via grep, zero runtime import/invocation anywhere in src/libipynb (LIBIPYNB-Q35 is a native re-implementation; papermill is only used as a comparison reference in tests/oracle/) -- so the plan's 'papermill once Q35 lands' scope does not apply. The one genuine gap: JupytextExporter only had 'package not installed at all' failure-path coverage. Added 2 tests: an invalid fmt string against the REAL, installed jupytext library (empirically verified first, via a standalone script, that this produces a clean NotebookError before writing the test -- not assumed from reading the adapter's try/except), and a deterministic stub-module test simulating a corrupted/partial jupytext install raising internally. Both confirm the adapter's existing `except Exception` wrapping is actually exercised end-to-end, not merely assumed correct from reading the code. Full file re-run: 28 passed, 1 skipped (no LaTeX backend installed in this environment, a genuine, pre-existing, correctly-disclosed skip -- not caused by this change). Purely additive test file change, zero production code touched.",
+      "repair_commit": "23b4a9b033a0b0a8b156c032bf9c8bfc401975c8",
+      "review_lenses_applied": [
+        "test_infrastructure_honesty",
+        "spec_conformance_line_by_line"
+      ],
+      "oracle_tier_actually_executed": "Investigated scope first before writing anything: HtmlExporter/NbconvertExporter already have comprehensive corrupted/partial coverage (missing interpreter, uninstalled module, non-zero exit, timeout, missing output file after reported success) and the PDF backend probe already covers present-but-broken LaTeX (LIBIPYNB-Q23's own original scope). Papermill is not a subprocess-shelled adapter in this codebase at all -- zero runtime import/invocation anywhere in src/libipynb. The one genuine gap: JupytextExporter only had 'package not installed at all' failure-path coverage. Added 2 tests. Independent Taskcard-Gate-G2 review verdict: 'No CRITICAL or MAJOR findings -- safe to mark VERIFIED as-is.' The reviewer independently confirmed the papermill-not-invoked claim (own grep of src/libipynb, own read of pyproject.toml's extras groups, cross-checked against tests/unit/test_import_boundary.py's own static forbidden-import list), independently ran the negative control the implementer had skipped (temporarily removed the except-Exception wrapper in JupytextExporter.export(), confirmed both new tests fail without it, restored the file with zero residue), and confirmed the stub test's mock target (`fake_jupytext.reads`) matches the adapter's actual call order (reads before writes) so it isn't fragilely coupled to current behavior. 3 MINOR findings: (1) the first new test's docstring mislabeled it as a 'backend incomplete' test when it's really proving the wrapper catches a real exception type from a healthy install -- repaired in 23b4a9b; (2) the missing negative control -- already closed by the reviewer's own verification, no repair needed; (3) a new, genuinely out-of-scope gap found: NbconvertExporter's binary-output path only checks the output file exists, never validates its content, so a 'success exit code + file exists + truncated/garbage content' scenario (e.g. a broken LaTeX distribution emitting a stub PDF) is neither implemented nor tested -- logged as new backlog item LIBIPYNB-Q59, not fixed here (requires an implementation change, out of scope for this test-only diff). Full file re-run post-repair: 28 passed, 1 skipped (pre-existing, correctly-disclosed LaTeX-backend-absent skip).",
       "mutation_baseline_checked": null,
-      "rollback": "git revert 35c3147; additive test-only change, zero production-code risk",
+      "rollback": "git revert 23b4a9b, then 35c3147; additive test-only change, zero production-code risk",
       "blocker": null,
       "resume_condition": null,
       "implementation_commit": "35c31479e41fb77e4823571ca07f7f52c0983572",
-      "note": "Implementation 35c3147. Not yet independently reviewed by a separate Agent (Taskcard-Gate-G2) -- self-verified only."
+      "note": "Implementation 35c3147, repair 23b4a9b, VERIFIED after one Taskcard-Gate-G2 review round (zero CRITICAL/MAJOR, 3 MINOR, no second round needed). See LIBIPYNB-Q59 for the new backlog item this review's investigation surfaced."
     },
     {
       "id": "LIBIPYNB-Q46",
@@ -952,6 +955,27 @@
       "blocker": null,
       "resume_condition": null,
       "discovered_by": "LIBIPYNB-Q31's own mutation-testing pilot run (this session's own implementation work, not a separate reviewer) -- recorded as a new backlog item per this engagement's established discipline rather than silently dropped or force-fixed inline with Q31"
+    },
+    {
+      "id": "LIBIPYNB-Q59",
+      "phase": 4,
+      "title": "NbconvertExporter's binary-output path never validates output-file content, only its existence",
+      "depends_on": [
+        "LIBIPYNB-Q23"
+      ],
+      "owner": "implementer+separate_reviewer",
+      "status": "NOT_STARTED",
+      "legacy_status_equivalent": "not_attempted",
+      "objective": "src/libipynb/adapters/export.py's NbconvertExporter binary-output path (fmt='pdf'/other binary formats) writes to --output-dir and reads the resulting file back, but only ever checks output_path.is_file() -- never that the content is non-empty or looks like the claimed format (e.g. a PDF's %PDF- magic bytes). A 'success exit code, file exists, but truncated/garbage content' scenario -- a real, realistic failure mode for a broken/incomplete LaTeX distribution emitting a stub or corrupted PDF -- is neither implemented nor tested, and would currently be reported as a successful export with corrupt binary content rather than a clear NotebookError. Distinct from the already-covered 'reported success but no output file at all' case (test_missing_output_file_after_a_reported_success_raises_a_clear_error).",
+      "verification_command": "pytest tests/integration/test_obligation_html_jupytext_export.py -v --tb=short",
+      "repair_commit": null,
+      "review_lenses_applied": [],
+      "oracle_tier_actually_executed": null,
+      "mutation_baseline_checked": null,
+      "rollback": "revert; new validation logic + regression test, isolated to NbconvertExporter's binary-output path",
+      "blocker": null,
+      "resume_condition": null,
+      "discovered_by": "LIBIPYNB-Q45's independent Taskcard-Gate-G2 review (a genuinely separate Agent), while confirming the taskcard's own claim that HtmlExporter/NbconvertExporter already had comprehensive corrupted/partial-failure coverage -- found this one real, unflagged gap; correctly scoped as a new backlog item rather than fixed inline, since it requires an implementation change (new validation logic), not just a test, and Q45 itself was a test-only diff"
     }
   ]
 }
