@@ -12,9 +12,12 @@ exercises the tool-unavailable error path directly.
 
 from __future__ import annotations
 
+import functools
 import shutil
 import subprocess
 import sys
+import tempfile
+import types
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +38,53 @@ def jupytext_available() -> None:
     pytest.importorskip("jupytext", reason="jupytext (export extra) is not installed")
 
 
+@functools.lru_cache(maxsize=1)
+def _pdf_backend_probe_result() -> str | None:
+    """LIBIPYNB-Q23 (P0-H): `shutil.which()` alone only proves a binary
+    named xelatex/pdflatex exists on PATH -- it does not prove that binary
+    can actually compile anything. A minimal/incomplete TeX install, a
+    broken symlink, or a stub binary (all realistic on a shared CI image)
+    can pass a which()-only check while being unable to produce a PDF,
+    which would make this probe falsely report the backend as available.
+    Instead, actually compile a trivial document and confirm a `.pdf`
+    results. Returns None if a real, working backend was confirmed;
+    otherwise a human-readable reason. Callers must not collapse "no
+    binary found" and "binary found but non-functional" into the same
+    reason -- the second case is a signal a real exporter regression could
+    be hiding behind a false "environment not set up" skip, not an actual
+    environment gap. Cached for the process lifetime: the compile attempt
+    itself is slow and this is called by a fixture every test may request."""
+    binary = shutil.which("xelatex") or shutil.which("pdflatex")
+    if binary is not None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tex_path = Path(tmp_dir) / "probe.tex"
+            tex_path.write_text(
+                r"\documentclass{article}\begin{document}probe\end{document}",
+                encoding="utf-8",
+            )
+            try:
+                subprocess.run(
+                    [binary, "-interaction=nonstopmode", "-halt-on-error", tex_path.name],
+                    cwd=tmp_dir,
+                    capture_output=True,
+                    timeout=30,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return f"PDF backend binary {binary!r} is present but failed to run ({exc})"
+            if (Path(tmp_dir) / "probe.pdf").is_file():
+                return None
+            return (
+                f"PDF backend binary {binary!r} is present but failed to compile a "
+                "minimal document -- an incomplete LaTeX install, not an absent one"
+            )
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return "no PDF backend (xelatex/pdflatex or playwright for webpdf) is installed"
+    return None
+
+
 @pytest.fixture
 def pdf_backend_available() -> None:
     """LIBIPYNB-Q15b: `pdf`/`webpdf` need a real LaTeX toolchain or a real
@@ -42,13 +92,13 @@ def pdf_backend_available() -> None:
     `export` extra (matching real nbconvert's own separate requirement for
     these two formats specifically). Skips cleanly, matching
     `tests/oracle/`'s own established convention for tool-not-installed
-    cases, rather than failing in every environment that lacks either."""
-    if shutil.which("xelatex") or shutil.which("pdflatex"):
-        return
-    try:
-        import playwright  # noqa: F401
-    except ImportError:
-        pytest.skip("no PDF backend (xelatex/pdflatex or playwright for webpdf) is installed")
+    cases, rather than failing in every environment that lacks either --
+    via a real functional probe (LIBIPYNB-Q23, P0-H; see
+    `_pdf_backend_probe_result`'s own docstring), not a presence-only
+    check that could be a false positive."""
+    reason = _pdf_backend_probe_result()
+    if reason is not None:
+        pytest.skip(reason)
 
 
 def _document() -> NotebookDocument:
@@ -265,6 +315,125 @@ class TestNbconvertExporter:
     def test_empty_fmt_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="fmt"):
             NbconvertExporter(fmt="")
+
+
+class TestPdfBackendProbe:
+    """LIBIPYNB-Q23 (P0-H): the old `pdf_backend_available` fixture used
+    `shutil.which()` alone, which is a false positive for a present-but-
+    broken LaTeX install -- these tests exercise `_pdf_backend_probe_result`
+    directly (not through the fixture, so `shutil.which`/`subprocess.run`
+    can be controlled deterministically regardless of what is actually
+    installed on the machine running these tests) to confirm absent,
+    present-but-broken, and present-and-working are three genuinely
+    distinct outcomes, not collapsed into a single bool."""
+
+    def setup_method(self) -> None:
+        _pdf_backend_probe_result.cache_clear()
+
+    def teardown_method(self) -> None:
+        _pdf_backend_probe_result.cache_clear()
+
+    def test_no_binary_and_no_playwright_reports_the_original_absent_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        monkeypatch.setitem(sys.modules, "playwright", None)
+
+        assert (
+            _pdf_backend_probe_result()
+            == "no PDF backend (xelatex/pdflatex or playwright for webpdf) is installed"
+        )
+
+    def test_no_latex_binary_but_playwright_importable_reports_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+
+        assert _pdf_backend_probe_result() is None
+
+    def test_binary_present_but_unrunnable_is_a_distinct_reason_not_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stub/broken symlink named `xelatex` on PATH: `which()` finds
+        it, but it cannot even be executed."""
+        monkeypatch.setattr(
+            shutil, "which", lambda name: "/fake/bin/xelatex" if name == "xelatex" else None
+        )
+
+        def _fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            raise OSError("Exec format error")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        reason = _pdf_backend_probe_result()
+
+        assert reason is not None
+        assert "present but failed to run" in reason
+        assert "no PDF backend" not in reason
+
+    def test_binary_present_but_compilation_produces_no_pdf_is_a_distinct_reason_not_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A real but incomplete TeX install: the binary runs and exits,
+        but a missing style/class file means no `.pdf` is ever produced --
+        this is exactly the false-positive case `shutil.which()` alone
+        could never have caught."""
+        monkeypatch.setattr(
+            shutil, "which", lambda name: "/fake/bin/xelatex" if name == "xelatex" else None
+        )
+
+        def _fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            return subprocess.CompletedProcess(
+                args, returncode=1, stdout=b"", stderr=b"! LaTeX Error: File not found"
+            )
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        reason = _pdf_backend_probe_result()
+
+        assert reason is not None
+        assert "present but failed to compile" in reason
+        assert "no PDF backend" not in reason
+
+    def test_binary_present_and_successfully_compiling_reports_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            shutil, "which", lambda name: "/fake/bin/xelatex" if name == "xelatex" else None
+        )
+
+        def _fake_run(
+            args: list[str], cwd: str, **kwargs: Any
+        ) -> subprocess.CompletedProcess[bytes]:
+            (Path(cwd) / "probe.pdf").write_bytes(b"%PDF-1.4 fake probe output")
+            return subprocess.CompletedProcess(args, returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        assert _pdf_backend_probe_result() is None
+
+    def test_result_is_cached_across_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = 0
+
+        def _counting_which(name: str) -> str | None:
+            nonlocal calls
+            calls += 1
+            return None
+
+        monkeypatch.setattr(shutil, "which", _counting_which)
+        monkeypatch.setitem(sys.modules, "playwright", None)
+
+        _pdf_backend_probe_result()
+        calls_after_first_probe = calls
+        _pdf_backend_probe_result()
+        _pdf_backend_probe_result()
+
+        # The first probe calls which() once per candidate binary name
+        # (xelatex, then pdflatex); every call after that must hit the
+        # cache rather than re-probing.
+        assert calls_after_first_probe > 0
+        assert calls == calls_after_first_probe
 
 
 class TestJupytextExporter:
