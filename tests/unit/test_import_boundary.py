@@ -40,6 +40,7 @@ from pathlib import Path
 FORBIDDEN_TOP_LEVEL_MODULES = (
     "jupyter_client",
     "nbclient",
+    "ipykernel",
     "nbdime",
     "nbconvert",
     "papermill",

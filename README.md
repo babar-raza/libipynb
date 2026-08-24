@@ -122,11 +122,12 @@ For real Jupyter-kernel execution (`libipynb.execution.LocalJupyterExecutor`,
 pip install "libipynb[exec]"
 ```
 
-This installs `jupyter_client`/`nbclient` but not a kernel -- you also need at
-least one installed kernel (`pip install ipykernel && python -m ipykernel
-install --user` for Python). Everything else in libipynb, including the
-original dependency-free `libipynb.adapters.execute_notebook` subprocess
-adapter, works with none of this installed.
+This installs `jupyter_client`/`nbclient` and `ipykernel` (a real kernel
+implementation), but a kernel still has to be *registered* before
+`jupyter_client` can find it: `python -m ipykernel install --user`. Everything
+else in libipynb, including the original dependency-free
+`libipynb.adapters.execute_notebook` subprocess adapter, works with none of
+this installed.
 
 ## Quick Start
 
