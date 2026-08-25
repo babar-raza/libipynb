@@ -91,13 +91,38 @@ def _minimal_env(extra_env: dict[str, str] | None) -> dict[str, str]:
 
 def _memory_limit_preexec_fn(max_memory_bytes: int) -> Callable[[], None] | None:
     """A ``preexec_fn`` enforcing an address-space cap via ``RLIMIT_AS`` --
-    POSIX only. ``subprocess.Popen`` raises ``ValueError`` if ``preexec_fn``
-    is passed at all on Windows (not merely a no-op there), so callers must
-    not pass one on that platform; Windows memory limiting needs the Job
-    Objects API instead, not implemented here -- see LIBIPYNB-V4 in
-    plans/remediation-plan.md for that follow-up scope decision.
+    POSIX only, and in practice Linux only. ``subprocess.Popen`` raises
+    ``ValueError`` if ``preexec_fn`` is passed at all on Windows (not merely
+    a no-op there), so callers must not pass one on that platform; Windows
+    memory limiting needs the Job Objects API instead, not implemented here
+    -- see LIBIPYNB-V4 in plans/remediation-plan.md for that follow-up scope
+    decision.
+
+    LIBIPYNB-Q64: macOS is excluded the same way, not because
+    ``preexec_fn`` is rejected outright there (it isn't), but because
+    ``resource.setrlimit(RLIMIT_AS, ...)`` itself is unreliable on XNU --
+    confirmed via a real CI failure (``subprocess.SubprocessError:
+    Exception occurred in preexec_fn.`` on ``macos-latest``), not a
+    hypothetical. The call site (``execute_notebook``) already raises a
+    loud, documented ``NotebookExecutionError`` before ever reaching this
+    function on both excluded platforms, matching this module's existing
+    principle that a caller who explicitly asked for a memory limit and
+    silently got none (or a crash) is exactly the failure mode to avoid --
+    this function's own platform guard is defense-in-depth, not the
+    primary gate.
     """
+    # Two separate `==` checks, not `sys.platform in (...)`: mypy's
+    # platform-conditional unreachability inference (used to skip
+    # type-checking the POSIX-only `import resource` below when analyzing
+    # for a non-POSIX target platform) only special-cases direct
+    # `sys.platform == "<literal>"` comparisons, not tuple membership --
+    # confirmed directly: a tuple-membership version reintroduces two
+    # `resource.setrlimit`/`RLIMIT_AS` "no attribute" errors under
+    # `mypy --strict` on a Windows-targeted run that the two-comparison
+    # form does not.
     if sys.platform == "win32":
+        return None
+    if sys.platform == "darwin":
         return None
 
     def _set_limit() -> None:
@@ -533,9 +558,12 @@ def execute_notebook(
       fills during capture -- a true streaming-bounded read is a further
       step, not implemented here.
     - ``max_memory_bytes`` (default None = no limit): enforced via
-      ``RLIMIT_AS`` on POSIX. **Not enforceable on Windows** -- passing
-      it there raises ``NotebookExecutionError`` rather than silently
-      running unlimited, since a caller who explicitly asked for a
+      ``RLIMIT_AS`` on Linux. **Not enforceable on Windows or macOS** --
+      passing it on either platform raises ``NotebookExecutionError``
+      rather than silently running unlimited (Windows) or crashing the
+      driver subprocess with an unrelated-looking ``SubprocessError``
+      (macOS, where ``RLIMIT_AS`` enforcement is unreliable at the OS
+      level -- LIBIPYNB-Q64), since a caller who explicitly asked for a
       memory limit and silently got none is exactly the "looks safe but
       isn't" failure mode this module tries to avoid elsewhere.
 
@@ -572,6 +600,21 @@ def execute_notebook(
             "equivalent used here). Pass max_memory_bytes=None on this "
             "platform rather than proceeding without the limit silently."
         )
+    if max_memory_bytes is not None and sys.platform == "darwin":
+        # LIBIPYNB-Q64: RLIMIT_AS via preexec_fn is unreliable on macOS at
+        # the OS level -- confirmed via a real CI failure where
+        # resource.setrlimit(RLIMIT_AS, ...) itself raised inside
+        # preexec_fn, surfacing as an opaque subprocess.SubprocessError
+        # rather than enforcing anything. Raise loudly here, before ever
+        # spawning the subprocess, matching the Windows guard above,
+        # rather than letting the crash happen inside preexec_fn.
+        raise NotebookExecutionError(
+            "max_memory_bytes cannot be reliably enforced on macOS "
+            "(RLIMIT_AS enforcement is unsupported at the OS level and "
+            "raises inside the child process rather than limiting it). "
+            "Pass max_memory_bytes=None on this platform rather than "
+            "proceeding without the limit silently."
+        )
     resolved_kernel = _resolve_kernel(document, kernel)
     sources = [_cell_source(cell) for cell in document.code_cells]
     payload = json.dumps({"sources": sources, "on_error": on_error})
@@ -582,7 +625,14 @@ def execute_notebook(
     resolved_env = _minimal_env(extra_env) if isolate_env else None
     preexec_fn = _memory_limit_preexec_fn(max_memory_bytes) if max_memory_bytes else None
     work_dir_ctx = tempfile.TemporaryDirectory(prefix="libipynb-exec-") if isolate_cwd else None
-    work_dir = work_dir_ctx.name if work_dir_ctx is not None else None
+    # LIBIPYNB-Q63: realpath, not the raw TemporaryDirectory().name -- on
+    # macOS the system temp root (/var/folders/...) is itself a symlink
+    # (/var -> /private/var), so a child subprocess's own os.getcwd()
+    # reports the resolved form while the raw name does not. Confirmed via
+    # a real CI failure comparing the two directly. Resolving here, once,
+    # keeps every caller-facing use of ExecutionReport.work_dir consistent
+    # with what a spawned child actually reports as its cwd.
+    work_dir = os.path.realpath(work_dir_ctx.name) if work_dir_ctx is not None else None
     try:
         try:
             raw_bytes, timed_out = _run_driver_subprocess(

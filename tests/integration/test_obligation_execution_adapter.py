@@ -660,7 +660,12 @@ def test_max_memory_bytes_on_windows_refuses_rather_than_silently_ignoring() -> 
         )
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="RLIMIT_AS is POSIX-only")
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="RLIMIT_AS enforcement is reliable on Linux only (LIBIPYNB-Q64: "
+    "unreliable/crashing on macOS, see test_max_memory_bytes_on_macos_"
+    "refuses_rather_than_silently_crashing below)",
+)
 def test_max_memory_bytes_is_enforced_on_posix() -> None:
     document = _document(
         [_code("data = bytearray(200 * 1024 * 1024)")]  # 200 MiB, well past the limit below
@@ -677,6 +682,24 @@ def test_max_memory_bytes_is_enforced_on_posix() -> None:
     assert report.results[0].succeeded is False
     assert report.results[0].error is not None
     assert report.results[0].error.ename == "MemoryError"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS-specific refusal behavior")
+def test_max_memory_bytes_on_macos_refuses_rather_than_silently_crashing() -> None:
+    # LIBIPYNB-Q64: before this fix, RLIMIT_AS's unreliability on macOS
+    # surfaced as an opaque subprocess.SubprocessError from inside
+    # preexec_fn, not a clean, documented refusal -- confirmed via a real
+    # CI failure, not a hypothetical. This must fail loudly and early
+    # instead, the same way the Windows case already does.
+    document = _document([_code("pass")])
+
+    with pytest.raises(NotebookExecutionError, match="macOS"):
+        execute_notebook(
+            document,
+            timeout=10,
+            acknowledge_unsandboxed=True,
+            max_memory_bytes=64 * 1024 * 1024,
+        )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="RLIMIT_AS is POSIX-only")
