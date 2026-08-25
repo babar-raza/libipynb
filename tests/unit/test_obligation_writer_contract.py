@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from libipynb import dump, dumps, loads, validate
+from libipynb import dump, dumps, loads, roundtrip, validate
 
 INDENTS: list[int | None] = [None, 0, 1, 2, 4]
 
@@ -212,3 +212,116 @@ def test_dump_writes_utf8_bytes_to_a_file(tmp_path: Path, indent: int | None) ->
 @pytest.mark.parametrize("indent", INDENTS)
 def test_written_notebook_still_validates(indent: int | None) -> None:
     assert validate(json.loads(_write(indent=indent)), profile="4.5").is_valid
+
+
+# ── roundtrip() (LIBIPYNB-Q58: LIBIPYNB-Q31's mutation-testing pilot found ──
+# this public, README-documented convenience function ("Load and re-serialize
+# with minimal diff") had zero test coverage at all -- mutmut's own
+# coverage-based test selection found literally no test touching any mutated
+# line of it (all 21 of its mutants: "no tests"). The 3 tests below each
+# target one of `roundtrip`'s own 3 lines specifically, discriminating the
+# EXACT argument values it must use, not just "some" value:
+#
+#   def roundtrip(source: Source, dest: Destination) -> dict[str, Any]:
+#       document = load(source, mode="preservation")
+#       dump(document, dest, profile="declared")
+#       return load(dest, mode="preservation").raw
+
+
+def test_roundtrip_uses_preservation_mode_for_the_initial_load(tmp_path: Path) -> None:
+    """`load()` defaults to `mode="strict"` -- if roundtrip() ever passed
+    that default instead of "preservation" (e.g. the `mode=` keyword
+    argument dropped entirely), a source with a duplicate JSON key would
+    be rejected outright (IPYNB_DUPLICATE_KEY): strict mode rejects
+    duplicate keys, preservation mode tolerates them with a
+    last-value-wins recovery action (matching
+    test_duplicate_keys_rejected_in_strict_mode/
+    test_duplicate_keys_last_value_wins_in_preservation_mode in
+    test_obligation_security_limits.py). Otherwise structurally
+    complete (unlike a missing-required-key approach) so this doesn't
+    also trip the DIFFERENT, later "declared profile requires a
+    non-negative nbformat 4.x version" requirement at dump() time."""
+    source = '{"nbformat":4,"nbformat_minor":5,"metadata":{"x":1,"x":2},"cells":[]}'
+    dest = tmp_path / "out.ipynb"
+
+    result = roundtrip(source, dest)
+
+    assert result["metadata"]["x"] == 2
+    assert dest.is_file()
+
+
+def test_roundtrip_uses_the_declared_profile_for_the_dump(tmp_path: Path) -> None:
+    """`dumps()`'s own docstring: `profile=None` resolves to the
+    schema-validating "4.5" profile, which "requires the document
+    already be declared 4.5"; `profile="declared"` is a passthrough
+    preserving whatever version the document actually declares. A
+    document declaring an older minor version (4.2, not the current
+    4.5) distinguishes the two: "declared" must round-trip it
+    unchanged, and would fail the pyproject-documented "requires 4.5"
+    contract if the wrong profile value were ever used instead."""
+    source = json.dumps(
+        {
+            "nbformat": 4,
+            "nbformat_minor": 2,
+            "metadata": {},
+            "cells": [],
+        }
+    )
+    dest = tmp_path / "out.ipynb"
+
+    result = roundtrip(source, dest)
+
+    assert result["nbformat_minor"] == 2
+    written = json.loads(dest.read_text(encoding="utf-8"))
+    assert written["nbformat_minor"] == 2
+
+
+def test_roundtrip_uses_preservation_mode_for_the_final_load_too(tmp_path: Path) -> None:
+    """The FIRST test above discriminates the initial `load()`'s
+    `mode=` keyword; this one targets the THIRD line's own `load(dest,
+    mode="preservation")` specifically (a mutmut-confirmed survivor
+    dropped that keyword entirely, defaulting to `mode="strict"`).
+    Strict mode's own extra check (`major != 4 or ... or minor > 5`)
+    rejects any nbformat_minor above 5; preservation mode does not.
+    `nbformat_minor=6` is valid input for `dump(..., profile="declared")`
+    (declared only requires a non-negative int, not <= 5) but would make
+    the FINAL `load()` raise if it silently fell back to strict mode --
+    a duplicate-key trick (test 1's own discriminator) can't reach this
+    line, since dump() always writes canonical, duplicate-free JSON."""
+    source = json.dumps(
+        {
+            "nbformat": 4,
+            "nbformat_minor": 6,
+            "metadata": {},
+            "cells": [],
+        }
+    )
+    dest = tmp_path / "out.ipynb"
+
+    result = roundtrip(source, dest)
+
+    assert result["nbformat_minor"] == 6
+
+
+def test_roundtrip_returns_what_was_actually_written_to_dest(tmp_path: Path) -> None:
+    """The return value must come from re-reading `dest` (the third
+    line's own `load(dest, ...)`), not e.g. the first load's document
+    returned directly -- verified by an independent, roundtrip()-free
+    read of the same file (plain `Path.read_text` + `json.loads`, not
+    this library's own `load()`, so this test cannot pass merely
+    because both reads share the same underlying bug)."""
+    source = json.dumps(
+        {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"custom_marker": "distinguish-me"},
+            "cells": [],
+        }
+    )
+    dest = tmp_path / "out.ipynb"
+
+    result = roundtrip(source, dest)
+
+    independently_read = json.loads(dest.read_text(encoding="utf-8"))
+    assert result == independently_read
+    assert result["metadata"]["custom_marker"] == "distinguish-me"

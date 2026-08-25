@@ -144,6 +144,25 @@ pytest_add_cli_args_test_selection = [
     # loader, another repo-root path outside src/libipynb, orthogonal to
     # codec/writer.py's own behavior.
     "--ignore=tests/scripts/test_fetch_fixture.py",
+    # LIBIPYNB-Q58: this file's Hypothesis-based tests cover
+    # adapters/execute.py's output-budget function -- zero overlap with
+    # codec/writer.py, the only module `only_mutate` above ever mutates --
+    # so it contributes no mutation-killing power and is pure baseline-run
+    # risk. Confirmed as real risk, not hypothetical: mutmut's own clean-
+    # test baseline run failed outright here with Hypothesis's
+    # `differing_executors` health check (a persisted `.hypothesis`
+    # example-database entry from an earlier plain-pytest run on this same
+    # long-lived WSL checkout got replayed under mutmut's own
+    # coverage.py-wrapped pytest invocation -- a different "executor" by
+    # Hypothesis's own definition), which aborted the entire run (every
+    # mutant showed "not checked", not real kill/survive results). Real CI
+    # never hits this: `.hypothesis/` is untracked and gitignored (this
+    # session also closed that gap, see .gitignore), so a fresh checkout
+    # always starts with an empty example database. Ignored here rather
+    # than deleting `.hypothesis` before every mutmut invocation, which is
+    # an easy-to-forget manual step and not a real fix for a file mutmut
+    # never needed to run in the first place.
+    "--ignore=tests/property/test_property_output_truncation.py",
     # CONFIRMED root cause of every mutant showing "no tests" (pytest exit
     # code 5, "no tests collected") in earlier pilot runs: pytest-cov
     # (installed via the `test` extra) auto-registers as a pytest plugin

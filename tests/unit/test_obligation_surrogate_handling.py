@@ -80,6 +80,12 @@ def test_lone_surrogate_raises_typed_write_error_under_declared_profile() -> Non
     with pytest.raises(NotebookWriteError) as excinfo:
         dumps(doc, profile="declared")
     assert excinfo.value.code == "IPYNB_INVALID_SURROGATE"
+    # LIBIPYNB-Q58: message content, not just .code -- a mutmut-confirmed
+    # survivor replaced this f-string with `None` (producing the literal
+    # message "None"), which .code alone can't see.
+    assert str(excinfo.value).startswith(
+        "notebook contains invalid unicode (unpaired UTF-16 surrogate): "
+    )
 
 
 def test_lone_surrogate_still_produces_a_clean_validation_report_not_a_crash() -> None:

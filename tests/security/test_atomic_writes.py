@@ -238,8 +238,13 @@ class TestSymlinkPolicy:
         os.symlink(b, a)
         os.symlink(a, b)
 
-        with pytest.raises(NotebookWriteError):
+        with pytest.raises(NotebookWriteError) as excinfo:
             dump(minimal_doc, a, profile="declared")
+        # LIBIPYNB-Q58: message content, not just the exception type -- a
+        # mutmut-confirmed survivor replaced this f-string with `None`
+        # (producing the literal message "None"), which the bare type
+        # check alone can't see.
+        assert str(excinfo.value).startswith(f"cannot write notebook to {a}: ")
 
 
 class TestDurability:
