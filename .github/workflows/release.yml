@@ -45,6 +45,18 @@ jobs:
           pip install -e ".[test,exec,export]"
           pip install mypy==2.3.0
       - run: mypy --strict src/libipynb/
+      # LIBIPYNB-Q69 (Q67 Gate-G2 review finding): without a registered
+      # kernelspec, tests/integration/test_obligation_jupyter_execution_
+      # adapter.py's 67 real-kernel tests module-level skip rather than
+      # run -- the `exec` extra above installs nbclient/jupyter_client,
+      # but installing the package alone doesn't register a kernel to
+      # launch against. Matches ci.yml's `test` matrix job's identical,
+      # already-proven fix (LIBIPYNB-Q57); a local dev venv that already
+      # has a kernel registered from unrelated work masks this gap, which
+      # is exactly why it survived undetected in local dry-run testing
+      # here until an independent Gate-G2 review caught it.
+      - name: Register a python3 kernelspec (for the real-kernel tests below)
+        run: python -m ipykernel install --user --name python3
       # LIBIPYNB-Q67: this job previously ran only
       # unit/integration/security/property, silently skipping
       # tests/scripts/ (state.json evidence validation) and the

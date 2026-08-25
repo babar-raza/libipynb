@@ -82,8 +82,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # LIBIPYNB-Q69 (Q67 Gate-G2 review finding): this job runs the full
+      # tests/ tree, including tests/integration/
+      # test_obligation_jupyter_execution_adapter.py's 67 real-kernel
+      # tests -- which module-level pytest.importorskip/skip if no
+      # `python3` kernelspec is registered. `.[test]` alone doesn't
+      # install `exec` (nbclient/jupyter_client) or register one, so
+      # those 67 tests were silently skipping here, not actually running
+      # -- the identical gap LIBIPYNB-Q57 already fixed for the `test`
+      # matrix job below, never applied to this job. A local dev venv
+      # that already happens to have a kernel registered from unrelated
+      # work masks this; a genuinely fresh CI runner does not.
       - name: Install package
-        run: pip install -e ".[test]"
+        run: |
+          pip install -e ".[test,exec]"
+          python -m ipykernel install --user --name python3
       - name: pytest --cov (fail_under=85 gate)
         run: pytest tests/ --cov=libipynb --cov-report=term-missing
 
