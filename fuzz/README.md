@@ -1,6 +1,6 @@
-# Coverage-guided fuzzing (LIBIPYNB-V3)
+# Coverage-guided fuzzing (LIBIPYNB-V3, extended under LIBIPYNB-Q40)
 
-Four `atheris`-based fuzz targets for the boundaries that process untrusted
+Six `atheris`-based fuzz targets for the boundaries that process untrusted
 input directly:
 
 - `fuzz_parser.py` -- `libipynb.loads()` on raw bytes (the actual untrusted
@@ -12,6 +12,21 @@ input directly:
   HTML/Markdown without rendering it).
 - `fuzz_diff_merge.py` -- `diff_notebooks()`/`merge_notebooks()` on pairs/
   triples of fuzzed-but-structurally-plausible notebooks.
+- `fuzz_nan_infinity.py` -- `libipynb.loads()` specifically driving coverage
+  into the `NaN`/`Infinity`/`-Infinity` strict-mode rejection path
+  (LIBIPYNB-Q18/P0-C), by constructing plausible notebook JSON text with a
+  fuzzer-chosen non-finite constant embedded at a fuzzer-chosen leaf
+  position -- `fuzz_parser.py`'s pure random-byte mutation is extremely
+  unlikely to stumble onto these exact literal tokens in a syntactically
+  valid numeric position within a bounded time budget on its own.
+- `fuzz_output_truncation.py` -- `adapters.execute._apply_output_budget`
+  (LIBIPYNB-Q16/P0-A) and `adapters.jupyter_execute.
+  _truncate_outputs_if_needed` (LIBIPYNB-Q17/P0-B) called directly, fuzzing
+  variable-length result/output lists and budgets. Complements
+  `tests/property/test_property_output_truncation.py`'s Hypothesis
+  coverage of the identical two functions with a different search
+  strategy (coverage-guided mutation vs. example-based property checking)
+  over the same historically-buggy boundary.
 
 ## Platform note
 
@@ -34,7 +49,19 @@ python fuzz/fuzz_parser.py -max_total_time=60
 python fuzz/fuzz_validator.py -max_total_time=60
 python fuzz/fuzz_sanitizer.py -max_total_time=60
 python fuzz/fuzz_diff_merge.py -max_total_time=60
+python fuzz/fuzz_nan_infinity.py -max_total_time=60
+python fuzz/fuzz_output_truncation.py -max_total_time=60
 ```
+
+WSL note (this project's own local verification of these two newest
+targets): `atheris` requires Python >=3.11, and WSL distributions commonly
+ship an older system Python (e.g. Ubuntu 22.04's default is 3.10) -- install
+a newer interpreter yourself first (e.g. `curl -LsSf https://astral.sh/uv/install.sh
+| sh` then `uv python install 3.12`, no root needed). Also build/install
+from a directory on the native Linux filesystem (e.g. `~/`), not
+`/mnt/c/...` -- editable installs fail there with `Cannot update time
+stamp of directory 'src/libipynb.egg-info'`, a known drvfs (9p/NTFS mount)
+limitation, not a bug in this project.
 
 Each target treats the library's own `NotebookError` hierarchy (and, where
 noted, a small set of other explicitly-expected exceptions) as "handled

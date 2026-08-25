@@ -116,6 +116,8 @@ fuzz:
     - python fuzz/fuzz_validator.py -max_total_time=120
     - python fuzz/fuzz_sanitizer.py -max_total_time=120
     - python fuzz/fuzz_diff_merge.py -max_total_time=120
+    - python fuzz/fuzz_nan_infinity.py -max_total_time=120
+    - python fuzz/fuzz_output_truncation.py -max_total_time=120
 
 # ── Oracle and package (LIBIPYNB-Q13b, scheduled pipelines only — never blocks a normal push/MR) ──
 # tests/oracle/ compares libipynb's own output against the real, actually-

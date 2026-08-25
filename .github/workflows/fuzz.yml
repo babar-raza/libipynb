@@ -39,6 +39,10 @@ jobs:
         run: python fuzz/fuzz_sanitizer.py -max_total_time=120
       - name: fuzz_diff_merge.py (diff_notebooks/merge_notebooks)
         run: python fuzz/fuzz_diff_merge.py -max_total_time=120
+      - name: fuzz_nan_infinity.py (LIBIPYNB-Q18/P0-C strict-mode rejection)
+        run: python fuzz/fuzz_nan_infinity.py -max_total_time=120
+      - name: fuzz_output_truncation.py (LIBIPYNB-Q16/Q17, P0-A/P0-B)
+        run: python fuzz/fuzz_output_truncation.py -max_total_time=120
       # atheris/libFuzzer write a minimized reproducer (`crash-<sha1>`) to
       # the process's working directory the moment a target raises anything
       # outside its expected-exception allowlist -- uploaded here so a
