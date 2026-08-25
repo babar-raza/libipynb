@@ -397,16 +397,26 @@ class TestProbeRejectsNonFiniteConstants:
         sits entirely outside the try/except that only wraps load().
         Reproduced directly against the pre-fix code: this raised an
         uncaught RecursionError instead of returning a ProbeResult."""
-        nested: object = "leaf"
-        for _ in range(1500):
-            nested = [nested]
-        text = json.dumps(
-            {
-                "nbformat": 4,
-                "nbformat_minor": 5,
-                "metadata": {"vendor": nested},
-                "cells": [],
-            }
+        # LIBIPYNB-Q65: build the JSON text directly via bracket
+        # multiplication, not json.dumps() on a 1500-deep Python list.
+        # Confirmed via a real CI failure that json.dumps() itself -- the
+        # C-accelerated encoder's own recursion guard (Py_EnterRecursiveCall,
+        # "while encoding a JSON object") -- can raise RecursionError at
+        # this depth on ubuntu-latest/Python 3.11, even though
+        # sys.getrecursionlimit() nominally allows it: the guard's
+        # effective headroom depends on already-consumed C stack, which
+        # varies by interpreter version/platform, and did not reproduce
+        # locally on Windows/Python 3.13. That made this a flaky, version-
+        # dependent bug in the TEST'S OWN fixture construction, not in the
+        # library path under test -- probe() never even ran before the
+        # crash. Matches the existing, recursion-free pattern in
+        # tests/unit/test_obligation_security_limits.py::
+        # test_json_recursion_failure_is_a_deterministic_parse_error.
+        vendor_json = ("[" * 1500) + '"leaf"' + ("]" * 1500)
+        text = (
+            '{"nbformat": 4, "nbformat_minor": 5, '
+            '"metadata": {"vendor": ' + vendor_json + "}, "
+            '"cells": []}'
         )
         limits = NotebookResourceLimits(max_nesting_depth=5000)
 
