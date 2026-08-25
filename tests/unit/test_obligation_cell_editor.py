@@ -718,6 +718,44 @@ class TestQ66PreV45DocumentsAreEditable:
         assert [cell.get("source") for cell in document.raw["cells"]] == ["DUP", "REPLACED"]
 
     @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_batch_methods_direct_return_values_leave_no_id_behind(self, minor: int) -> None:
+        """LIBIPYNB-Q66 Gate-G2 round-2 review finding: `CellEditBatch.
+        changes` and the final committed `CellEditReport` both stripped
+        ephemeral ids, but each individual batch method's own DIRECT
+        return value (`batch.insert(...)`, `batch.move(...)`, etc.) did
+        not -- a caller capturing that return value instead of reading
+        `.changes` afterward still saw the raw ephemeral id. Reproduced
+        live pre-fix for every mutating batch method before this test was
+        written."""
+        document = _document_without_ids(minor)
+        editor = edit_cells(document)
+
+        with editor.batch() as batch:
+            insert_result = batch.insert({"cell_type": "markdown", "metadata": {}, "source": "New"})
+            assert "id" not in insert_result.after
+            new_id = insert_result.cell_id
+
+            move_result = batch.move(new_id, 0)
+            assert move_result is not None
+            assert "id" not in move_result.before
+            assert "id" not in move_result.after
+
+            copy_result = batch.copy(new_id)
+            assert "id" not in copy_result.after
+
+            replace_result = batch.replace(
+                new_id, {"cell_type": "raw", "metadata": {}, "source": "R"}
+            )
+            assert replace_result is not None
+            assert "id" not in replace_result.before
+            assert "id" not in replace_result.after
+
+            remove_result = batch.remove(new_id)
+            assert "id" not in remove_result.before
+
+        assert all("id" not in cell for cell in document.raw["cells"])
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
     def test_edits_round_trip_preserving_declared_version_and_no_id(self, minor: int) -> None:
         document = _document_without_ids(minor)
         editor = edit_cells(document)

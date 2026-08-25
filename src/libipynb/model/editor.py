@@ -444,16 +444,30 @@ class CellEditBatch:
             changes = _strip_ephemeral_ids_from_changes(changes)
         return changes
 
-    def insert(self, cell: Mapping[str, Any], *, index: int | None = None) -> CellEdit:
-        change = _do_insert(self._target, cell, index, self._notebook_minor)
+    def _record(self, change: CellEdit) -> CellEdit:
+        """Append *change* (the real, ephemeral-id-carrying record --
+        `self._changes` must keep this form, since it's what `.changes`
+        and the final commit's report are later derived from) and return
+        the id-stripped form for <4.5 documents.
+
+        LIBIPYNB-Q66 Gate-G2 round-2 review finding: `.changes` and the
+        final `CellEditReport` both already stripped ephemeral ids, but
+        each mutating method's own DIRECT return value did not -- a
+        caller capturing `batch.move(...)`'s result instead of reading
+        `.changes` afterward still saw the raw ephemeral id, the same
+        leak class already fixed for the other two observation points.
+        """
         self._changes.append(change)
+        if self._notebook_minor < 5:
+            return _strip_ephemeral_ids_from_changes((change,))[0]
         return change
+
+    def insert(self, cell: Mapping[str, Any], *, index: int | None = None) -> CellEdit:
+        return self._record(_do_insert(self._target, cell, index, self._notebook_minor))
 
     def move(self, cell_id: str, index: int) -> CellEdit | None:
         change = _do_move(self._target, cell_id, index)
-        if change is not None:
-            self._changes.append(change)
-        return change
+        return None if change is None else self._record(change)
 
     def copy(
         self,
@@ -462,24 +476,20 @@ class CellEditBatch:
         index: int | None = None,
         new_id: str | None = None,
     ) -> CellEdit:
-        change = _do_copy(self._target, cell_id, index, new_id, self._notebook_minor)
-        self._changes.append(change)
-        return change
+        return self._record(_do_copy(self._target, cell_id, index, new_id, self._notebook_minor))
 
     def replace(self, cell_id: str, cell: Mapping[str, Any]) -> CellEdit | None:
         change = _do_replace(self._target, cell_id, cell, self._notebook_minor)
-        if change is not None:
-            self._changes.append(change)
-        return change
+        return None if change is None else self._record(change)
 
     def remove(self, cell_id: str) -> CellEdit:
-        change = _do_remove(self._target, cell_id)
-        self._changes.append(change)
-        return change
+        return self._record(_do_remove(self._target, cell_id))
 
     def remove_where(self, query: CellQuery) -> tuple[CellEdit, ...]:
         changes = _do_remove_where(self._target, query)
         self._changes.extend(changes)
+        if self._notebook_minor < 5:
+            changes = _strip_ephemeral_ids_from_changes(changes)
         return changes
 
 
