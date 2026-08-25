@@ -186,6 +186,26 @@ afterward is recorded here instead.)
   explicit process-tree killing on timeout, so wall-clock time is
   actually bounded and the grandchild is actually terminated, not just
   the direct driver process
+- **LIBIPYNB-Q66**: `NotebookDocument.add_cell()` and `edit_cells()`
+  (`CellEditor`) were not version-aware -- cell `id` is only a valid
+  nbformat cell property from 4.5 onward, but `add_cell()` always
+  synthesized one and `edit_cells()` always required every cell to
+  already carry one, making both unusable on real nbformat 4.0-4.4
+  notebooks despite `README.md` advertising 4.0-4.5 support. Both are now
+  gated on the document's own declared `nbformat_minor`; editing a <4.5
+  document no longer adds or requires an `id`
+- **LIBIPYNB-Q63**: `execute_notebook`'s `isolate_cwd` reported the raw,
+  unresolved temp-directory path (`ExecutionReport.work_dir`) instead of
+  its canonical form -- differed from what a spawned child process's own
+  `os.getcwd()` actually reports on macOS, where the system temp root is
+  itself a symlink (`/var` -> `/private/var`). `work_dir` is now resolved
+  via `os.path.realpath()` at creation
+- **LIBIPYNB-Q64**: `execute_notebook`'s `max_memory_bytes` already
+  refused cleanly on Windows (no `RLIMIT_AS` equivalent) but crashed with
+  an opaque `subprocess.SubprocessError` on macOS, where `RLIMIT_AS`
+  enforcement is unreliable at the OS level. macOS now refuses the same
+  clean, documented way Windows already does, rather than attempting an
+  unreliable enforcement
 
 ### Changed
 
