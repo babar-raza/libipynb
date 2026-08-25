@@ -760,6 +760,17 @@ def _finish(
     # interrupt_on_timeout=True, a cell cannot legitimately take at least
     # as long as its own budget without that budget's enforcement having
     # been triggered.
+    #
+    # Gate-G2 review note: `tracker.timing`'s own start point
+    # (`on_cell_start`, before the execute request is even dispatched) is
+    # slightly earlier than nbclient's own enforcement window (`deadline
+    # = monotonic() + timeout`, started only after dispatch) -- so this
+    # comparison is marginally more sensitive than nbclient's own, not
+    # perfectly aligned to it. This narrows (but does not eliminate) the
+    # false-positive margin the watchdog's own explicit skew provides for
+    # the "quick cell, generous timeout" case; accepted as the correct
+    # trade-off, since closing a real false negative here necessarily
+    # costs some of that unrelated margin.
     if options.cell_timeout is not None and options.interrupt_on_timeout:
         rounded_cell_timeout = max(1, round(options.cell_timeout))
         for cell_index, (cell_started_at, cell_finished_at) in tracker.timing.items():
