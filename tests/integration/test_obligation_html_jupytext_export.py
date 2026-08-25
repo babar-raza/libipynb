@@ -321,6 +321,67 @@ class TestNbconvertExporter:
             NbconvertExporter(fmt="pdf").export(_document())
         assert excinfo.value.code == "export_tool_failed"
 
+    def test_empty_output_file_after_a_reported_success_raises_a_clear_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LIBIPYNB-Q59: distinct from the missing-file case above -- a
+        broken LaTeX/Playwright install can exit 0 and leave a real,
+        present, but zero-byte output file, which `output_path.is_file()`
+        alone cannot distinguish from a genuine PDF."""
+
+        def _fake_success_with_an_empty_file(
+            args: list[str], **kwargs: Any
+        ) -> subprocess.CompletedProcess[bytes]:
+            output_dir = Path(args[args.index("--output-dir") + 1])
+            (output_dir / "notebook.pdf").write_bytes(b"")
+            return subprocess.CompletedProcess(args, returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_success_with_an_empty_file)
+        with pytest.raises(NotebookError, match="produced an empty output file") as excinfo:
+            NbconvertExporter(fmt="pdf").export(_document())
+        assert excinfo.value.code == "export_tool_failed"
+
+    def test_truncated_or_garbage_output_content_after_a_reported_success_raises_a_clear_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LIBIPYNB-Q59: the realistic failure mode this taskcard exists
+        to close -- success exit code, file exists, non-empty, but the
+        content is not actually a PDF (a stub/truncated/corrupted output
+        from an incomplete LaTeX distribution). Before this fix, this
+        content would have been reported as a successful export."""
+
+        def _fake_success_with_garbage_content(
+            args: list[str], **kwargs: Any
+        ) -> subprocess.CompletedProcess[bytes]:
+            output_dir = Path(args[args.index("--output-dir") + 1])
+            (output_dir / "notebook.pdf").write_bytes(b"this is not a pdf file at all")
+            return subprocess.CompletedProcess(args, returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_success_with_garbage_content)
+        with pytest.raises(NotebookError, match="does not look like a valid PDF") as excinfo:
+            NbconvertExporter(fmt="pdf").export(_document())
+        assert excinfo.value.code == "export_tool_failed"
+
+    def test_webpdf_format_also_gets_the_same_content_validation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """webpdf shares _BINARY_NBCONVERT_FORMATS with pdf and produces
+        the identical PDF output shape (via Playwright/Chromium instead
+        of LaTeX) -- the content validation must not be pdf-format-name-
+        specific."""
+
+        def _fake_success_with_garbage_content(
+            args: list[str], **kwargs: Any
+        ) -> subprocess.CompletedProcess[bytes]:
+            output_dir = Path(args[args.index("--output-dir") + 1])
+            (output_dir / "notebook.pdf").write_bytes(b"garbage, not a pdf")
+            return subprocess.CompletedProcess(args, returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_success_with_garbage_content)
+        with pytest.raises(NotebookError, match="does not look like a valid PDF") as excinfo:
+            NbconvertExporter(fmt="webpdf").export(_document())
+        assert excinfo.value.code == "export_tool_failed"
+
     def test_empty_fmt_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="fmt"):
             NbconvertExporter(fmt="")

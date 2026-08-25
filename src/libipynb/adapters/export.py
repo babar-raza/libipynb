@@ -425,6 +425,30 @@ class NbconvertExporter:
                         code="export_tool_failed",
                     )
                 content = output_path.read_bytes()
+                # LIBIPYNB-Q59: a success exit code plus an output file
+                # existing does not mean the file's CONTENT is actually
+                # usable -- a broken/incomplete LaTeX distribution (or
+                # Playwright/Chromium install, for webpdf) can exit 0 while
+                # emitting an empty or truncated stub. Both binary formats
+                # this adapter supports (pdf/webpdf, see
+                # _BINARY_NBCONVERT_FORMATS) produce PDF output, so a
+                # minimal, cheap, genuinely discriminating check is the
+                # standard PDF magic-byte header -- distinct from, and
+                # complementary to, the missing-file check above.
+                if not content:
+                    raise NotebookError(
+                        f"nbconvert reported success but produced an empty output file "
+                        f"for format {self.fmt!r} (expected {output_path.name})",
+                        code="export_tool_failed",
+                    )
+                if not content.startswith(b"%PDF-"):
+                    raise NotebookError(
+                        f"nbconvert reported success but the output file for format "
+                        f"{self.fmt!r} does not look like a valid PDF (missing the "
+                        f"'%PDF-' header) -- likely a truncated or corrupted output "
+                        f"from an incomplete LaTeX/Playwright install",
+                        code="export_tool_failed",
+                    )
             else:
                 content = completed.stdout
 
