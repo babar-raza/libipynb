@@ -221,6 +221,42 @@ class TestTruncateOutputsNeverSkipsAnOutput:
 
     @given(outputs=_outputs, max_bytes=st.integers(min_value=0, max_value=300))
     @settings(max_examples=200)
+    def test_oversized_binary_payloads_are_actually_absent_afterward(
+        self, outputs: list[dict[str, object]], max_bytes: int
+    ) -> None:
+        """LIBIPYNB-Q40 Gate-G2 round-2 review finding: the sibling test
+        above only checks that a binary-MIME payload STILL PRESENT after
+        truncation is byte-for-byte unchanged -- it never checks that an
+        ORIGINALLY-OVERSIZED one is actually gone. Both "correctly
+        removed" and "left in place by a reintroduced any()-short-circuit
+        bug" are indistinguishable to that test if the surviving payload
+        (if any) happens to be unchanged either way. This test closes
+        that gap directly: every binary-MIME key that was oversized
+        before the call must not still be a key in `data` afterward."""
+        originally_oversized_binary_keys = {
+            id(output): {
+                mime
+                for mime, payload in output.get("data", {}).items()
+                if isinstance(payload, str)
+                and isinstance(mime, str)
+                and _is_binary_mime_type(mime)
+                and len(payload.encode("utf-8")) > max_bytes
+            }
+            for output in outputs
+            if isinstance(output.get("data"), dict)
+        }
+        _truncate_outputs_if_needed(outputs, max_bytes)
+        for output in outputs:
+            data = output.get("data")
+            remaining_keys = set(data) if isinstance(data, dict) else set()
+            oversized_keys = originally_oversized_binary_keys.get(id(output), set())
+            assert not (oversized_keys & remaining_keys), (
+                f"an originally-oversized binary payload was left in place "
+                f"instead of removed: {oversized_keys & remaining_keys!r}"
+            )
+
+    @given(outputs=_outputs, max_bytes=st.integers(min_value=0, max_value=300))
+    @settings(max_examples=200)
     def test_outputs_never_oversized_originally_are_left_byte_for_byte_untouched(
         self, outputs: list[dict[str, object]], max_bytes: int
     ) -> None:
