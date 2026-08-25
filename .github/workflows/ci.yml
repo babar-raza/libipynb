@@ -105,7 +105,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package
-        run: pip install -e ".[test]"
+        # LIBIPYNB-Q57: `.[test]` alone is not enough for
+        # tests/integration/test_obligation_jupyter_execution_adapter.py's
+        # 67 real-kernel tests to prove anything -- that file's own
+        # module-level pytest.importorskip trips without jupyter_client/
+        # nbclient (only the `exec` extra declares them), and even with
+        # those installed, execute() needs an actually-registered
+        # kernelspec to launch against. Confirmed via a from-scratch
+        # python:3.12-slim container (not a long-lived dev venv that
+        # already had this state from unrelated work) that `.[test]`
+        # alone makes the whole file collapse to a single skip.
+        run: |
+          pip install -e ".[test,exec]"
+          python -m ipykernel install --user --name python3
       - name: Core suite (unit, integration, security)
         run: pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short
       - name: Property suite (Linux only)

@@ -11,7 +11,20 @@ variables:
   image: python:${PYTHON_VERSION}-slim
   before_script:
     - python -m pip install --upgrade pip
-    - pip install -e ".[test]"
+    # LIBIPYNB-Q57: `.[test]` alone is not enough for
+    # tests/integration/test_obligation_jupyter_execution_adapter.py's 67
+    # real-kernel tests to prove anything -- that file's own
+    # module-level pytest.importorskip trips without jupyter_client/
+    # nbclient (only the `exec` extra declares them), and even with
+    # those installed, execute() needs an actually-registered kernelspec
+    # to launch against. Confirmed via a from-scratch python:3.12-slim
+    # container (this job's own image, not a long-lived dev venv that
+    # already had this state from unrelated work) that `.[test]` alone
+    # makes the whole file collapse to a single skip. `.[test,exec]` +
+    # a registered `python3` kernelspec is the exact reproduction this
+    # taskcard's own investigation used.
+    - pip install -e ".[test,exec]"
+    - python -m ipykernel install --user --name python3
 
 cache:
   key: "${CI_JOB_NAME}-${PYTHON_VERSION}"

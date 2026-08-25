@@ -740,6 +740,42 @@ def _finish(
     timed_out_cells: set[int] = set(tracker.watchdog_timed_out)
     if isinstance(exc, nbclient_exc.CellTimeoutError) and timed_out_cell_index is not None:
         timed_out_cells.add(timed_out_cell_index)
+    # LIBIPYNB-Q57: a third, race-free detection path, using data already
+    # collected (on_cell_start/on_cell_executed's own timestamps) rather
+    # than a live race between two independently-started clocks.
+    # Confirmed live under real container CPU contention: nbclient's own
+    # interrupt-then-report round trip can complete FASTER than the
+    # watchdog's own `rounded + skew` fire time -- on_cell_executed then
+    # cancels the still-pending watchdog timer before it ever gets a
+    # chance to confirm anything, and the kernel's interrupt response can
+    # surface as a bare KeyboardInterrupt cell error rather than nbclient
+    # re-raising its own CellTimeoutError wrapper (the exact "unreliable
+    # exception-type signal" problem the watchdog above already exists to
+    # route around, just manifesting as a false NEGATIVE here instead of
+    # the false positive that mechanism was built for). The elapsed
+    # wall-clock time a cell actually took is authoritative and race-free
+    # once the cell has finished -- comparing it against nbclient's own
+    # rounded timeout value (the same `rounded` _build_client passes to
+    # NotebookClient's `timeout` trait) needs no live timer at all: with
+    # interrupt_on_timeout=True, a cell cannot legitimately take at least
+    # as long as its own budget without that budget's enforcement having
+    # been triggered.
+    if options.cell_timeout is not None and options.interrupt_on_timeout:
+        rounded_cell_timeout = max(1, round(options.cell_timeout))
+        for cell_index, (cell_started_at, cell_finished_at) in tracker.timing.items():
+            if (
+                cell_index not in timed_out_cells
+                and cell_started_at is not None
+                and cell_finished_at is not None
+                and cell_finished_at - cell_started_at >= rounded_cell_timeout
+            ):
+                timed_out_cells.add(cell_index)
+                timed_out = True
+                timed_out_cell_index = (
+                    cell_index
+                    if timed_out_cell_index is None
+                    else min(timed_out_cell_index, cell_index)
+                )
 
     new_raw = copy.deepcopy(original_document.raw)
     records: list[CellExecutionRecord] = []
