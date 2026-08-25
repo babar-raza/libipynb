@@ -46,12 +46,35 @@ LEGACY_STATUS_VOCABULARY = frozenset(
     }
 )
 
-#: The 4 modules plans/state.json itself names as requiring a mutation
-#: baseline before VERIFIED -- mirrored here (not imported from the JSON)
-#: so a state.json edit that silently drops this requirement is itself
-#: something this test would need updating to match, not something that
-#: could disappear unnoticed by editing only the data file.
-HOT_MODULE_TASK_IDS = frozenset({"LIBIPYNB-Q16", "LIBIPYNB-Q17", "LIBIPYNB-Q18", "LIBIPYNB-Q19"})
+#: Every taskcard whose diff touches one of the 4 hot modules
+#: plans/state.json itself names as requiring a mutation baseline before
+#: VERIFIED -- mirrored here (not imported from the JSON, and not derived
+#: automatically from any diff) so a state.json edit that silently drops
+#: this requirement is itself something this test would need updating to
+#: match, not something that could disappear unnoticed by editing only
+#: the data file.
+#:
+#: LIBIPYNB-Q66 Gate-G2 whole-session review finding: this allowlist was
+#: never extended past its original 4 entries even as later taskcards
+#: (Q63/Q64 touching adapters/execute.py, Q65 touching codec/writer.py,
+#: Q66 touching codec/reader.py) landed and were marked VERIFIED -- so
+#: this mechanical check silently stopped applying to new hot-module work
+#: without failing loudly. A new taskcard touching a hot module MUST be
+#: added here when it's added to plans/state.json, not only when it
+#: reaches VERIFIED -- an easy step to forget, since nothing fails until
+#: that later status change.
+HOT_MODULE_TASK_IDS = frozenset(
+    {
+        "LIBIPYNB-Q16",
+        "LIBIPYNB-Q17",
+        "LIBIPYNB-Q18",
+        "LIBIPYNB-Q19",
+        "LIBIPYNB-Q63",
+        "LIBIPYNB-Q64",
+        "LIBIPYNB-Q65",
+        "LIBIPYNB-Q66",
+    }
+)
 
 REQUIRED_TASK_FIELDS = ("id", "phase", "title", "depends_on", "owner", "status")
 REQUIRED_CARRIED_FORWARD_FIELDS = ("id", "title", "source_plan", "status")

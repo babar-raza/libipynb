@@ -24,6 +24,18 @@ Close this task cleanly.
    complement (not a narrative replacement) — if the taskcard being closed has a row there,
    amend it too, re-reading immediately before writing per the same concurrency discipline
    as the files above.
+   **UPDATE (LIBIPYNB-Q68)**: a task whose fix touches `.github/workflows/*`, or whose
+   regression is platform/CI-specific (observed only in a matrix leg — an OS, interpreter
+   version, or job — not exercised by a local single-platform run), may not be closed as
+   `VERIFIED` in `plans/state.json` without citing the real GitHub Actions run URL and its
+   conclusion for the commit it was confirmed against — a local command-output citation
+   alone is not sufficient evidence for that task class. Exception: a task touching a
+   tag-only-triggered workflow (no `workflow_dispatch` or other push/schedule/PR trigger —
+   currently only `.github/workflows/release.yml`) may close on Gate G1 (local dry-run) +
+   Gate G2 alone, since real Actions-run evidence for it is unreachable without a real tag
+   push, itself gated behind `LIBIPYNB-Q54`/Taskcard-Gate-G3 — provided the closing
+   taskcard's own text states that real end-to-end confirmation remains separately gated,
+   not already satisfied. See `plans/state.json`'s `notes` array for the full rule text.
 4. **CHANGELOG.md guidance (superseded 2026-08-24 — do not follow the version below as
    written):** the original instruction here said to keep appending everything to the
    still-open `[0.1.0]` entry until `LIBIPYNB-B3` ships, with no `[Unreleased]` section.
