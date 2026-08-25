@@ -10,9 +10,8 @@ from typing import Any
 
 import pytest
 
-from libipynb import dump, dumps, loads
+from libipynb import NotebookDocument, dump, dumps, loads
 from libipynb.errors import NotebookWriteError
-from libipynb.security.limits import NotebookResourceLimits
 
 
 def _minimal_doc() -> object:
@@ -182,20 +181,41 @@ class TestDumpErrors:
         with pytest.raises(NotebookWriteError, match="cannot serialize"):
             dumps(raw, profile="declared")
 
-    def _deeply_nested_document(self, depth: int) -> object:
+    def _deeply_nested_document(self, depth: int) -> NotebookDocument:
         """A document whose json.dumps() encode itself recurses `depth`
-        levels -- built via bracket-multiplied JSON text (not a recursive
-        Python-side construction), matching the pattern already proven
-        safe in tests/security/test_non_finite_numbers.py and
-        tests/unit/test_obligation_security_limits.py."""
-        vendor_json = ("[" * depth) + '"leaf"' + ("]" * depth)
-        text = (
-            '{"nbformat": 4, "nbformat_minor": 5, '
-            '"metadata": {"vendor": ' + vendor_json + "}, "
-            '"cells": []}'
-        )
-        return loads(
-            text, mode="preservation", limits=NotebookResourceLimits(max_nesting_depth=5000)
+        levels -- the nested structure is built directly as Python
+        containers, in an iterative loop (no recursion; a real repo-wide
+        confirmed-safe pattern -- e.g.
+        tests/security/test_non_finite_numbers.py::
+        test_a_deeply_nested_structure_does_not_raise_recursion_error),
+        then wrapped straight into a NotebookDocument -- deliberately NOT
+        via loads()/JSON text.
+
+        LIBIPYNB-Q65 real-CI finding: an earlier version of this helper
+        built bracket-multiplied JSON *text* and called loads() on it --
+        safe for encoding, but loads() itself decodes that text via
+        json.loads(), which recurses on the way IN too. On a real
+        ubuntu-latest/Python-3.11 CI runner (never reproducible from this
+        session's own Windows/3.13 environment), decoding a 1500-deep
+        JSON string hit reader.py's own pre-existing, already-correct
+        `except (RecursionError, MemoryError)` guard (raises
+        NotebookParseError, "JSON complexity exceeds safe parser
+        limits") -- before the test ever reached dumps(), the thing
+        actually under test. Constructing the nested structure directly
+        (never round-tripping through JSON text at all) sidesteps
+        decode-side recursion entirely, testing only the encode-side
+        behavior these tests are meant to cover.
+        """
+        nested: object = "leaf"
+        for _ in range(depth):
+            nested = [nested]
+        return NotebookDocument(
+            {
+                "nbformat": 4,
+                "nbformat_minor": 5,
+                "metadata": {"vendor": nested},
+                "cells": [],
+            }
         )
 
     def test_dumps_converts_recursion_error_to_notebook_write_error(self) -> None:

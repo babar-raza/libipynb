@@ -423,7 +423,26 @@ class TestProbeRejectsNonFiniteConstants:
         result = probe(text, limits=limits)
 
         assert result.matched is False
-        assert "nesting" in result.reason or "deep" in result.reason
+        # LIBIPYNB-Q65 real-CI finding: two DIFFERENT, equally legitimate
+        # safety layers can be the one that actually catches this,
+        # depending on how much C-stack headroom this exact platform/
+        # interpreter has left at this depth -- probe()'s own load() call
+        # decodes `text` first; if THAT hits reader.py's pre-existing
+        # `except (RecursionError, MemoryError)` guard (confirmed live on
+        # ubuntu-latest/Python 3.11 CI, never reproducible from this
+        # session's own Windows/3.13 environment), probe() reports it via
+        # its own `except Exception` wrapper around load() with reader.py's
+        # message ("JSON complexity exceeds safe parser limits") -- decode
+        # never even reaches find_non_finite_floats's own controlled
+        # depth backstop (_internal/finiteness.py's MAX_DEPTH=1000,
+        # "...exceeded 1000 levels of nesting..."), which is what
+        # produces the "nesting"/"deep" wording this assertion originally
+        # expected. Both are safe, deliberate, non-crashing outcomes for
+        # the same underlying concern -- the test's actual invariant (no
+        # uncaught RecursionError leaks past probe()) holds either way.
+        assert (
+            "nesting" in result.reason or "deep" in result.reason or "complexity" in result.reason
+        )
 
 
 class TestStrictReadValidateWriteAreConsistent:
