@@ -62,13 +62,19 @@ def TestOneInput(data: bytes) -> None:
     mode = _MODES[fdp.ConsumeIntInRange(0, len(_MODES) - 1)]
     text, is_non_finite = _build_notebook_text(fdp)
 
+    # LIBIPYNB-Q40 Gate-G2 review finding: unlike fuzz_parser.py (which
+    # feeds raw bytes through source.decode("utf-8") and can genuinely hit
+    # UnicodeDecodeError there), this target always builds and passes a
+    # `str` -- ConsumeUnicodeNoSurrogates already guarantees valid Unicode,
+    # and _build_notebook_text's fixed-token/json.dumps-escaped assembly
+    # can only ever raise UnicodeEncodeError (already a NotebookParseError,
+    # a NotebookError subclass, caught below) on the size-accounting path,
+    # never a raw UnicodeDecodeError. No such except clause here.
     try:
         loads(text, mode=mode)
         rejected = False
     except NotebookError:
         rejected = True
-    except UnicodeDecodeError:
-        return  # Invalid UTF-8 in a fuzzed string, expected adversarial input.
 
     if is_non_finite and mode == "strict":
         # LIBIPYNB-Q18's own contract: strict mode must never silently

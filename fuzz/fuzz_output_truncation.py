@@ -3,14 +3,22 @@
 Complements tests/property/test_property_output_truncation.py's Hypothesis
 coverage of the same two functions: Hypothesis does example-based search
 against explicit invariants; this does coverage-guided mutation against the
-one structural invariant that matters most for a crash-oriented fuzz
-harness -- neither truncation function may ever change how many items it's
-handed (LIBIPYNB-Q16/P0-A historically dropped whole cell results by
-byte-slicing the raw combined stream before parsing; LIBIPYNB-Q17/P0-B's
+same invariants (LIBIPYNB-Q16/P0-A historically dropped whole cell results
+by byte-slicing the raw combined stream before parsing; LIBIPYNB-Q17/P0-B's
 `any()` short-circuit historically left later oversized outputs completely
-unvisited, though still present in the list). A genuinely different search
-strategy over the same boundary is worth having, not a substitute for the
-property tests.
+unvisited -- still present in the list, but never actually truncated). A
+genuinely different search strategy over the same boundary is worth having,
+not a substitute for the property tests.
+
+LIBIPYNB-Q40 Gate-G2 review finding: an earlier version of this file only
+asserted `len(outputs) == original_count` after
+`_truncate_outputs_if_needed` -- a real check (LIBIPYNB-Q16/P0-A's own bug
+class), but one the historical P0-B `any()` short-circuit bug does NOT
+violate: that bug never changed the list's length, only left later
+oversized outputs un-truncated while still present. `_is_within_budget`
+below (mirroring tests/property/test_property_output_truncation.py's own
+helper of the same name) closes that gap by checking the actual
+content-correctness invariant a short-circuit would violate.
 """
 
 from __future__ import annotations
@@ -21,9 +29,28 @@ import atheris
 
 with atheris.instrument_imports():
     from libipynb.adapters.execute import CellExecutionResult, _apply_output_budget
-    from libipynb.adapters.jupyter_execute import _truncate_outputs_if_needed
+    from libipynb.adapters.jupyter_execute import _is_binary_mime_type, _truncate_outputs_if_needed
 
 _OUTPUT_SHAPES = ("stream", "image/png", "image/svg+xml")
+
+
+def _is_within_budget(output: dict, max_bytes: int) -> bool:
+    text = output.get("text")
+    if isinstance(text, str) and len(text.encode("utf-8")) > max_bytes:
+        return False
+    data = output.get("data")
+    if isinstance(data, dict):
+        for mime_type, payload in data.items():
+            # A binary-shaped oversized payload is expected to be *removed*
+            # entirely, not shrunk -- its absence is what "within budget"
+            # means for it, not a size check on a value that's gone.
+            if (
+                isinstance(payload, str)
+                and len(payload.encode("utf-8")) > max_bytes
+                and not (isinstance(mime_type, str) and _is_binary_mime_type(mime_type))
+            ):
+                return False
+    return True
 
 
 def _fuzz_output(fdp: atheris.FuzzedDataProvider) -> dict:
@@ -63,6 +90,12 @@ def TestOneInput(data: bytes) -> None:
         f"_truncate_outputs_if_needed changed the output count: "
         f"{original_count} in, {len(outputs)} out"
     )
+    if output_max_bytes is not None:
+        for output in outputs:
+            assert _is_within_budget(output, output_max_bytes), (
+                f"_truncate_outputs_if_needed left an output over budget "
+                f"(max_bytes={output_max_bytes}): {output!r}"
+            )
 
 
 def main() -> None:
