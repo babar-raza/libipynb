@@ -240,9 +240,11 @@ not the slower property suite or the Linux-only `fuzz`/oracle/exec-heavy
 tiers) on every push and pull request, superseding the scope limitation
 LIBIPYNB-P9 originally recorded here. The library and CLI are pure Python
 with no platform-conditional code paths outside `adapters/execute.py`'s
-POSIX-only `max_memory_bytes` enforcement (which refuses rather than
-silently no-ops on Windows) and the `fuzz/` harnesses (Linux-only, outside
-`tests/` and never required for the normal suite). If you hit a
+Linux-only `max_memory_bytes` enforcement (which refuses cleanly rather
+than silently no-ops on Windows, or silently misbehaving on macOS, where
+`RLIMIT_AS` enforcement is unreliable at the OS level) and the `fuzz/`
+harnesses (Linux-only, outside `tests/` and never required for the normal
+suite). If you hit a
 Windows/macOS-specific issue, please report it -- the core suite is now
 gated there, but the property/fuzz/oracle tiers still are not.
 
@@ -363,9 +365,12 @@ one that knows the LaTeX/Chromium backend is missing.
   is `True` iff any cell's was. Every cell always gets an explicit result
   -- one oversized cell never erases an unrelated later cell's own,
   already-complete output. A memory limit (`max_memory_bytes`) is enforced
-  on POSIX only -- requesting one on Windows raises rather than silently
-  running unlimited. CPU-time limiting and network-access denial are
-  **not** implemented. Never called by `load`/`validate`/`diff`/`upgrade`/
+  on Linux only -- requesting one on Windows or macOS raises (for
+  different underlying reasons: Windows has no `RLIMIT_AS` equivalent;
+  macOS's own `RLIMIT_AS` enforcement is unreliable) rather than silently
+  running unlimited or crashing. CPU-time limiting and network-access
+  denial are **not** implemented. Never called by
+  `load`/`validate`/`diff`/`upgrade`/
   `save` -- it is the sole, explicit entry point into code execution,
   requires `acknowledge_unsandboxed=True`, and should only be pointed at
   notebooks you already trust to execute.

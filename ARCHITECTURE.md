@@ -151,9 +151,10 @@ is a sandbox, and both are disclosed as such in `SECURITY.md` and `README.md`:
   basic OS-level limits: by default a fresh temporary working directory
   (`isolate_cwd`) and a minimal environment (`isolate_env`), captured output
   capped at 10 MiB (`max_output_bytes`), and an optional memory limit
-  (`max_memory_bytes`, POSIX only -- requesting one on Windows raises rather
-  than silently running unlimited). CPU-time limiting and network-access
-  denial are not implemented.
+  (`max_memory_bytes`, Linux only -- requesting one on Windows or macOS
+  raises, for different underlying reasons in each case, rather than
+  silently running unlimited or crashing). CPU-time limiting and
+  network-access denial are not implemented.
 - **`adapters/jupyter_execute.py::LocalJupyterExecutor`** -- the real
   Jupyter-kernel-protocol engine (`libipynb[exec]`). It launches and
   communicates with an actual, longer-lived `ipykernel` process via the

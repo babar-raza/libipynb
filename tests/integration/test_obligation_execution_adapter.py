@@ -332,6 +332,41 @@ def test_isolate_cwd_default_runs_in_a_fresh_temp_directory_and_cleans_up() -> N
     assert not Path(report.work_dir).exists(), "temp work dir must be cleaned up after the run"
 
 
+def test_work_dir_is_resolved_through_a_symlinked_temp_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """LIBIPYNB-Q63 Gate-G2 review finding: the macOS bug this fix closes
+    (the system temp root, /var, itself a symlink to /private/var) is a
+    specific instance of a general class -- a child process's own
+    os.getcwd() reports the resolved path, so ExecutionReport.work_dir
+    must too, regardless of platform. Confirmed by the review that a
+    mutant deleting execute.py's os.path.realpath() call would go
+    completely undetected by every other test in this file (none of them
+    involve a symlinked temp root). This test closes that gap
+    platform-independently, without needing a real macOS runner."""
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    symlink_root = tmp_path / "symlinked"
+    try:
+        symlink_root.symlink_to(real_root, target_is_directory=True)
+    except OSError:
+        pytest.skip("creating a symlink is not permitted in this environment")
+
+    monkeypatch.setattr("tempfile.tempdir", str(symlink_root))
+    document = _document([_code("import os; print(os.getcwd())")])
+
+    report = execute_notebook(document, timeout=10, acknowledge_unsandboxed=True)
+
+    assert report.work_dir is not None
+    assert report.work_dir == os.path.realpath(report.work_dir), (
+        "work_dir must already be the resolved path, matching what a "
+        "child process's own os.getcwd() reports"
+    )
+    assert report.results[0].stdout.strip() == report.work_dir
+    assert str(real_root) in report.work_dir
+    assert str(symlink_root) not in report.work_dir
+
+
 def test_isolate_cwd_false_inherits_the_real_working_directory() -> None:
     document = _document([_code("import os; print(os.getcwd())")])
 
@@ -695,6 +730,29 @@ def test_max_memory_bytes_on_macos_refuses_rather_than_silently_crashing() -> No
 
     with pytest.raises(NotebookExecutionError, match="macOS"):
         execute_notebook(
+            document,
+            timeout=10,
+            acknowledge_unsandboxed=True,
+            max_memory_bytes=64 * 1024 * 1024,
+        )
+
+
+def test_max_memory_bytes_on_macos_refuses_regardless_of_the_real_host_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LIBIPYNB-Q64 Gate-G2 review finding: the test right above this one is
+    permanently skipped everywhere except a real macos-latest CI runner --
+    which, as of this fix, has never actually executed it (pending push
+    authorization). Monkeypatching sys.platform gives real, meaningful
+    coverage of the new guard on every platform this suite actually runs
+    on today (Windows, Linux), not just a runner that hasn't run it yet."""
+    import libipynb.adapters.execute as execute_module
+
+    monkeypatch.setattr(execute_module.sys, "platform", "darwin")
+    document = _document([_code("pass")])
+
+    with pytest.raises(NotebookExecutionError, match="macOS"):
+        execute_module.execute_notebook(
             document,
             timeout=10,
             acknowledge_unsandboxed=True,
