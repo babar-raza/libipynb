@@ -29,6 +29,7 @@ import pytest
 from libipynb import loads, validate
 from libipynb.codec.reader import probe
 from libipynb.errors import NotebookParseError
+from libipynb.security.limits import NotebookResourceLimits
 
 
 def _nb_with_constant_at(path_json_fragment: str, constant: str = "NaN") -> str:
@@ -321,6 +322,58 @@ class TestValidateRejectsNonFiniteConstants:
         # an uncaught RecursionError.
         assert isinstance(report.is_valid, bool)
 
+    def test_an_explicit_high_max_nesting_depth_does_not_leak_a_recursion_error(
+        self,
+    ) -> None:
+        """LIBIPYNB-Q60: the test above relies on enforce_structure's own
+        max_nesting_depth limit (default 64) tripping BEFORE
+        find_non_finite_floats ever runs -- exactly the ordering
+        find_non_finite_floats's own docstring documents as the reason it
+        doesn't need a depth guard of its own beyond its 1000-level
+        backstop. That assumption breaks the moment a caller explicitly
+        configures max_nesting_depth above 1000: enforce_structure no
+        longer trips first, and validate()'s own except clauses
+        (ResourceLimitError, UnicodeEncodeError, NotebookError/OSError/
+        TypeError/ValueError) do not catch RecursionError -- they only
+        wrap the enforce_structure() call, not validate_model() below it,
+        which is where find_non_finite_floats actually runs. Reproduced
+        directly against the pre-fix code: this raised an uncaught
+        RecursionError instead of returning a ValidationReport."""
+        nested: object = "leaf"
+        for _ in range(1500):
+            nested = (nested,)
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"vendor": nested},
+            "cells": [],
+        }
+        limits = NotebookResourceLimits(max_nesting_depth=5000)
+
+        report = validate(model, limits=limits)
+
+        assert any(d.code == "IPYNB_RESOURCE_LIMIT" for d in report.errors), report.errors
+
+    def test_a_real_non_finite_float_is_still_found_under_a_high_max_nesting_depth(
+        self,
+    ) -> None:
+        """Sanity check alongside the fix above: a document that stays
+        within find_non_finite_floats's own 1000-level backstop, under
+        the same explicit high max_nesting_depth, must still be correctly
+        flagged as IPYNB_NON_FINITE_NUMBER -- not accidentally swallowed
+        by whatever RecursionError handling the fix adds."""
+        model = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {"vendor": float("nan")},
+            "cells": [],
+        }
+        limits = NotebookResourceLimits(max_nesting_depth=5000)
+
+        report = validate(model, limits=limits)
+
+        assert any(d.code == "IPYNB_NON_FINITE_NUMBER" for d in report.errors), report.errors
+
 
 class TestProbeRejectsNonFiniteConstants:
     def test_probe_does_not_match_a_nan_bearing_notebook(self) -> None:
@@ -333,6 +386,34 @@ class TestProbeRejectsNonFiniteConstants:
         text = '{"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []}'
         result = probe(text)
         assert result.matched is True
+
+    def test_an_explicit_high_max_nesting_depth_does_not_leak_a_recursion_error(
+        self,
+    ) -> None:
+        """LIBIPYNB-Q60: probe() is the finiteness scanner's other named
+        call site (_internal/finiteness.py's own docstring: "the two
+        current call sites (validate(), probe())") and shares the
+        identical gap -- its find_non_finite_floats(document.raw) call
+        sits entirely outside the try/except that only wraps load().
+        Reproduced directly against the pre-fix code: this raised an
+        uncaught RecursionError instead of returning a ProbeResult."""
+        nested: object = "leaf"
+        for _ in range(1500):
+            nested = [nested]
+        text = json.dumps(
+            {
+                "nbformat": 4,
+                "nbformat_minor": 5,
+                "metadata": {"vendor": nested},
+                "cells": [],
+            }
+        )
+        limits = NotebookResourceLimits(max_nesting_depth=5000)
+
+        result = probe(text, limits=limits)
+
+        assert result.matched is False
+        assert "nesting" in result.reason or "deep" in result.reason
 
 
 class TestStrictReadValidateWriteAreConsistent:

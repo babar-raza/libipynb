@@ -509,7 +509,19 @@ def probe(source: Source, *, limits: ResourceLimits | None = None) -> ProbeResul
     # through dumps(). Checked explicitly rather than silently passed
     # through, matching "probe() must not report such content as a valid
     # IPYNB" regardless of load mode.
-    non_finite = next(iter(find_non_finite_floats(document.raw)), None)
+    try:
+        non_finite = next(iter(find_non_finite_floats(document.raw)), None)
+    except RecursionError as exc:
+        # LIBIPYNB-Q60: find_non_finite_floats has its own independent,
+        # hard-coded depth backstop (_internal.finiteness._MAX_DEPTH=1000),
+        # documented there as relying on this function's own load() above
+        # already having bounded depth via enforce_structure -- true only
+        # while max_nesting_depth stays at or below that backstop. A
+        # caller who explicitly configures max_nesting_depth above 1000
+        # defeats that ordering assumption, and this call previously had
+        # no handling of its own for the resulting RecursionError -- the
+        # same gap validation.validator.validate() had (see LIBIPYNB-Q60).
+        return ProbeResult(False, 0.0, "ipynb", reason=str(exc))
     if non_finite is not None:
         return ProbeResult(
             False,

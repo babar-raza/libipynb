@@ -72,7 +72,21 @@ def validate(
     selected, diagnostics = select_profile(model, profile)
     if not selected.allow_forward:
         diagnostics.extend(schema_diagnostics(model, minor=selected.expected_minor))
-    diagnostics.extend(validate_model(model, selected))
+    try:
+        diagnostics.extend(validate_model(model, selected))
+    except RecursionError as exc:
+        # LIBIPYNB-Q60: validate_model() -> find_non_finite_floats() has
+        # its own independent, hard-coded depth backstop
+        # (_internal.finiteness._MAX_DEPTH=1000), documented there as
+        # relying on enforce_structure() above already having bounded
+        # depth first -- true only while max_nesting_depth stays at or
+        # below that backstop. A caller who explicitly configures
+        # max_nesting_depth above 1000 defeats that ordering assumption:
+        # enforce_structure's own except clause above never fires (it
+        # genuinely doesn't exceed ITS limit), and this function had no
+        # handling at all for a RecursionError surfacing from the
+        # unrelated scanner below it.
+        return ValidationReport([diagnostic("IPYNB_RESOURCE_LIMIT", str(exc), ())])
     return ValidationReport(diagnostics)
 
 
