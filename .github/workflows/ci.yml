@@ -66,7 +66,19 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
+      # LIBIPYNB-Q62: this job runs the full `tests/` tree, including
+      # tests/scripts/test_state_json_schema.py, whose
+      # test_verified_tasks_cite_a_real_commit_that_exists_in_this_repo
+      # walks `git log --all --format=%H` to confirm every VERIFIED
+      # taskcard's repair_commit actually exists. The default
+      # actions/checkout@v4 shallow (depth-1) clone doesn't carry that
+      # history, so this job fails that assertion on every push -- not a
+      # flaky test, a genuinely missing precondition. Only this job needs
+      # full history; the `test` matrix jobs run a narrower command that
+      # excludes tests/scripts/.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
