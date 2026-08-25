@@ -62,7 +62,13 @@ class TestDeclaredProfileVersionValidation:
     would leave that pairing undetected, since `"4" != 4` is *also* True
     and would raise anyway either way. `4.0 == 4` is True (Python), so
     `major != 4` is False for a float -- isolating the not-an-int
-    condition from the not-equal-to-4 condition specifically.
+    condition from the not-equal-to-4 condition specifically. The same
+    property also isolates it from the FIRST condition
+    (`isinstance(major, bool)`, always False for a float) -- so this one
+    input additionally kills the `isinstance(major, bool) and not
+    isinstance(major, int)` pairing mutant, corrected in
+    `TestProfileVersionEquivalentMutants` below after a Gate-G2 review
+    found it wrongly documented as equivalent.
     """
 
     def test_major_not_an_int_is_rejected(self) -> None:
@@ -97,29 +103,39 @@ class TestDeclaredProfileVersionValidation:
 
 
 class TestProfileVersionEquivalentMutants:
-    """LIBIPYNB-Q58: 4 of `_profile_version`'s 9 mutmut-survived mutants
+    """LIBIPYNB-Q58: 3 of `_profile_version`'s 9 mutmut-survived mutants
     are genuinely EQUIVALENT -- no test, however constructed, can
     distinguish them from the original code, so they are documented here
     rather than force-killed with a meaningless assertion (the session's
     own standing rule: a survived mutant is either fixed with a real
     regression test or explicitly justified as unkillable).
 
-    1. Pairing `isinstance(major, bool)` with `not isinstance(major, int)`
-       via `and` (instead of `or`): `isinstance(x, bool)` is True only for
-       `x is True` or `x is False`, and both of those are `!= 4` (the
-       NEXT condition in the chain) -- so whenever the first condition
-       would matter, the third condition (`major != 4`) is *already* True
-       independently, making the whole chain True regardless of how the
-       first two conditions are combined. Confirmed by direct proof, not
-       assumption: for every bool value of `major`, `major != 4` holds.
+    CORRECTED after a Gate-G2 review: an earlier version of this
+    docstring also claimed the `isinstance(major, bool) and not
+    isinstance(major, int)` AND-pairing mutant (mutmut_27) was
+    equivalent, reasoning that "for every bool value of major, major !=
+    4 holds" -- true, but an incomplete proof: it only shows the pairing
+    can't be isolated using BOOL inputs (where the first condition is
+    True), not that no OTHER input can discriminate it. A float input
+    (`major=4.0`) triggers exactly the SECOND condition of the pair
+    (`not isinstance(major, int)`) while the first stays False -- the
+    original's `or` still raises via that second condition alone, but
+    the mutant's `and` requires the first condition too, so it does not.
+    `test_major_not_an_int_is_rejected` above already used exactly this
+    input (for an unrelated, adjacent reason) and, per an independent
+    re-run of mutmut confirming it, already kills mutmut_27 -- it was
+    never actually equivalent, just a reasoning error in this docstring
+    that the corrected `mutation_baseline_checked` count in
+    `plans/state.json` no longer repeats.
 
-    2. The final `selected.split(".", 1)` call (limit=1) is only ever
-       reached after `selected not in {"4.0", ..., "4.5"}` has already
-       raised for anything else -- every member of that set has EXACTLY
-       one "." character, so `split(".", 1)` == `split(".", 2)` ==
-       `split(".")` == `rsplit(".", 1)` for every reachable input. Three
-       separate mutmut mutants target this same unreachable-divergence
-       call (dropping the limit, using `rsplit`, using limit=2).
+    The remaining, correctly-identified equivalent mutants: the final
+    `selected.split(".", 1)` call (limit=1) is only ever reached after
+    `selected not in {"4.0", ..., "4.5"}` has already raised for
+    anything else -- every member of that set has EXACTLY one "."
+    character, so `split(".", 1)` == `split(".", 2)` == `split(".")` ==
+    `rsplit(".", 1)` for every reachable input. Three separate mutmut
+    mutants target this same unreachable-divergence call (dropping the
+    limit, using `rsplit`, using limit=2).
     """
 
 
@@ -298,39 +314,61 @@ class TestNormalizedEarlyReturnAndValidation:
             "error_count": 1,
         }
 
+    def test_validates_against_the_explicit_target_version_not_just_the_declared_one(
+        self,
+    ) -> None:
+        """LIBIPYNB-Q58 Gate-G2 review CRITICAL finding (repaired here):
+        `validate(source, profile=f"nbformat-{major}.{minor}")`'s own
+        `profile=` argument was previously claimed equivalent to omitting
+        it (both mutmut_46 and mutmut_48 were documented as unkillable),
+        reasoning that the preceding `(declared_major, declared_minor) !=
+        (major, minor)` guard already forces the declared and target
+        versions to match whenever this line runs. That reasoning missed
+        Python's loose `!=`: `nbformat_minor=5.0` (a float) satisfies
+        `5.0 == 5`, so the guard does NOT raise, but it is NOT the same
+        value `validate()`'s own "declared" default (what `profile=None`
+        falls back to) and an EXPLICIT "nbformat-4.5" target resolve
+        differently for -- confirmed empirically: `validate(doc,
+        profile="nbformat-4.5")` reports an extra `IPYNB_PROFILE`
+        diagnostic ("document declares 4.None, expected 4.5") that
+        `validate(doc, profile=None)`/`validate(doc)` does not, changing
+        `error_count` even though the FIRST error (what `.code`/`.path`
+        are built from) happens to be identical either way -- exactly
+        why an `error_count`-inclusive `.context` assertion, not just
+        `.code`, is required to actually discriminate this."""
+        raw = {
+            "nbformat": 4,
+            "nbformat_minor": 5.0,  # passes the loose `!=` guard; not a clean int
+            "metadata": {"kernelspec": {"name": "python3"}},  # also missing display_name
+            "cells": [],
+        }
+        with pytest.raises(NotebookWriteError) as excinfo:
+            dumps(raw, profile="4.5")
+        assert excinfo.value.code == "IPYNB_MINOR_VERSION"
+        assert excinfo.value.context == {
+            "path": ("nbformat_minor",),
+            "error_count": 4,
+        }
+
 
 class TestNormalizedEquivalentMutants:
-    """LIBIPYNB-Q58: 4 of `_normalized`'s 30 mutmut-survived mutants are
-    genuinely EQUIVALENT.
+    """LIBIPYNB-Q58: 2 of `_normalized`'s 30 mutmut-survived mutants are
+    genuinely EQUIVALENT (corrected after a Gate-G2 review found the
+    ORIGINAL version of this docstring wrongly included the
+    `validate()`-profile-argument mutants -- see
+    `test_validates_against_the_explicit_target_version_not_just_the_declared_one`
+    above for the real, killable gap that finding uncovered).
 
-    1. Mutating the early-return check's FIRST literal
-       (`profile == "declared"` -> `profile == "XXdeclaredXX"` /
-       `"DECLARED"`): the only value for which the ORIGINAL first clause
-       is True is the string `"declared"` itself, and for that exact
-       value the SECOND clause
-       (`profile.removeprefix("nbformat-") == "declared"`) is *also*
-       always True (`"declared"` doesn't start with `"nbformat-"`, so
-       `removeprefix` is a no-op, and it trivially equals itself) -- the
-       `or`'s overall truth value is identical whichever literal the
-       first clause is compared against, since the second clause already
-       covers every case where the first would have mattered.
-
-    2. The `validate(source, profile=f"nbformat-{major}.{minor}")` call's
-       `profile=` argument (dropped to `None`, or omitted entirely --
-       both fall back to `validate()`'s own default, `"declared"`): this
-       line is only reached after the PRECEDING check in the same
-       function (`if (declared_major, declared_minor) != (major,
-       minor): raise ...`) has already confirmed the document's own
-       declared version equals the resolved target version -- so
-       `profile="declared"` (validate against the document's own
-       version) and `profile=f"nbformat-{major}.{minor}"` (validate
-       against that exact version explicitly) are PROVABLY validating
-       against the identical schema for every input that reaches this
-       line. Confirmed empirically, not just argued: `validate(doc,
-       profile="declared")` and `validate(doc, profile="nbformat-4.5")`
-       produce byte-identical `ValidationReport` errors (same code,
-       message, and location) for the schema-invalid fixture used
-       above.
+    Mutating the early-return check's FIRST literal (`profile ==
+    "declared"` -> `profile == "XXdeclaredXX"` / `"DECLARED"`): the only
+    value for which the ORIGINAL first clause is True is the string
+    `"declared"` itself, and for that exact value the SECOND clause
+    (`profile.removeprefix("nbformat-") == "declared"`) is *also* always
+    True (`"declared"` doesn't start with `"nbformat-"`, so
+    `removeprefix` is a no-op, and it trivially equals itself) -- the
+    `or`'s overall truth value is identical whichever literal the first
+    clause is compared against, since the second clause already covers
+    every case where the first would have mattered.
     """
 
 
