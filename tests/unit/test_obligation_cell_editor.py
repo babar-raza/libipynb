@@ -565,3 +565,136 @@ class TestQ43CellEditMutationAfterAccessDoesNotChangeLaterReads:
         document = _document()
         (found,) = edit_cells(document).search(query)
         assert found.metadata["slideshow"]["slide_type"] == "slide"
+
+
+def _document_without_ids(nbformat_minor: int) -> NotebookDocument:
+    """The `_document()` fixture's shape, minus every `id` -- a cell `id`
+    is not a valid property before nbformat 4.5, so this is what a real
+    4.0-4.4 notebook's cells actually look like."""
+    return NotebookDocument(
+        {
+            "nbformat": 4,
+            "nbformat_minor": nbformat_minor,
+            "metadata": {"vendor": {"preserve": True}},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "metadata": {"tags": ["setup", "remove"]},
+                    "source": "value = 1",
+                    "execution_count": 1,
+                    "outputs": [],
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {"tags": ["keep"]},
+                    "source": "Explanation",
+                },
+                {
+                    "cell_type": "raw",
+                    "metadata": {"tags": ["remove"], "format": "text/plain"},
+                    "source": ["raw ", "content"],
+                },
+            ],
+        }
+    )
+
+
+class TestQ66PreV45DocumentsAreEditable:
+    """LIBIPYNB-Q66: `edit_cells()`/`CellEditor` previously required every
+    cell to already carry a valid `id` -- unconditionally, regardless of
+    the document's own declared `nbformat_minor` -- so construction itself
+    raised `ValueError` on every real 4.0-4.4 fixture (cell ids only became
+    mandatory at 4.5, confirmed against the vendored schemas). Reproduced
+    live against all 5 real fixtures before this fix; these are the
+    regression tests for it."""
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_edit_cells_constructs_without_requiring_pre_existing_ids(self, minor: int) -> None:
+        document = _document_without_ids(minor)
+
+        editor = edit_cells(document)  # must not raise
+
+        assert len(editor.search(CellQuery(cell_type="code"))) == 1
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_insert_move_copy_replace_remove_work_and_leave_no_id_behind(self, minor: int) -> None:
+        document = _document_without_ids(minor)
+        editor = edit_cells(document)
+
+        insert_report = editor.insert(
+            {"cell_type": "markdown", "metadata": {}, "source": "New"}, index=1
+        )
+        assert insert_report.applied
+        assert "id" not in insert_report.changes[0].after
+        new_id = insert_report.changes[0].cell_id
+
+        assert editor.move(new_id, 0).applied
+
+        copy_report = editor.copy(new_id)
+        assert copy_report.applied
+        assert "id" not in copy_report.changes[0].after
+
+        replace_report = editor.replace(
+            new_id, {"cell_type": "raw", "metadata": {}, "source": "replacement"}
+        )
+        assert replace_report.applied
+        assert "id" not in replace_report.changes[0].after
+
+        assert editor.remove(new_id).applied
+
+        assert all("id" not in cell for cell in document.raw["cells"])
+        _valid(document)  # independent oracle: the real nbformat package agrees
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_edits_round_trip_preserving_declared_version_and_no_id(self, minor: int) -> None:
+        document = _document_without_ids(minor)
+        editor = edit_cells(document)
+        editor.insert(
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "source": "z = 1",
+                "execution_count": None,
+                "outputs": [],
+            }
+        )
+
+        text = dumps(document, profile="declared")
+        reloaded = loads(text, mode="strict")
+
+        assert reloaded.nbformat_minor == minor
+        assert all("id" not in cell for cell in reloaded.raw["cells"])
+
+    def test_4_5_document_behavior_is_unchanged_and_still_requires_a_valid_id(self) -> None:
+        """Confirms the version gate above didn't loosen anything for
+        >=4.5 documents: a caller-supplied cell for insert() must still
+        carry a valid id, exactly as before this fix."""
+        document = _document()
+        editor = edit_cells(document)
+
+        with pytest.raises(ValueError, match="cell ID"):
+            editor.insert({"cell_type": "markdown", "metadata": {}, "source": "no id"})
+
+    def test_real_4_0_through_4_4_fixtures_are_editable(self) -> None:
+        """Live-reproduced against the actual shipped fixtures, not just a
+        minimal synthetic document -- the exact files the original bug
+        report reproduced against."""
+        from pathlib import Path
+
+        fixtures = Path(__file__).resolve().parent.parent / "fixtures" / "valid"
+        for minor in range(5):
+            document = NotebookDocument.from_file(str(fixtures / f"nbformat-4-{minor}.ipynb"))
+
+            editor = edit_cells(document)  # must not raise
+            report = editor.insert(
+                {
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": "print('ok')",
+                    "execution_count": None,
+                    "outputs": [],
+                }
+            )
+
+            assert report.applied, minor
+            _valid(document)

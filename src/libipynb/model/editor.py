@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, cast
 
@@ -162,13 +162,27 @@ def _validate_cell(
     value: Mapping[str, Any],
     *,
     notebook_minor: int,
+    used_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError("cell must be a mapping")
     cell = deepcopy(dict(value))
     cell_id = cell.get("id")
-    if not isinstance(cell_id, str) or not _CELL_ID.fullmatch(cell_id):
-        raise ValueError("cell ID must contain 1-64 ASCII letters, digits, _ or -")
+    if notebook_minor >= 5:
+        if not isinstance(cell_id, str) or not _CELL_ID.fullmatch(cell_id):
+            raise ValueError("cell ID must contain 1-64 ASCII letters, digits, _ or -")
+    elif not isinstance(cell_id, str) or not _CELL_ID.fullmatch(cell_id):
+        # LIBIPYNB-Q66: cell `id` is not a valid nbformat cell property
+        # before 4.5 -- a caller inserting into a <5 document has no real
+        # id to supply and isn't required to. Assign one anyway, purely as
+        # this editor's own internal, ephemeral addressing key for the
+        # duration of this operation (the same content-hash algorithm
+        # `codec.reader.with_stable_cell_ids` uses for diff/merge) --
+        # `CellEditor._finish` strips it again before anything is
+        # validated against the notebook's own <5 schema or committed.
+        from ..codec.reader import ensure_cell_id  # deferred: avoid model<->codec import cycle
+
+        ensure_cell_id(cell, used_ids if used_ids is not None else set())
     cell_type = cell.get("cell_type")
     if not isinstance(cell_type, str) or not cell_type:
         raise ValueError("cell_type must be a non-empty string")
@@ -218,6 +232,35 @@ def _select(raw: dict[str, Any], cell_id: str) -> tuple[int, dict[str, Any]]:
         raise KeyError(f"cell ID not found: {cell_id}") from exc
 
 
+def _prepare_target(document: NotebookDocument) -> dict[str, Any]:
+    """A fresh working copy of *document*'s raw data, ready for this
+    module's id-string-addressed mutators (``_do_insert``/``_do_move``/
+    etc., all keyed on ``cell_id: str``) regardless of the document's own
+    nbformat_minor.
+
+    LIBIPYNB-Q66: for a <4.5 document -- whose cells have no ``id`` at all,
+    since that property isn't valid there -- every cell is given a
+    deterministic, content-hash ephemeral id via
+    ``codec.reader.with_stable_cell_ids`` before any mutator runs, purely
+    so the existing id-based addressing keeps working for the duration of
+    this one operation. ``CellEditor._finish`` strips those ephemeral ids
+    back out before validating or committing, so nothing from this ever
+    reaches the real document or its schema-checked output. Recomputed
+    fresh on every call (not cached on ``CellEditor``) rather than
+    persisted as instance state: since it is purely a function of the
+    document's own current cell content, two independent calls made
+    without any intervening edit always agree on the same ids (see
+    ``with_stable_cell_ids``'s own stability guarantee), so no shared
+    state is needed to keep them consistent.
+    """
+    target = deepcopy(document.raw)
+    if document.nbformat_minor < 5:
+        from ..codec.reader import with_stable_cell_ids  # deferred: avoid model<->codec cycle
+
+        with_stable_cell_ids(target)
+    return target
+
+
 # LIBIPYNB-Q15a: each mutator below implements exactly one operation's core
 # logic against a caller-supplied `target` dict, with no `deepcopy`/
 # `validate()`/commit of its own. `CellEditor`'s individual per-call methods
@@ -241,7 +284,7 @@ def _do_insert(
         or position > len(values)
     ):
         raise IndexError("insert index is outside the cell collection")
-    validated = _validate_cell(cell, notebook_minor=notebook_minor)
+    validated = _validate_cell(cell, notebook_minor=notebook_minor, used_ids=set(_index(target)))
     cell_id = str(validated["id"])
     if cell_id in _index(target):
         raise ValueError(f"cell ID must be unique: {cell_id}")
@@ -348,7 +391,7 @@ class CellEditBatch:
 
     def __init__(self, editor: CellEditor) -> None:
         self._editor = editor
-        self._target = deepcopy(editor.document.raw)
+        self._target = _prepare_target(editor.document)
         self._notebook_minor = editor.document.nbformat_minor
         self._changes: list[CellEdit] = []
         #: Set by `CellEditor.batch()` after a successful, validated commit
@@ -404,7 +447,12 @@ class CellEditor:
     def __init__(self, document: NotebookDocument) -> None:
         if not isinstance(document, NotebookDocument):
             raise TypeError("document must be an NotebookDocument")
-        _index(document.raw)
+        # LIBIPYNB-Q66: _prepare_target already returns a plain, unmodified
+        # copy for >=4.5 documents (this call's behavior is unchanged for
+        # them) and an ephemeral-id-populated one for <4.5 documents, so
+        # this fail-fast structural check no longer requires ids that
+        # aren't a valid property on the document's own declared version.
+        _index(_prepare_target(document))
         self.document = document
 
     def search(self, query: CellQuery) -> tuple[Cell, ...]:
@@ -421,7 +469,7 @@ class CellEditor:
         index: int | None = None,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = deepcopy(self.document.raw)
+        target = _prepare_target(self.document)
         change = _do_insert(target, cell, index, self.document.nbformat_minor)
         return self._finish(target, (change,), dry_run=dry_run)
 
@@ -432,7 +480,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = deepcopy(self.document.raw)
+        target = _prepare_target(self.document)
         change = _do_move(target, cell_id, index)
         if change is None:
             return CellEditReport((), False)
@@ -446,7 +494,7 @@ class CellEditor:
         new_id: str | None = None,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = deepcopy(self.document.raw)
+        target = _prepare_target(self.document)
         change = _do_copy(target, cell_id, index, new_id, self.document.nbformat_minor)
         return self._finish(target, (change,), dry_run=dry_run)
 
@@ -457,7 +505,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = deepcopy(self.document.raw)
+        target = _prepare_target(self.document)
         change = _do_replace(target, cell_id, cell, self.document.nbformat_minor)
         if change is None:
             return CellEditReport((), False)
@@ -469,7 +517,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = deepcopy(self.document.raw)
+        target = _prepare_target(self.document)
         change = _do_remove(target, cell_id)
         return self._finish(target, (change,), dry_run=dry_run)
 
@@ -479,7 +527,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = deepcopy(self.document.raw)
+        target = _prepare_target(self.document)
         changes = _do_remove_where(target, query)
         if not changes:
             return CellEditReport((), False)
@@ -519,6 +567,36 @@ class CellEditor:
     ) -> CellEditReport:
         from ..validation import validate
 
+        if self.document.nbformat_minor < 5:
+            # LIBIPYNB-Q66: `_prepare_target`/`_do_*` populated ephemeral
+            # ids purely for this operation's own internal addressing --
+            # strip them again before validating (a <4.5 schema's
+            # `additionalProperties: false` would otherwise reject them,
+            # exactly like `lifecycle.downgrade()`'s identical strip) or
+            # committing, so no ephemeral id is ever persisted for a
+            # document whose declared version doesn't support one.
+            for cell in _cells(target):
+                cell.pop("id", None)
+
+            # `CellEdit.before`/`.after` were already frozen (deep_freeze
+            # snapshots, not live views -- see _internal/immutable.py) by
+            # the time each _do_* function returned, so the strip above
+            # doesn't retroactively affect them. Rebuild each report entry
+            # with the `id` removed before it's re-frozen (a frozen
+            # `MappingProxyType` has no `.pop()` -- it must be stripped on
+            # a plain dict first), so a caller inspecting the report never
+            # sees an `id` this document's own committed state doesn't
+            # have. `cell_id` itself is left as the ephemeral id -- it's a
+            # change-tracking label ("which cell"), not a content
+            # snapshot, and some identifier is unavoidably needed to
+            # describe "which cell changed" in a report either way.
+            def _without_id(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+                return None if value is None else {k: v for k, v in value.items() if k != "id"}
+
+            changes = tuple(
+                replace(change, before=_without_id(change.before), after=_without_id(change.after))
+                for change in changes
+            )
         report = validate(NotebookDocument(target))
         if not report.is_valid:
             first = report.errors[0]

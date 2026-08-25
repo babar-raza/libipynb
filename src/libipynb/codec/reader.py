@@ -129,6 +129,53 @@ def ensure_cell_id(cell: dict[str, Any], used_ids: set[str]) -> dict[str, Any]:
     return cell
 
 
+def with_stable_cell_ids(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return *raw* -- an internal copy the caller already owns -- with
+    every cell missing a stable, non-empty id given one deterministically
+    via the same content-hash algorithm :func:`~libipynb.model.lifecycle.
+    upgrade` and :func:`ensure_cell_id` already use.
+
+    LIBIPYNB-Q3 / LIBIPYNB-Q66: shared by :mod:`libipynb.model.diff` (where
+    it originated, closing the confirmed blocker that ``diff_notebooks``/
+    ``merge_notebooks`` unconditionally required every cell to carry an
+    explicit ``id`` -- structurally incompatible with nbformat 4.0-4.4) and
+    by :mod:`libipynb.model.editor` (which needs the identical "assign a
+    deterministic ephemeral id, purely for this operation's own internal
+    addressing, never persisted for a <4.5 document" behavior so its
+    id-string-addressed mutation API -- move/copy/replace/remove all take a
+    ``cell_id: str`` -- keeps working on documents that don't carry real
+    ids at all). Moved here, out of ``model/diff.py``, so both callers share
+    one implementation rather than one importing the other's private
+    function.
+
+    Stability: two cells with byte-identical content (minus ``id``) hash to
+    the same digest and therefore the same synthesized id, so recomputing
+    this fresh from the same underlying cell content -- e.g. once per
+    :mod:`libipynb.model.editor` operation, or once per side of a diff --
+    always yields the same id for an unchanged cell, never a spurious
+    remove+add or "moved" report.
+
+    Cells that already carry a non-empty string id are left completely
+    untouched (including malformed/duplicate ones), so a caller-side
+    uniqueness/format check downstream still fires exactly as before for
+    those -- this closes only the "no id at all" gap, not id corruption.
+    """
+    cells = raw.get("cells")
+    if not isinstance(cells, list):
+        return raw
+    used_ids = {
+        cell["id"]
+        for cell in cells
+        if isinstance(cell, dict) and isinstance(cell.get("id"), str) and cell.get("id")
+    }
+    for cell in cells:
+        if isinstance(cell, dict):
+            cell_id = cell.get("id")
+            if not isinstance(cell_id, str) or not cell_id:
+                ensure_cell_id(cell, used_ids)
+    return raw
+
+
 def _raise_parse(
     code: str,
     message: str,

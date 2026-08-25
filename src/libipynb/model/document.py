@@ -334,9 +334,6 @@ class NotebookDocument:
         metadata: dict[str, Any] | None = None,
         index: int | None = None,
     ) -> dict[str, Any]:
-        from ..codec.reader import ensure_cell_id
-
-        used_ids = {cell["id"] for cell in self.cells if isinstance(cell.get("id"), str)}
         cell: dict[str, Any] = {
             "cell_type": cell_type,
             "source": source,
@@ -344,7 +341,16 @@ class NotebookDocument:
         }
         if cell_type == "code":
             cell.update(outputs=[], execution_count=None)
-        ensure_cell_id(cell, used_ids)
+        if self.nbformat_minor >= 5:
+            # LIBIPYNB-Q66: cell `id` is only a valid nbformat cell property
+            # from 4.5 onward (the vendored 4.0-4.4 schemas have no `id`
+            # property and reject one via `additionalProperties: false`,
+            # confirmed live) -- mirrors lifecycle.upgrade()'s identical
+            # `target_minor >= 5` gate for the same synthesis.
+            from ..codec.reader import ensure_cell_id
+
+            used_ids = {c["id"] for c in self.cells if isinstance(c.get("id"), str)}
+            ensure_cell_id(cell, used_ids)
         if index is None:
             self.cells.append(cell)
         else:

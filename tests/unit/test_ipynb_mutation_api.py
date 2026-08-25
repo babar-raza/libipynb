@@ -16,14 +16,16 @@ from pathlib import Path
 
 import pytest
 
-from libipynb import CELL_ID_PATTERN, NotebookDocument, dump, load
+from libipynb import CELL_ID_PATTERN, NotebookDocument, dump, dumps, load, loads, validate
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 VALID_DIR = FIXTURES / "valid"
 
 
-def _fresh_doc() -> NotebookDocument:
-    return NotebookDocument({"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": []})
+def _fresh_doc(nbformat_minor: int = 5) -> NotebookDocument:
+    return NotebookDocument(
+        {"nbformat": 4, "nbformat_minor": nbformat_minor, "metadata": {}, "cells": []}
+    )
 
 
 class TestAddCell:
@@ -80,6 +82,69 @@ class TestAddCell:
 
         assert reloaded.cells[-1]["id"] == new_cell["id"]
         assert reloaded.cells[-1]["source"] == "z = 1"
+
+
+class TestAddCellVersionAwareness:
+    """LIBIPYNB-Q66: cell `id` is only a valid nbformat cell property from
+    4.5 onward -- add_cell() previously called ensure_cell_id() regardless
+    of the document's own declared nbformat_minor, making the result
+    invalid against its own vendored 4.0-4.4 schema (`additionalProperties:
+    false`, no `id` property). Reproduced live against all 5 real fixtures
+    before this fix; these are the regression tests for it."""
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_add_cell_on_pre_4_5_document_does_not_add_an_id(self, minor):
+        doc = _fresh_doc(nbformat_minor=minor)
+        cell = doc.add_cell(cell_type="code", source="x = 1")
+        assert "id" not in cell
+        assert "id" not in doc.cells[0]
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_add_cell_on_pre_4_5_document_still_validates_against_its_own_schema(self, minor):
+        doc = _fresh_doc(nbformat_minor=minor)
+        doc.add_cell(cell_type="code", source="x = 1")
+        doc.add_cell(cell_type="markdown", source="# note")
+
+        report = validate(doc.raw)
+
+        assert report.is_valid, report.errors
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_add_cell_on_pre_4_5_document_round_trips_preserving_declared_version(self, minor):
+        doc = _fresh_doc(nbformat_minor=minor)
+        doc.add_cell(cell_type="code", source="x = 1")
+
+        text = dumps(doc, profile="declared")
+        reloaded = loads(text, mode="strict")
+
+        assert reloaded.nbformat_minor == minor
+        assert "id" not in reloaded.cells[0]
+
+    @pytest.mark.parametrize("minor", [5])
+    def test_add_cell_on_4_5_document_is_unaffected(self, minor):
+        """Same document shape, at the version where an id IS required --
+        confirms the version gate didn't silently change 4.5 behavior."""
+        doc = _fresh_doc(nbformat_minor=minor)
+        cell = doc.add_cell(cell_type="code", source="x = 1")
+
+        assert CELL_ID_PATTERN.match(cell["id"])
+        report = validate(doc.raw)
+        assert report.is_valid, report.errors
+
+    def test_add_cell_on_real_4_0_through_4_4_fixtures(self):
+        """Live-reproduced against the actual shipped fixtures, not just a
+        minimal synthetic document -- these are the exact files the
+        original bug report reproduced against."""
+        for minor in range(5):
+            path = VALID_DIR / f"nbformat-4-{minor}.ipynb"
+            doc = load(str(path))
+            assert doc.nbformat_minor == minor
+
+            cell = doc.add_cell(cell_type="code", source="print('ok')")
+
+            assert "id" not in cell
+            report = validate(doc.raw)
+            assert report.is_valid, (minor, report.errors)
 
 
 class TestRemoveCell:
