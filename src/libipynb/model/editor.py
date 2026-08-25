@@ -232,33 +232,72 @@ def _select(raw: dict[str, Any], cell_id: str) -> tuple[int, dict[str, Any]]:
         raise KeyError(f"cell ID not found: {cell_id}") from exc
 
 
-def _prepare_target(document: NotebookDocument) -> dict[str, Any]:
-    """A fresh working copy of *document*'s raw data, ready for this
-    module's id-string-addressed mutators (``_do_insert``/``_do_move``/
-    etc., all keyed on ``cell_id: str``) regardless of the document's own
-    nbformat_minor.
+def _new_shadow(document: NotebookDocument) -> dict[str, Any] | None:
+    """The initial, ephemeral-id-carrying shadow copy for a <4.5 document
+    -- ``None`` for >=4.5 documents, which need no shadow since their
+    cells already carry real, persisted ids that never move underneath
+    this module's id-string-addressed mutators.
 
-    LIBIPYNB-Q66: for a <4.5 document -- whose cells have no ``id`` at all,
-    since that property isn't valid there -- every cell is given a
-    deterministic, content-hash ephemeral id via
-    ``codec.reader.with_stable_cell_ids`` before any mutator runs, purely
-    so the existing id-based addressing keeps working for the duration of
-    this one operation. ``CellEditor._finish`` strips those ephemeral ids
-    back out before validating or committing, so nothing from this ever
-    reaches the real document or its schema-checked output. Recomputed
-    fresh on every call (not cached on ``CellEditor``) rather than
-    persisted as instance state: since it is purely a function of the
-    document's own current cell content, two independent calls made
-    without any intervening edit always agree on the same ids (see
-    ``with_stable_cell_ids``'s own stability guarantee), so no shared
-    state is needed to keep them consistent.
+    LIBIPYNB-Q66 Gate-G2 CRITICAL review finding: an earlier version of
+    this mechanism recomputed ephemeral ids fresh, by re-hashing cell
+    content, on *every* call -- reasoning that this was safe because
+    recomputation is a pure function of content, so two calls "without an
+    intervening edit" would agree. That reasoning missed the actual usage
+    pattern: `CellEditor`'s own public API hands a caller an id from one
+    call (e.g. `insert()`) specifically so it can be used in a *later,
+    separate* call (`move()`/`copy()`/`replace()`/`remove()`) -- and
+    content-hash ids are assigned by list *position* among
+    content-duplicate cells. Reproduced live: two duplicate-content cells,
+    capture the id of the one at position 0, `move()` it to position 1 --
+    recomputing ids fresh afterward reassigns that SAME id string back to
+    position 0, which is now a *different* physical cell. A caller still
+    holding the original id would silently operate on the wrong cell, no
+    error raised.
+
+    Fixed by computing this shadow exactly once, then carrying it forward
+    as `CellEditor` instance state (`self._shadow`), updated in place
+    after every successful (non-dry-run) commit -- never re-derived from
+    content after this first assignment. An id therefore stays bound to
+    the same logical cell for the lifetime of one `CellEditor` instance,
+    the same guarantee a real, persisted id gives a >=4.5 document.
     """
-    target = deepcopy(document.raw)
-    if document.nbformat_minor < 5:
-        from ..codec.reader import with_stable_cell_ids  # deferred: avoid model<->codec cycle
+    if document.nbformat_minor >= 5:
+        return None
+    from ..codec.reader import with_stable_cell_ids  # deferred: avoid model<->codec import cycle
 
-        with_stable_cell_ids(target)
-    return target
+    shadow = deepcopy(document.raw)
+    with_stable_cell_ids(shadow)
+    return shadow
+
+
+def _without_ephemeral_id(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    return None if value is None else {key: item for key, item in value.items() if key != "id"}
+
+
+def _strip_ephemeral_ids_from_changes(changes: tuple[CellEdit, ...]) -> tuple[CellEdit, ...]:
+    """`CellEdit.before`/`.after` are frozen (deep_freeze) snapshots, not
+    live views (see `_internal/immutable.py`) -- taken at the moment each
+    `_do_*` function returns, before any later strip of the committed
+    document's cells could retroactively affect them. Rebuilding each
+    entry here, with `id` removed before it's re-frozen, is what keeps a
+    caller inspecting either `CellEditReport.changes` (post-commit) or
+    `CellEditBatch.changes` (readable mid-batch, before any commit has
+    happened at all -- LIBIPYNB-Q66 Gate-G2 WARNING finding: an earlier
+    version only stripped the former, leaving the latter to leak the raw
+    ephemeral id both mid-batch and after commit) from ever seeing an
+    `id` the document's own committed state doesn't have. `cell_id` itself
+    is deliberately left as the ephemeral id -- a change-tracking label
+    ("which cell"), not a content snapshot, and some identifier is
+    unavoidably needed to describe "which cell changed" either way.
+    """
+    return tuple(
+        replace(
+            change,
+            before=_without_ephemeral_id(change.before),
+            after=_without_ephemeral_id(change.after),
+        )
+        for change in changes
+    )
 
 
 # LIBIPYNB-Q15a: each mutator below implements exactly one operation's core
@@ -391,7 +430,7 @@ class CellEditBatch:
 
     def __init__(self, editor: CellEditor) -> None:
         self._editor = editor
-        self._target = _prepare_target(editor.document)
+        self._target = editor._working_copy()
         self._notebook_minor = editor.document.nbformat_minor
         self._changes: list[CellEdit] = []
         #: Set by `CellEditor.batch()` after a successful, validated commit
@@ -400,7 +439,10 @@ class CellEditBatch:
 
     @property
     def changes(self) -> tuple[CellEdit, ...]:
-        return tuple(self._changes)
+        changes = tuple(self._changes)
+        if self._notebook_minor < 5:
+            changes = _strip_ephemeral_ids_from_changes(changes)
+        return changes
 
     def insert(self, cell: Mapping[str, Any], *, index: int | None = None) -> CellEdit:
         change = _do_insert(self._target, cell, index, self._notebook_minor)
@@ -447,13 +489,23 @@ class CellEditor:
     def __init__(self, document: NotebookDocument) -> None:
         if not isinstance(document, NotebookDocument):
             raise TypeError("document must be an NotebookDocument")
-        # LIBIPYNB-Q66: _prepare_target already returns a plain, unmodified
-        # copy for >=4.5 documents (this call's behavior is unchanged for
-        # them) and an ephemeral-id-populated one for <4.5 documents, so
-        # this fail-fast structural check no longer requires ids that
-        # aren't a valid property on the document's own declared version.
-        _index(_prepare_target(document))
         self.document = document
+        #: `None` for >=4.5 documents (no shadow needed -- their cells
+        #: already carry real, persisted ids). For <4.5, the persistent,
+        #: ephemeral-id-carrying working state this editor instance
+        #: mutates and carries forward across calls -- see `_new_shadow`'s
+        #: docstring for why this must be instance state, not recomputed
+        #: fresh each call.
+        self._shadow = _new_shadow(document)
+        # Fail fast on a structurally broken document (this also no
+        # longer requires ids that aren't a valid property below 4.5).
+        _index(self._working_copy())
+
+    def _working_copy(self) -> dict[str, Any]:
+        """A fresh, independent copy to mutate for one operation -- from
+        the persistent shadow for <4.5 documents, or directly from the
+        real document for >=4.5 (whose cells already carry real ids)."""
+        return deepcopy(self._shadow if self._shadow is not None else self.document.raw)
 
     def search(self, query: CellQuery) -> tuple[Cell, ...]:
         if not isinstance(query, CellQuery):
@@ -469,7 +521,7 @@ class CellEditor:
         index: int | None = None,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = _prepare_target(self.document)
+        target = self._working_copy()
         change = _do_insert(target, cell, index, self.document.nbformat_minor)
         return self._finish(target, (change,), dry_run=dry_run)
 
@@ -480,7 +532,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = _prepare_target(self.document)
+        target = self._working_copy()
         change = _do_move(target, cell_id, index)
         if change is None:
             return CellEditReport((), False)
@@ -494,7 +546,7 @@ class CellEditor:
         new_id: str | None = None,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = _prepare_target(self.document)
+        target = self._working_copy()
         change = _do_copy(target, cell_id, index, new_id, self.document.nbformat_minor)
         return self._finish(target, (change,), dry_run=dry_run)
 
@@ -505,7 +557,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = _prepare_target(self.document)
+        target = self._working_copy()
         change = _do_replace(target, cell_id, cell, self.document.nbformat_minor)
         if change is None:
             return CellEditReport((), False)
@@ -517,7 +569,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = _prepare_target(self.document)
+        target = self._working_copy()
         change = _do_remove(target, cell_id)
         return self._finish(target, (change,), dry_run=dry_run)
 
@@ -527,7 +579,7 @@ class CellEditor:
         *,
         dry_run: bool = False,
     ) -> CellEditReport:
-        target = _prepare_target(self.document)
+        target = self._working_copy()
         changes = _do_remove_where(target, query)
         if not changes:
             return CellEditReport((), False)
@@ -567,43 +619,35 @@ class CellEditor:
     ) -> CellEditReport:
         from ..validation import validate
 
-        if self.document.nbformat_minor < 5:
-            # LIBIPYNB-Q66: `_prepare_target`/`_do_*` populated ephemeral
-            # ids purely for this operation's own internal addressing --
-            # strip them again before validating (a <4.5 schema's
-            # `additionalProperties: false` would otherwise reject them,
-            # exactly like `lifecycle.downgrade()`'s identical strip) or
-            # committing, so no ephemeral id is ever persisted for a
-            # document whose declared version doesn't support one.
-            for cell in _cells(target):
+        is_pre_v45 = self.document.nbformat_minor < 5
+        committed = target
+        if is_pre_v45:
+            # LIBIPYNB-Q66: `target` carries ephemeral ids (from
+            # `_working_copy`/`_do_*`) needed only for this operation's
+            # own internal addressing. `committed` -- a separate deepcopy,
+            # not `target` itself -- is what gets those ids stripped
+            # (a <4.5 schema's `additionalProperties: false` would
+            # otherwise reject them, exactly like `lifecycle.downgrade()`'s
+            # identical strip), validated, and written into the real
+            # document. `target` itself is left untouched here
+            # specifically so it can become the new `self._shadow` below
+            # -- still carrying its ids, ready for the next call.
+            committed = deepcopy(target)
+            for cell in _cells(committed):
                 cell.pop("id", None)
-
-            # `CellEdit.before`/`.after` were already frozen (deep_freeze
-            # snapshots, not live views -- see _internal/immutable.py) by
-            # the time each _do_* function returned, so the strip above
-            # doesn't retroactively affect them. Rebuild each report entry
-            # with the `id` removed before it's re-frozen (a frozen
-            # `MappingProxyType` has no `.pop()` -- it must be stripped on
-            # a plain dict first), so a caller inspecting the report never
-            # sees an `id` this document's own committed state doesn't
-            # have. `cell_id` itself is left as the ephemeral id -- it's a
-            # change-tracking label ("which cell"), not a content
-            # snapshot, and some identifier is unavoidably needed to
-            # describe "which cell changed" in a report either way.
-            def _without_id(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
-                return None if value is None else {k: v for k, v in value.items() if k != "id"}
-
-            changes = tuple(
-                replace(change, before=_without_id(change.before), after=_without_id(change.after))
-                for change in changes
-            )
-        report = validate(NotebookDocument(target))
+            changes = _strip_ephemeral_ids_from_changes(changes)
+        report = validate(NotebookDocument(committed))
         if not report.is_valid:
             first = report.errors[0]
             raise ValueError(f"cell edit would invalidate notebook: {first.code}: {first.message}")
         if not dry_run:
             self.document.raw.clear()
-            self.document.raw.update(target)
+            self.document.raw.update(committed)
+            if is_pre_v45:
+                # Carries this operation's ids forward as the new shadow
+                # -- see `_new_shadow`'s docstring for why recomputing
+                # fresh from content on the next call would be wrong.
+                self._shadow = target
         return CellEditReport(changes, not dry_run)
 
 

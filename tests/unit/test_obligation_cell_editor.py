@@ -618,32 +618,104 @@ class TestQ66PreV45DocumentsAreEditable:
 
     @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
     def test_insert_move_copy_replace_remove_work_and_leave_no_id_behind(self, minor: int) -> None:
+        """LIBIPYNB-Q66 Gate-G2 CRITICAL review finding: an earlier version
+        of this test only asserted `.applied`/no-`id` at each step, which
+        stayed green even when a later step silently operated on the
+        WRONG physical cell (reproduced live: content-identical cells'
+        ephemeral ids drifted to a different cell when re-derived fresh
+        from content on every call). Every assertion below now also
+        checks cell *content* by position, not just outcome flags -- see
+        test_ephemeral_id_stays_bound_to_the_same_physical_cell_across_
+        content_duplicates below for the dedicated identity-stability
+        regression test."""
         document = _document_without_ids(minor)
         editor = edit_cells(document)
+
+        def _sources() -> list[object]:
+            return [cell.get("source") for cell in document.raw["cells"]]
 
         insert_report = editor.insert(
             {"cell_type": "markdown", "metadata": {}, "source": "New"}, index=1
         )
         assert insert_report.applied
         assert "id" not in insert_report.changes[0].after
+        assert _sources() == ["value = 1", "New", "Explanation", ["raw ", "content"]]
         new_id = insert_report.changes[0].cell_id
 
         assert editor.move(new_id, 0).applied
+        assert _sources() == ["New", "value = 1", "Explanation", ["raw ", "content"]]
 
         copy_report = editor.copy(new_id)
         assert copy_report.applied
         assert "id" not in copy_report.changes[0].after
+        # The copy is now content-identical to the original -- exactly
+        # the scenario that broke identity tracking pre-fix.
+        assert _sources() == ["New", "New", "value = 1", "Explanation", ["raw ", "content"]]
 
         replace_report = editor.replace(
             new_id, {"cell_type": "raw", "metadata": {}, "source": "replacement"}
         )
         assert replace_report.applied
         assert "id" not in replace_report.changes[0].after
+        # `new_id` must still resolve to the ORIGINAL cell (now first),
+        # not the copy created a step ago -- the copy survives untouched.
+        assert _sources() == ["replacement", "New", "value = 1", "Explanation", ["raw ", "content"]]
 
         assert editor.remove(new_id).applied
+        # The replaced-then-removed original is gone; the copy (and every
+        # untouched fixture cell) survives.
+        assert _sources() == ["New", "value = 1", "Explanation", ["raw ", "content"]]
 
         assert all("id" not in cell for cell in document.raw["cells"])
         _valid(document)  # independent oracle: the real nbformat package agrees
+
+    @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
+    def test_ephemeral_id_stays_bound_to_the_same_physical_cell_across_content_duplicates(
+        self, minor: int
+    ) -> None:
+        """LIBIPYNB-Q66 Gate-G2 CRITICAL review finding, dedicated
+        regression test: two content-identical cells, capture an id for
+        the one at position 0 (via insert(), the only way the public API
+        exposes an id for a pre-existing-by-then cell), move it to
+        position 1 -- the id must still resolve to the SAME physical cell
+        it originally identified, not to whatever now occupies position 0.
+        Reproduced live pre-fix: recomputing ephemeral ids fresh from
+        content on every call reassigned the captured id back to position
+        0 after the swap -- a different physical cell, no error raised."""
+        document = NotebookDocument(
+            {"nbformat": 4, "nbformat_minor": minor, "metadata": {}, "cells": []}
+        )
+        editor = edit_cells(document)
+        editor.insert(
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "source": "DUP",
+                "execution_count": None,
+                "outputs": [],
+            }
+        )
+        first_report = editor.insert(
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "source": "DUP",
+                "execution_count": None,
+                "outputs": [],
+            },
+            index=0,
+        )
+        # first_report's cell is now at position 0 (inserted there); the
+        # first-inserted "DUP" cell is now at position 1.
+        captured_id = first_report.changes[0].cell_id
+
+        assert editor.move(captured_id, 1).applied
+
+        replace_report = editor.replace(
+            captured_id, {"cell_type": "markdown", "metadata": {}, "source": "REPLACED"}
+        )
+        assert replace_report.applied
+        assert [cell.get("source") for cell in document.raw["cells"]] == ["DUP", "REPLACED"]
 
     @pytest.mark.parametrize("minor", [0, 1, 2, 3, 4])
     def test_edits_round_trip_preserving_declared_version_and_no_id(self, minor: int) -> None:
