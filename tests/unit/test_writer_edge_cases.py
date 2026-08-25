@@ -12,6 +12,7 @@ import pytest
 
 from libipynb import dump, dumps, loads
 from libipynb.errors import NotebookWriteError
+from libipynb.security.limits import NotebookResourceLimits
 
 
 def _minimal_doc() -> object:
@@ -180,6 +181,59 @@ class TestDumpErrors:
         }
         with pytest.raises(NotebookWriteError, match="cannot serialize"):
             dumps(raw, profile="declared")
+
+    def _deeply_nested_document(self, depth: int) -> object:
+        """A document whose json.dumps() encode itself recurses `depth`
+        levels -- built via bracket-multiplied JSON text (not a recursive
+        Python-side construction), matching the pattern already proven
+        safe in tests/security/test_non_finite_numbers.py and
+        tests/unit/test_obligation_security_limits.py."""
+        vendor_json = ("[" * depth) + '"leaf"' + ("]" * depth)
+        text = (
+            '{"nbformat": 4, "nbformat_minor": 5, '
+            '"metadata": {"vendor": ' + vendor_json + "}, "
+            '"cells": []}'
+        )
+        return loads(
+            text, mode="preservation", limits=NotebookResourceLimits(max_nesting_depth=5000)
+        )
+
+    def test_dumps_converts_recursion_error_to_notebook_write_error(self) -> None:
+        """LIBIPYNB-Q65 Gate-G2 review finding: a document whose caller
+        explicitly configured a NotebookResourceLimits.max_nesting_depth
+        higher than the interpreter's recursion limit (no documented or
+        enforced upper bound on that option) loads and validates
+        successfully, then previously raised an uncaught RecursionError
+        from inside dumps()'s own json.dumps() call -- reproduced directly
+        against the pre-fix code, not hypothetical. Must now be a clean,
+        catchable NotebookWriteError, matching every other serialization
+        failure this function already converts (TypeError/ValueError/
+        UnicodeEncodeError just above)."""
+        doc = self._deeply_nested_document(1500)
+
+        with pytest.raises(NotebookWriteError, match="cannot serialize"):
+            dumps(doc, profile="declared")
+
+    def test_dump_converts_recursion_error_to_notebook_write_error(self) -> None:
+        """dump() calls dumps() before its own try block (see dump()'s own
+        implementation) -- confirms the conversion holds through that call
+        path too, not just dumps() called directly."""
+        doc = self._deeply_nested_document(1500)
+
+        with pytest.raises(NotebookWriteError, match="cannot serialize"):
+            dump(doc, io.StringIO(), profile="declared")
+
+    def test_moderately_nested_document_still_serializes_correctly(self) -> None:
+        """Sanity check alongside the fix above: a document within the
+        interpreter's actual recursion headroom, under the same explicit
+        high max_nesting_depth, must still serialize successfully -- not
+        accidentally rejected by whatever RecursionError handling the fix
+        adds."""
+        doc = self._deeply_nested_document(20)
+
+        text = dumps(doc, profile="declared")
+
+        assert text.count("[") >= 20
 
     def test_partial_stream_write(self) -> None:
         class LimitedWriter:

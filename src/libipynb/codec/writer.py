@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import stat
+import sys
 import tempfile
 from collections.abc import Mapping
 from copy import deepcopy
@@ -126,6 +127,28 @@ def dumps(
         if isinstance(exc, ValueError) and str(exc).startswith("profile must"):
             raise
         raise NotebookWriteError(f"cannot serialize notebook: {exc}") from exc
+    except RecursionError as exc:
+        # LIBIPYNB-Q65 Gate-G2 review finding: CPython's C-accelerated JSON
+        # encoder still respects sys.getrecursionlimit() (default 1000) via
+        # Py_EnterRecursiveCall -- a document whose caller explicitly
+        # configured a higher NotebookResourceLimits.max_nesting_depth (no
+        # documented/enforced upper bound) than the interpreter's recursion
+        # limit can round-trip successfully through loads()/validate() and
+        # then raise an uncaught RecursionError here, on this module's own
+        # public write path -- reproduced directly, not hypothetical.
+        # Converted to this module's own error contract, matching how
+        # TypeError/ValueError and the UnicodeEncodeError case below are
+        # already handled, rather than left to leak a bare RecursionError
+        # (which callers cannot be expected to catch alongside the
+        # documented NotebookWriteError).
+        raise NotebookWriteError(
+            f"cannot serialize notebook: nesting too deep to encode "
+            f"(exceeds the interpreter's recursion limit of "
+            f"{sys.getrecursionlimit()}); this can happen when "
+            f"NotebookResourceLimits.max_nesting_depth was configured "
+            f"higher than that limit permits",
+            code="IPYNB_ENCODE_RECURSION_LIMIT",
+        ) from exc
     try:
         encoded_length = len(result.encode("utf-8"))
     except UnicodeEncodeError as exc:
