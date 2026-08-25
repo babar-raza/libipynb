@@ -19,7 +19,7 @@ Starting from a repository already carrying a `PUBLISHABLE AFTER BLOCKERS` foren
 6. Verified the release candidate end-to-end from clean-room installs through real git-driver integration (Phase 5: `Q46`–`Q52`).
 7. Produced this report (`Q53`) and now stops at the one mandatory human authorization gate (`Q54`, Mission-G9) before any tag or publish.
 
-**Task ledger status:** 42 of 49 tracked taskcards `VERIFIED`; 7 `NOT_STARTED` with preserved, individually-documented reasoning (§5); 3 carried-forward legacy items correctly remain `NOT_STARTED`/`BLOCKED_EXTERNAL`/`DEFERRED_WITH_AUTHORITY` per prior-session decisions, not silently dropped.
+**Task ledger status (as originally written):** 42 of 49 tracked taskcards `VERIFIED`; 7 `NOT_STARTED` with preserved, individually-documented reasoning (§5); 3 carried-forward legacy items correctly remain `NOT_STARTED`/`BLOCKED_EXTERNAL`/`DEFERRED_WITH_AUTHORITY` per prior-session decisions, not silently dropped. **Superseded by §9 below** (added after this report's own `Q53` was marked `VERIFIED`, per an explicit maintainer instruction to close the remaining open taskcards before returning to the `Q54` publication-authorization gate): task ledger status is now **48 of 49 `VERIFIED`**; only `Q54` (the authorization gate itself) remains open.
 
 ---
 
@@ -94,11 +94,13 @@ Built `dist/libipynb-0.1.0-py3-none-any.whl` (196,969 bytes) and `dist/libipynb-
 
 ## 5. Known remaining items — honestly disclosed, not silently dropped
 
+**As originally written (2026-08-25, before `Q53` was marked `VERIFIED`).** All 5 items below were subsequently closed — see §9.
+
 | ID | Status | Why it's not done |
 |---|---|---|
 | `Q40` | `NOT_STARTED` | Fuzz target expansion requires `atheris`, which has no Windows wheels (the same platform constraint the existing `fuzz` extra already documents) — genuinely infeasible in this Windows sandbox, not deprioritized. |
 | `Q53` | This report | — |
-| `Q54` | `NOT_STARTED` | The mandatory Mission-G9 human authorization gate — see §6. |
+| `Q54` | `NOT_STARTED` | The mandatory Mission-G9 human authorization gate — see §6, and §9's restatement of this gate below. |
 | `Q57` | `NOT_STARTED` | 67 real-kernel integration tests are never run with a provisioned kernel in any *real* CI job today (`.github/workflows/ci.yml`'s test matrix installs `.[test]` only, not the `exec` extra + `ipykernel`) — found by `Q22`'s own review, correctly scoped as its own taskcard rather than silently folded into `Q22`. |
 | `Q58` | `NOT_STARTED` | `Q31`'s mutation-testing pilot on `codec/writer.py` surfaced a real, measured 75.3% mutation score with 61 survived mutants, including all 21 of `roundtrip()`'s own mutants showing zero test coverage at all — a genuine, quantified gap deliberately left open by `Q31` (whose own scope was the tooling, not exhaustively closing everything it found). |
 | `Q59` | `NOT_STARTED` | `NbconvertExporter`'s binary-output path checks only that the output file exists, never that its content is non-empty or format-plausible — found by `Q45`'s review, correctly scoped as requiring new validation logic (an implementation change), not foldable into `Q45`'s test-only diff. |
@@ -160,4 +162,55 @@ Every `VERIFIED` row in `plans/state.json` (42 of them) is represented above, ei
 
 Every taskcard on the path to publication is closed: 42/49 `VERIFIED`, the remaining 7 are either this report, the authorization gate itself, or independently-scoped, non-blocking follow-up work with preserved reasoning. Release-candidate verification (Phase 5) confirms the built artifacts install cleanly in genuine clean-room environments, pass PyPI's own pre-flight check, resolve to a vulnerability-free dependency set, and work correctly end-to-end including real git-driver integration. This engagement's own heaviest-scrutiny defect class (mutation-after-access) went through 5 independent review rounds before the first clean verdict, closing 15 field instances a single review pass would have missed 8 of.
 
-This report does not itself authorize publication. That is `Q54` — the one mandatory human stop in this entire engagement, described next.
+This report does not itself authorize publication. That is `Q54` — the one mandatory human stop in this entire engagement, described next (and re-confirmed still true in §9, added after the update below).
+
+---
+
+## 9. Addendum (added after this report's own `Q53` was `VERIFIED`) — closing the remaining 5 taskcards
+
+This section is a genuine addendum, not a silent rewrite: §1's task-ledger line and §5's table above are left exactly as originally written, each with a pointer to this section, so the historical record of what was true when `Q53` was marked `VERIFIED` is preserved. Everything below reflects real work done in the same engagement, in a later continuation of the same session, following an explicit maintainer instruction to close every remaining open taskcard before returning to the `Q54` gate.
+
+### 9.1 What was closed
+
+All 5 items §5 listed as `NOT_STARTED` are now `VERIFIED` in `plans/state.json`:
+
+| ID | What was found and fixed | Repair Loop rounds |
+|---|---|---|
+| `Q40` | Added 2 new `atheris` fuzz targets (`fuzz_nan_infinity.py`, `fuzz_output_truncation.py`) directly exercising the `Q16`/`Q17`/`Q18` fix paths; wired into both `.gitlab-ci.yml` and `.github/workflows/fuzz.yml`. Confirmed the earlier report's own "genuinely infeasible in this Windows sandbox" note was about *running* atheris on native Windows, not about writing the targets — resolved by running them under WSL2 (documented in `fuzz/README.md`). | 2 review rounds (round 1 found the length-only check couldn't detect the historical bug; round 2 found the round-1 fix still couldn't detect it for binary-shaped outputs specifically). |
+| `Q57` | `adapters/jupyter_execute.py`'s `_finish()` could report `timed_out=False` for a cell that genuinely exceeded its budget, under a real race where nbclient's own interrupt-then-report cycle completes *faster* than the independent watchdog's own padded fire time — closed with a third, race-free detection path comparing each cell's own recorded start/finish timestamps against the configured timeout. Also wired `.[test,exec]` + a registered kernelspec into the CI jobs that run this adapter's 67 real-kernel tests, which were previously collapsing to a single skip in every real CI run. | 1 review round (0 CRITICAL; 1 MAJOR-equivalent finding — no deterministic unit test existed for the new path, only inherently timing-dependent real-kernel coverage — repaired with 2 direct-call tests mirroring the existing watchdog-race test file's own established technique; negative-control verified via `git apply -R`). |
+| `Q58` | `Q31`'s mutation-testing pilot on `codec/writer.py` (268 mutants, 75.3% score, 61 survived + 21 "no tests") was closed to 97.4% (261/268 killed, 7 genuinely equivalent and individually documented, 0 "no tests"). Every new/strengthened test was designed from mutmut's own exact `mutmut show <id>` diff for that mutant, not guessed. | 2 review rounds — round 1 found 1 **CRITICAL** finding (2 of the originally-claimed-equivalent mutants were not actually equivalent: a float `nbformat_minor` slips past a `!=` guard that loose-equality treats as a match, producing a real, killable divergence in `validate()`'s diagnostic count) and 1 MAJOR (a third claimed-equivalent mutant was already dead, a documentation-only error) — both repaired, and per this engagement's own rule that a CRITICAL finding requires a second independent round even after repair, round 2 re-verified from scratch (fresh WSL mutmut run, hand-reproducing both mutations, tracing the full diagnostic chain for fragility) and returned clean. |
+| `Q59` | `NbconvertExporter`'s binary-output path now rejects an empty output file or one missing the `%PDF-` header, instead of trusting nbconvert's own reported exit status alone. | 1 review round (0 CRITICAL/MAJOR — CLEAN). |
+| `Q60` | `validate()` and `probe()` both now catch `RecursionError` above `find_non_finite_floats`'s own hard-coded backstop and report it as a typed diagnostic instead of an uncaught crash; `probe()`'s identical, previously-unscoped copy of the same gap was found and fixed alongside the originally-scoped `validate()` fix. | 1 review round (0 CRITICAL/MAJOR — CLEAN). |
+
+`Q58`'s round-1 CRITICAL finding is worth calling out explicitly: it is a genuine instance of this engagement's own central thesis (independent review catching what a single implementation pass missed) recurring one more time, this time inside the review-and-verification machinery itself rather than in application code — an "equivalent mutant" claim is exactly the kind of self-authored, hard-to-falsify assertion `.supervisor/prompts/adversarial-review.md` exists to pressure-test, and it worked as designed.
+
+### 9.2 Updated task ledger status
+
+**48 of 49 tracked taskcards `VERIFIED`.** The sole remaining item is `Q54` — the human authorization gate itself, unchanged and un-bypassed (see §9.4). The 3 carried-forward legacy items (`Q2b`, `Q13b`, `Q13c`) remain correctly deferred exactly as §5 originally recorded — not part of this closure round's scope, not silently re-opened.
+
+### 9.3 Fresh final verification (run live in this addendum, not carried over)
+
+```
+mypy --strict src/libipynb/
+  Success: no issues found in 46 source files
+
+ruff format --check src/ tests/
+  137 files already formatted
+
+ruff check src/ tests/
+  All checks passed!
+
+pytest tests/unit/ tests/integration/ tests/security/ tests/property/ tests/scripts/ -q
+  1275 passed, 11 skipped in 479.29s (0:07:59)
+
+pytest tests/oracle/ tests/package/ tests/interoperability/ -q
+  116 passed, 5 skipped in 59.82s
+```
+
+**Combined: 1391 passed, 16 skipped, 0 failed** (up from 1364/16 — 27 more passing tests, the net of this addendum's new/strengthened tests across `Q40`/`Q57`/`Q58`/`Q59`/`Q60`; skip count unchanged, still all pre-existing and environment-conditional).
+
+**Branch summary (current):** 124 commits ahead of `master` (up from 103), 104 files changed, +12,223/−394 lines (up from 94 files/+10,793/−385). Working tree clean. No tag exists; no push to any remote has occurred — unchanged from the original report.
+
+### 9.4 Return to the `Q54` gate
+
+With 48 of 49 taskcards `VERIFIED` and the only remaining item being the authorization gate itself, this addendum returns control to the maintainer for the same decision §6/§8 already framed, now on a fully-closed task ledger. No tag, push, or publish action has been taken. That decision is presented directly to the user in this session, not assumed here.
