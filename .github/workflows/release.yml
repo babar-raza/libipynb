@@ -26,7 +26,13 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
+      # LIBIPYNB-Q67: full history, not the default shallow clone -- the
+      # coverage-instrumented full-tree run below now exercises
+      # tests/scripts/test_state_json_schema.py, whose repair_commit check
+      # needs it (same root cause as ci.yml's coverage job, LIBIPYNB-Q62).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -39,10 +45,33 @@ jobs:
           pip install -e ".[test,exec,export]"
           pip install mypy==2.3.0
       - run: mypy --strict src/libipynb/
-      - name: Full test suite (core + property)
+      # LIBIPYNB-Q67: this job previously ran only
+      # unit/integration/security/property, silently skipping
+      # tests/scripts/ (state.json evidence validation) and the
+      # fail_under=85 coverage gate ci.yml's own `coverage` job enforces --
+      # a tag could be cut on a commit that would fail full CI. One
+      # coverage-instrumented run over the whole tests/ tree (which
+      # includes every one of those subdirectories) replaces what used to
+      # be two separate, narrower pytest invocations here and closes that
+      # gap. Self-contained duplication of ci.yml's own commands, not a
+      # workflow_call reference to it -- matches this job's own existing,
+      # deliberate design (see this job's header comment above: "re-run
+      # the same gates ci.yml enforces... deliberately NOT a dependency on
+      # ci.yml's own run"), now just covering the two gates that had
+      # drifted out of sync with it.
+      - name: pytest --cov (fail_under=85 gate, full tree incl. tests/scripts/)
+        run: pytest tests/ --cov=libipynb --cov-report=term-missing
+      # LIBIPYNB-Q67: matches ci.yml's security-audit job -- previously
+      # absent from this path entirely, so a tag could be cut on a commit
+      # with a known-vulnerable dependency ci.yml would have caught.
+      - name: Upgrade pip (pip itself is part of pip-audit's own scan)
+        run: pip install --upgrade pip
+      - name: Install full extras + pip-audit
         run: |
-          pytest tests/unit/ tests/integration/ tests/security/ -v --tb=short
-          pytest tests/property/ -v --tb=short
+          pip install -e ".[test,exec,export,oracle,fuzz]"
+          pip install pip-audit==2.10.1
+      - name: pip-audit
+        run: pip-audit --progress-spinner=off
 
   build:
     needs: verify
