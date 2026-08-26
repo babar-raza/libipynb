@@ -558,6 +558,47 @@ class TestExecute:
         assert ledger["cells_with_truncated_output"] == []
         assert ledger["cells_with_omitted_mime_types"] == {}
 
+    def test_execute_hard_kill_grace_period_surfaces_in_the_ledger(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """LIBIPYNB-Q2b Gate-G2 finding: --hard-kill-grace-period didn't
+        exist as a CLI flag at all when the underlying escalation was
+        first implemented -- unreachable from the CLI despite --cell-
+        timeout/--no-interrupt-on-timeout, its two prerequisites, already
+        being wired. This is the first test proving the flag is wired
+        through end-to-end (not just that ExecutionOptions accepts it in
+        isolation), against a kernel that genuinely ignores SIGINT."""
+        notebook = tmp_path / "nb.ipynb"
+        dest = tmp_path / "executed.ipynb"
+        _write_notebook(
+            notebook,
+            sources=[
+                (
+                    "import signal\n"
+                    "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+                    "while True:\n"
+                    "    pass\n"
+                )
+            ],
+        )
+
+        exit_code = main(
+            [
+                "execute",
+                str(notebook),
+                "-o",
+                str(dest),
+                "--acknowledge-unsandboxed",
+                "--cell-timeout",
+                "2",
+                "--hard-kill-grace-period",
+                "3",
+            ]
+        )
+        ledger = json.loads(capsys.readouterr().out)
+        assert ledger["hard_killed"] is True
+        assert exit_code == 1  # a hard-killed run never succeeds
+
     def test_execute_succeeds_on_list_of_lines_source(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:

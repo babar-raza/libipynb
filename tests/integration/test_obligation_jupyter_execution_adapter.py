@@ -551,6 +551,87 @@ def test_interrupt_on_timeout_false_aborts_the_whole_run(executor: LocalJupyterE
     assert result.cell_records[1].executed is False
 
 
+def test_hard_kill_grace_period_terminates_a_kernel_that_ignores_interrupts(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """LIBIPYNB-Q2b: live-reproduced before this fix existed -- against a
+    kernel that explicitly ignores SIGINT (the realistic model of a
+    genuinely uninterruptible cell, e.g. a C-level busy loop or a syscall
+    that ignores signals), `cell_timeout` + `interrupt_on_timeout=True`
+    alone left `execute()` hanging indefinitely: still running 15x past
+    its own 3s budget after a 45s observation window, with no built-in
+    give-up condition (nbclient's own interrupt-timeout retry loop just
+    sends another interrupt and waits a full fresh cell_timeout again,
+    forever). `hard_kill_grace_period` is the escalation that actually
+    unblocks the caller by force-killing the kernel's OS process tree
+    directly."""
+    psutil = pytest.importorskip("psutil")
+    import os
+
+    document = _document(
+        [
+            _code(
+                "import signal\n"
+                "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+                "while True:\n"
+                "    pass\n",
+                "uninterruptible",
+            )
+        ]
+    )
+
+    t0 = time.monotonic()
+    result = executor.execute(
+        document,
+        options=_opts(cell_timeout=2, interrupt_on_timeout=True, hard_kill_grace_period=3),
+    )
+    elapsed = time.monotonic() - t0
+
+    assert result.hard_killed is True
+    # Generous margin over cell_timeout(2) + watchdog skew +
+    # hard_kill_grace_period(3) + kill/detection overhead -- decisively
+    # less than "hangs forever", which is what this bounds against.
+    assert elapsed < 60.0, (
+        f"execute() took {elapsed:.1f}s to return with hard_kill_grace_period=3 -- "
+        "the hard-kill escalation did not unblock the caller (LIBIPYNB-Q2b)"
+    )
+
+    # No orphaned kernel process left behind by the hard kill. Bounded poll
+    # (not an instantaneous check): a just-killed PID can still briefly
+    # resolve before the OS finishes reaping it, matching the established
+    # idiom in test_obligation_execution_adapter.py's own tree-kill tests.
+    me = psutil.Process(os.getpid())
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if not me.children(recursive=True):
+            break
+        time.sleep(0.2)
+    else:
+        pytest.fail(
+            f"kernel process tree still had live children "
+            f"{deadline - time.monotonic():.1f}s after execute() returned -- "
+            "the hard kill left an orphaned kernel process (LIBIPYNB-Q2b)"
+        )
+
+
+def test_hard_kill_grace_period_does_not_interfere_with_a_cell_that_finishes_in_time(
+    executor: LocalJupyterExecutor,
+) -> None:
+    """Negative control: a normal, well-behaved cell must be completely
+    unaffected by hard_kill_grace_period being configured -- it should
+    never even arm, let alone fire."""
+    document = _document([_code("1 + 1")])
+
+    result = executor.execute(
+        document,
+        options=_opts(cell_timeout=30, interrupt_on_timeout=True, hard_kill_grace_period=5),
+    )
+
+    assert result.hard_killed is False
+    assert result.completed is True
+    assert result.cell_records[0].outputs[0]["data"]["text/plain"] == "2"
+
+
 def test_a_generous_timeout_does_not_interfere_with_normal_execution(
     executor: LocalJupyterExecutor,
 ) -> None:

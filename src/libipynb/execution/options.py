@@ -133,6 +133,26 @@ class ExecutionOptions:
     #: the closest available per-cell control.
     total_timeout: float | None = None
 
+    #: LIBIPYNB-Q2b: opt-in hard-kill escalation for a cell that never
+    #: responds to the interrupt ``cell_timeout``/``interrupt_on_timeout``
+    #: already send it. If set, a cell still running this many seconds
+    #: after the existing per-cell watchdog's own (observational) fire
+    #: point is treated as genuinely uninterruptible: the kernel's OS
+    #: process tree is force-killed directly (bypassing the kernel
+    #: protocol entirely, the same tree-kill approach
+    #: :mod:`libipynb.adapters.execute` already uses), and
+    #: :attr:`~.results.ExecutionResult.hard_killed` is set. Requires
+    #: ``cell_timeout`` to be set and ``interrupt_on_timeout=True`` (the
+    #: default) -- an interrupt must already have been attempted and
+    #: failed before "harder" than that means anything; live-reproduced
+    #: (LIBIPYNB-Q2b evidence): against a kernel that ignores SIGINT, a run
+    #: with only ``cell_timeout`` set hangs indefinitely (still running
+    #: 15x past its own budget), and after this option's hard-kill fires
+    #: the caller was unblocked in single-digit seconds. ``None`` (default)
+    #: disables hard-kill entirely -- an existing caller who does not opt
+    #: in sees no change in behavior.
+    hard_kill_grace_period: float | None = None
+
     #: LIBIPYNB-Q2: maximum UTF-8 byte size of a single output's own
     #: text/data payload before it is truncated and the corresponding
     #: :attr:`~.results.CellExecutionRecord.output_truncated` is set to
@@ -163,5 +183,12 @@ class ExecutionOptions:
             raise ValueError("max_output_bytes must be positive or None")
         if self.total_timeout is not None and self.total_timeout <= 0:
             raise ValueError("total_timeout must be positive or None")
+        if self.hard_kill_grace_period is not None:
+            if self.hard_kill_grace_period <= 0:
+                raise ValueError("hard_kill_grace_period must be positive or None")
+            if self.cell_timeout is None:
+                raise ValueError("hard_kill_grace_period requires cell_timeout to be set")
+            if not self.interrupt_on_timeout:
+                raise ValueError("hard_kill_grace_period requires interrupt_on_timeout=True")
         if self.extra_env is not None:
             object.__setattr__(self, "extra_env", deep_freeze(dict(self.extra_env)))

@@ -51,6 +51,36 @@ def test_skip_tag_must_be_non_empty() -> None:
         ExecutionOptions(skip_tag="")
 
 
+# ── LIBIPYNB-Q2b: hard_kill_grace_period validation ─────────────────────────
+
+
+def test_hard_kill_grace_period_of_zero_or_negative_is_rejected() -> None:
+    with pytest.raises(ValueError, match="hard_kill_grace_period"):
+        ExecutionOptions(cell_timeout=5, hard_kill_grace_period=0)
+    with pytest.raises(ValueError, match="hard_kill_grace_period"):
+        ExecutionOptions(cell_timeout=5, hard_kill_grace_period=-1)
+
+
+def test_hard_kill_grace_period_requires_cell_timeout() -> None:
+    with pytest.raises(ValueError, match="cell_timeout"):
+        ExecutionOptions(cell_timeout=None, hard_kill_grace_period=5)
+
+
+def test_hard_kill_grace_period_requires_interrupt_on_timeout() -> None:
+    with pytest.raises(ValueError, match="interrupt_on_timeout"):
+        ExecutionOptions(cell_timeout=5, interrupt_on_timeout=False, hard_kill_grace_period=5)
+
+
+def test_hard_kill_grace_period_none_disables_hard_kill_by_default() -> None:
+    options = ExecutionOptions()
+    assert options.hard_kill_grace_period is None
+
+
+def test_hard_kill_grace_period_accepts_a_valid_configuration() -> None:
+    options = ExecutionOptions(cell_timeout=5, interrupt_on_timeout=True, hard_kill_grace_period=3)
+    assert options.hard_kill_grace_period == 3
+
+
 def test_options_are_frozen() -> None:
     options = ExecutionOptions()
     with pytest.raises(AttributeError):

@@ -421,7 +421,11 @@ result = await LocalJupyterExecutor().execute_async(document, options=options)
   `in_place` (default `False` -- execution returns a fresh document by
   default; the caller's original is never mutated unless this is `True`),
   `acknowledge_unsandboxed`, `extra_env`, `on_event` (a lifecycle callback for
-  progress reporting: `cell_started`/`cell_finished`/etc.)
+  progress reporting: `cell_started`/`cell_finished`/etc.), `hard_kill_grace_period`
+  (opt-in, default `None`; requires `cell_timeout` and `interrupt_on_timeout=True`
+  -- a cell still running this many seconds after the interrupt escalates to a
+  direct kill of the kernel's OS process tree, for a kernel that never responds
+  to the interrupt at all)
 - **`ExecutionResult`** -- `notebook` (the executed document), `cell_records`
   (one `CellExecutionRecord` per cell, including markdown/raw and
   never-executed/skipped cells), `kernel_name` (the kernel that actually
@@ -429,7 +433,8 @@ result = await LocalJupyterExecutor().execute_async(document, options=options)
   `kernel_launch_error`/`kernel_death_error` (both `None` on a normal run --
   populated instead of raising, so a missing kernel or a kernel that dies
   mid-run is a value you check, not an exception you must catch),
-  `completed`/`succeeded`/`first_error` properties
+  `hard_killed` (`True` when `hard_kill_grace_period` fired and force-killed
+  the kernel), `completed`/`succeeded`/`first_error` properties
 - **`CellExecutionRecord`** -- per-cell diagnostic: `outputs` (nbformat-schema
   output dicts -- `stream`/`display_data`/`execute_result`/`error`),
   `execution_count`, `error` (`ExecutionCellError`: `ename`/`evalue`/

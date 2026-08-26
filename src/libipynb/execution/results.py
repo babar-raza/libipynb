@@ -153,6 +153,13 @@ class ExecutionResult:
     #: ``timed_out_cell_index`` fields; see that option's own docstring for
     #: why this never bounds a single already-running cell.
     total_timed_out: bool = False
+    #: LIBIPYNB-Q2b: ``True`` when :attr:`~.options.ExecutionOptions.
+    #: hard_kill_grace_period` elapsed while a cell was still running after
+    #: the watchdog's own fire point, and this executor force-killed the
+    #: kernel's OS process tree directly rather than waiting indefinitely
+    #: for a kernel that never responded to an interrupt. Always ``False``
+    #: when ``hard_kill_grace_period`` is ``None`` (the default).
+    hard_killed: bool = False
 
     @property
     def duration_seconds(self) -> float:

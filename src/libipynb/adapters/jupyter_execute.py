@@ -98,6 +98,17 @@ from .._internal.text import truncate_utf8_text
 from ..errors import NotebookExecutionError
 from ..model.document import NotebookDocument
 
+# LIBIPYNB-Q2b: reuses (does not duplicate) the subprocess adapter's own
+# already-tested process-tree kill logic for the hard-kill escalation
+# below. Safe at module level, unlike an `..execution` import (see the
+# NOTE below): `.execute` is a *sibling* submodule of this one within
+# `adapters`, is pure-stdlib, and itself imports nothing from
+# `jupyter_execute`/`..execution` -- no cycle, and importing it never
+# requires nbclient/jupyter_client to be installed (confirmed by
+# tests/unit/test_execution_core_independence.py, which hides those
+# modules and still expects this file to import cleanly).
+from .execute import _kill_process_tree
+
 if TYPE_CHECKING:
     from ..execution.options import ExecutionOptions
     from ..execution.results import (
@@ -392,6 +403,19 @@ class _Tracker:
     call (see ``_build_client``), so this state can never leak across
     concurrent or sequential runs as long as it stays on the instance.
 
+    LIBIPYNB-Q2b: when ``hard_kill_grace_period`` is set, this is no longer
+    purely observational for a cell that never finishes -- the watchdog's
+    own fire (``_on_watchdog_fire``) chains a SECOND ``threading.Timer``
+    (reusing the same ``self._active_timer``/``self._active_timer_index``
+    slot, so the existing cancellation paths below already cancel it too),
+    and if that second timer also fires, ``_on_hard_kill_fire`` force-kills
+    the kernel's OS process tree directly. Live-reproduced (LIBIPYNB-Q2b
+    evidence): with only the observational watchdog, a kernel that ignores
+    SIGINT hangs the whole run indefinitely; the interrupt nbclient already
+    sent at the watchdog's own fire point never gets anywhere for a
+    genuinely uninterruptible kernel, so escalating past it is the only way
+    to ever unblock the caller.
+
     The watchdog timer is started from ``on_cell_execute`` (fired only for
     a cell about to actually be sent to the kernel), not ``on_cell_start``
     (fired unconditionally for every cell, including markdown/raw cells,
@@ -409,6 +433,7 @@ class _Tracker:
         cell_timeout: float | None = None,
         interrupt_on_timeout: bool = True,
         total_timeout: float | None = None,
+        hard_kill_grace_period: float | None = None,
     ) -> None:
         self.reached: list[int] = []
         self.finished: set[int] = set()
@@ -425,6 +450,22 @@ class _Tracker:
         self._active_timer: threading.Timer | None = None
         self._active_timer_index: int | None = None
         self.watchdog_timed_out: set[int] = set()
+
+        # LIBIPYNB-Q2b
+        self._hard_kill_grace_period = hard_kill_grace_period
+        self._client: Any = None
+        self.hard_killed = False
+
+    def set_client(self, client: Any) -> None:
+        """Called from ``_build_client`` right after the ``NotebookClient``
+        is constructed. Cannot be a constructor argument: this ``_Tracker``
+        must exist before ``NotebookClient`` does, since its hooks
+        (``on_cell_execute`` etc.) are passed into that very constructor
+        call. By the time any timer built from this instance could
+        possibly fire, a cell is already executing, which means the kernel
+        has already started and ``client.km``/``.provisioner`` are already
+        populated -- so no readiness check is needed here or at fire time."""
+        self._client = client
 
     def _emit(self, kind: str, cell: dict[str, Any], cell_index: int) -> None:
         if self._on_event is not None:
@@ -465,11 +506,63 @@ class _Tracker:
 
     def _on_watchdog_fire(self, cell_index: int) -> None:
         # Runs on the Timer's own OS thread -- never touches the kernel,
-        # only this instance's own lock-guarded state.
+        # only this instance's own lock-guarded state (LIBIPYNB-Q2b: unless
+        # hard_kill_grace_period is set, in which case it arms a second
+        # timer below that -- if IT also fires -- will touch the kernel).
+        hard_kill_timer: threading.Timer | None = None
         with self._lock:
             if cell_index in self.finished:
                 return  # stale fire: this cell genuinely completed in time
             self.watchdog_timed_out.add(cell_index)
+            if self._hard_kill_grace_period is not None:
+                # Reuses the same active-timer slot the first-stage
+                # watchdog just occupied (it already fired, so it's inert)
+                # -- on_cell_executed's existing _cancel_timer_for and
+                # every exit path's cancel_pending_timer() therefore
+                # already correctly cancel THIS timer too, with no changes
+                # needed to either.
+                hard_kill_timer = threading.Timer(
+                    self._hard_kill_grace_period, self._on_hard_kill_fire, args=(cell_index,)
+                )
+                hard_kill_timer.daemon = True
+                self._active_timer = hard_kill_timer
+                self._active_timer_index = cell_index
+        if hard_kill_timer is not None:
+            hard_kill_timer.start()
+
+    def _on_hard_kill_fire(self, cell_index: int) -> None:
+        # LIBIPYNB-Q2b: runs on this second Timer's own OS thread, chained
+        # from _on_watchdog_fire above. By construction this only ever
+        # fires when hard_kill_grace_period was set, which
+        # ExecutionOptions.__post_init__ already requires cell_timeout and
+        # interrupt_on_timeout=True for -- an interrupt has therefore
+        # already been sent for this cell, and it STILL hasn't finished:
+        # treated as genuinely uninterruptible, not a slow-but-live kernel.
+        with self._lock:
+            if cell_index in self.finished:
+                return  # stale fire: the cell genuinely finished during the grace period
+            self.hard_killed = True
+        # Deliberately outside the lock: killing a process tree can be slow
+        # (subprocess.run(["taskkill", ...]) on Windows) and must never
+        # block on_cell_executed/cancel_pending_timer, which also take
+        # self._lock, from making progress on the client's own thread.
+        #
+        # Gate-G2 review finding: cancel_pending_timer()'s Timer.cancel()
+        # cannot rendezvous with a fire already past the `finished` check
+        # above -- an execute_async cancellation racing in at almost the
+        # same instant can tear down `self._client.km`/`.provisioner.
+        # process` (both genuinely set to None by nbclient's own
+        # _async_cleanup_kernel / jupyter_client's LocalProvisioner.wait()
+        # as part of ordinary teardown) between that check and the
+        # attribute chase below. getattr-chained rather than a direct
+        # `self._client.km.provisioner.process` so a real, if narrow, race
+        # degrades to "nothing to kill" instead of an unguarded
+        # AttributeError on this Timer's own daemon thread.
+        km = getattr(self._client, "km", None)
+        provisioner = getattr(km, "provisioner", None)
+        process = getattr(provisioner, "process", None)
+        if process is not None:
+            _kill_process_tree(process)
 
     def cancel_pending_timer(self) -> None:
         """LIBIPYNB-Q2: cancels any still-pending watchdog timer. Must be
@@ -549,6 +642,7 @@ def _build_client(
         cell_timeout=options.cell_timeout,
         interrupt_on_timeout=options.interrupt_on_timeout,
         total_timeout=options.total_timeout,
+        hard_kill_grace_period=options.hard_kill_grace_period,
     )
     resources: dict[str, Any] = {}
     if options.working_directory is not None:
@@ -583,6 +677,11 @@ def _build_client(
     # jupyter_client's start_kernel(); stash for the call site instead of a
     # NotebookClient trait (there isn't one for extra Popen env).
     client._libipynb_extra_start_kwargs = kwargs
+    # LIBIPYNB-Q2b: must happen before this function returns -- the hard-
+    # kill escalation (if armed) needs a way to reach the kernel process,
+    # and this is the only point in the whole call chain that constructs
+    # `client` at all.
+    tracker.set_client(client)
     return client, nb_node, tracker
 
 
@@ -917,6 +1016,7 @@ def _finish(
         kernel_launch_error=kernel_launch_error,
         kernel_death_error=kernel_death_error,
         total_timed_out=total_timed_out,
+        hard_killed=tracker.hard_killed,
     )
 
 

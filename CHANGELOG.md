@@ -115,6 +115,19 @@ afterward is recorded here instead.)
   and `attachment_size_summary` (byte-size breakdowns a count-only
   histogram can't reveal). All wired into the CLI's `analytics`
   subcommand (new `--top-n` flag) and `libipynb.analytics`'s exports.
+- **Wedged-kernel hard-kill escalation** (LIBIPYNB-Q2b) -- new opt-in
+  `ExecutionOptions.hard_kill_grace_period: float | None = None`. The
+  kernel engine's existing per-cell watchdog was purely observational: a
+  cell that never responds to the interrupt `cell_timeout`/
+  `interrupt_on_timeout=True` already send it could hang the whole run
+  indefinitely (live-reproduced: nbclient's own interrupt-timeout retry
+  loop just re-sends the interrupt and waits a full fresh `cell_timeout`
+  again, forever, for a kernel that ignores `SIGINT`). When set (requires
+  `cell_timeout` and `interrupt_on_timeout=True`), a cell still running
+  this many seconds after the watchdog's own fire point is treated as
+  genuinely uninterruptible and its kernel's OS process tree is
+  force-killed directly, surfaced via new `ExecutionResult.hard_killed:
+  bool`. `None` by default -- zero behavior change for existing callers.
 
 ### Fixed
 

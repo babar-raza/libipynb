@@ -378,6 +378,16 @@ def main(argv: list[str] | None = None) -> int:
         "the kernel and reporting the timeout as that cell's own error.",
     )
     execute_cmd.add_argument(
+        "--hard-kill-grace-period",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Opt-in escalation for a cell that never responds to the interrupt: if it is "
+        "still running this many seconds after the per-cell watchdog's own fire point, "
+        "force-kill the kernel's OS process tree directly. Requires --cell-timeout (not "
+        "disabled) and --no-interrupt-on-timeout to NOT be set. Default: disabled.",
+    )
+    execute_cmd.add_argument(
         "--working-directory",
         metavar="PATH",
         default=None,
@@ -490,6 +500,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="A per-cell timeout aborts the whole run immediately instead of interrupting "
         "the kernel and reporting the timeout as that cell's own error.",
+    )
+    run_cmd.add_argument(
+        "--hard-kill-grace-period",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Opt-in escalation for a cell that never responds to the interrupt: if it is "
+        "still running this many seconds after the per-cell watchdog's own fire point, "
+        "force-kill the kernel's OS process tree directly. Requires --cell-timeout (not "
+        "disabled) and --no-interrupt-on-timeout to NOT be set. Default: disabled.",
     )
     run_cmd.add_argument(
         "--working-directory",
@@ -1259,6 +1279,7 @@ def _cmd_execute(args: argparse.Namespace) -> int:
         interrupt_on_timeout=not args.no_interrupt_on_timeout,
         record_timing=args.record_timing,
         max_output_bytes=args.max_output_bytes,
+        hard_kill_grace_period=args.hard_kill_grace_period,
         acknowledge_unsandboxed=args.acknowledge_unsandboxed,
     )
 
@@ -1294,6 +1315,7 @@ def _cmd_execute(args: argparse.Namespace) -> int:
         "stopped_early": result.stopped_early,
         "timed_out": result.timed_out,
         "timed_out_cell_index": result.timed_out_cell_index,
+        "hard_killed": result.hard_killed,
         "kernel_launch_error": result.kernel_launch_error,
         "kernel_death_error": result.kernel_death_error,
         "output_truncated": bool(cells_with_truncated_output),
@@ -1436,6 +1458,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         interrupt_on_timeout=not args.no_interrupt_on_timeout,
         record_timing=args.record_timing,
         max_output_bytes=args.max_output_bytes,
+        hard_kill_grace_period=args.hard_kill_grace_period,
         acknowledge_unsandboxed=args.acknowledge_unsandboxed,
     )
     try:
@@ -1461,6 +1484,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             "stopped_early": result.stopped_early,
             "timed_out": result.timed_out,
             "timed_out_cell_index": result.timed_out_cell_index,
+            "hard_killed": result.hard_killed,
             "kernel_launch_error": result.kernel_launch_error,
             "kernel_death_error": result.kernel_death_error,
             "first_error": (
