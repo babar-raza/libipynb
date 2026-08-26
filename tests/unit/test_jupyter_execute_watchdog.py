@@ -231,7 +231,9 @@ def test_hard_kill_fire_does_not_raise_if_the_provisioner_process_was_torn_down(
     """Same race, one layer deeper: jupyter_client's LocalProvisioner.wait()
     sets provisioner.process = None during ordinary teardown."""
     tracker = _tracker(hard_kill_grace_period=5.0)
-    tracker.set_client(SimpleNamespace(km=SimpleNamespace(provisioner=SimpleNamespace(process=None))))
+    tracker.set_client(
+        SimpleNamespace(km=SimpleNamespace(provisioner=SimpleNamespace(process=None)))
+    )
 
     tracker._on_hard_kill_fire(0)  # must not raise
 
