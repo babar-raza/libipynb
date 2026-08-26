@@ -249,11 +249,23 @@ def _append_vendored_row(markdown: str, row_cells: list[str]) -> str:
     new_row_line = "| " + " | ".join(row_cells) + " |\n"
     insert_at = separator_idx + 1
     # The empty table's italic placeholder line (`*(Empty until ...)*`)
-    # immediately follows the separator when no rows exist yet -- drop it
-    # once a real row is being added, rather than leaving a stale "empty"
-    # claim directly under non-empty data.
-    if insert_at < len(lines) and lines[insert_at].strip().startswith("*(Empty"):
-        del lines[insert_at]
+    # follows the separator when no rows exist yet -- either immediately,
+    # or (the real PROVENANCE.md's actual shape, for markdown readability)
+    # after one or more blank lines. Gate-G2 review finding: the original
+    # version here only ever checked `lines[insert_at]` itself, so against
+    # the real file's blank-line-then-placeholder shape it never matched,
+    # leaving a stale "Empty until..." claim sitting directly underneath
+    # genuinely non-empty rows after a real --commit. Scan forward past any
+    # blank lines to find the placeholder (or a real existing row, in which
+    # case nothing is deleted), and drop both the placeholder and whatever
+    # blank lines preceded it once a real row is being added -- new rows
+    # sit packed directly under the header, matching every other non-empty
+    # table in this file, rather than leaving an orphaned blank gap.
+    scan = insert_at
+    while scan < len(lines) and lines[scan].strip() == "":
+        scan += 1
+    if scan < len(lines) and lines[scan].strip().startswith("*(Empty"):
+        del lines[insert_at : scan + 1]
     updated = lines[:insert_at] + [new_row_line] + lines[insert_at:]
     return "".join(updated)
 

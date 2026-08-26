@@ -45,11 +45,27 @@ VALID_HASHES = {
 # tests/fixtures/PROVENANCE.md's "Vendored real-world fixtures" table,
 # which fetch_fixture.py itself keeps in sync with this dict's own hashes
 # -- so this can never silently drift from what was actually vendored).
-# Deliberately empty until the maintainer approves and vendors the first
-# real-world fixture; see PROVENANCE.md's "Repeatable sourcing process".
+# LIBIPYNB-Q13c: maintainer Babar Raza approved 4 candidates 2026-08-26 (see
+# PROVENANCE.md's shortlist table); vendored via scripts/fetch_fixture.py
+# --commit, hashes below copied verbatim from that command's own output.
 # Hashed the same normalized way as VALID_HASHES above -- see this file's
 # own module docstring for the policy.
-REAL_WORLD_HASHES: dict[str, dict[str, str]] = {}
+REAL_WORLD_HASHES: dict[str, dict[str, str]] = {
+    "valid": {
+        "real-world-widget-events.ipynb": (
+            "fbfe29d036761c39d465c3fe8f0b108a97e4d2023b2a6b3c488d5734a056f083"
+        ),
+        "real-world-custom-display-logic.ipynb": (
+            "8805cc5e1f39e9ce6e5a64619245ce72c9893d1b0147b369ef322fdb85790df5"
+        ),
+        "real-world-bird-distributions.ipynb": (
+            "8119204897081353cc4e1e54bbe2f57bd27aad2520260c4808ec0c02306cbc40"
+        ),
+        "real-world-data-preparation.ipynb": (
+            "88a56e26a506fd37b7f38083debd5568b1cb3eef3e7c75ede7d95fd5b87d7323"
+        ),
+    }
+}
 
 
 def _sha256(path: Path) -> str:

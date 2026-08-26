@@ -46,6 +46,7 @@ PROVENANCE_TEMPLATE = """# Test Fixture Provenance
 
 | Filename | Category | Source URL (pinned) | License | Retrieval date | SHA-256 | Size (bytes) | Structural pattern |
 |---|---|---|---|---|---|---|---|
+
 *(Empty until the maintainer approves a shortlist candidate and `scripts/fetch_fixture.py --commit` vendors it.)*
 """
 
